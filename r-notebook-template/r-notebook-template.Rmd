@@ -68,7 +68,7 @@ theme_set(theme_apa())
 
 # Load data
 
-```{r raw_data, include = FALSE, cache.extra = file.info("diamonds.csv")}
+```{r raw_data, results = 'hide', cache.extra = file.info("diamonds.csv")}
 rawdata <- readr::read_csv("diamonds.csv")   # source("../passwords.R") # never post your passwords to Github again!
 ```
 
