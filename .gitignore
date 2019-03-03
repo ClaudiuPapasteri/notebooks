@@ -1,4 +1,37 @@
+# R data files #
+################
+# Note that *.Rda files are used in R packages
+
+*.[rR][dD][aA][tT][aA]
+*.[rR][dD][sS]
+
+# RStudio files #
+################
+
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+*.Rapp.history
+
+# Temporary system files #
+################
+.DS_Store
+~$*.xls*
+*.tmp
+
+# Common text files that may contain data #
+###########################################
+
+*.[cC][sS][vV]
+*.[tT][xX][tT]
+
+# Excel files (including macros and templates) #
+################################################
+
+*.[xX][lL][sS][xXmMtT]?
+
+# SPSS formats #
+################
+
+*.[sS][aA][vV]
