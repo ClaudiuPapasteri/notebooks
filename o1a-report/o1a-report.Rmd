@@ -1,0 +1,354 @@
+---
+title: "<br> O1A Report" 
+subtitle: "Power Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    pdf_document: 
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr"          # ggplot2 to publication quality
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+# if needed
+# wd = "./o1a-report"
+# setwd(wd)
+```
+
+
+<!-- Report -->
+
+
+# Load data
+
+```{r raw_data, results = 'hide', cache.extra = file.info("diamonds.csv")}
+# Read
+file = "DATE O1A.xlsx"
+
+Date <- readxl::read_xlsx(file, sheet = "date", skip = 5, col_names = FALSE)
+```
+
+## Processing data
+
+```{r processed_data, cache = TRUE, dependson = "raw_data"}
+# Clean
+varnames <- c("Nr_crt", "ID", "Nume_Prenume", "Zi", "Vas_stres_pre", "Vas_bine_pre",
+             sprintf("Stais_pre_%01d", seq(1,20)),
+             "SOP",
+             "IOS_mama", "IOS_tata", "IOS_iubit", "IOS_prieten", "IOS_personalitate",
+             "Vas_rel_global", "Vas_rel_arousal",
+             "CRQ_1", "CRQ_2", "CRQ_3", "CRQ_4", "CRQ_5", "CRQ_6",
+             "Vas_stres_post", "Vas_bine_post",
+             sprintf("Stais_post_%01d", seq(1,20))
+)
+names(Date) <- varnames   # nume noi
+Date <- Date[-c(1:2),]    # scoatem randurile cu numele precedente
+Date$Nr_crt <- 1:nrow(Date)   # era gol, asa ca numerotam randurile ca sa avem acesta variabila 
+
+# Process NAs
+Date <- Date %>% 
+    mutate(NA_per_row = rowSums(is.na(.)))     # count NAs by row
+
+Date <- Date %>% 
+    filter(NA_per_row < 20)         # arbitrary cutoff for NAs on columns ... it is normal to have 4 NAs for all columns
+```
+
+## Compute new variables
+
+```{r derived_data, cache = TRUE, dependson = "processed_data"}
+# Compute new variables 
+Conditie <- Date %>% 
+    select(Nr_crt, ID, IOS_mama, IOS_tata, IOS_iubit, IOS_prieten, IOS_personalitate) %>% 
+    gather(type, value, -c(Nr_crt, ID)) %>% 
+    mutate(Conditie = ifelse(!is.na(value), type, NA) ) %>%
+    mutate(Conditie = str_replace(Conditie, "IOS_", "")) %>%
+    arrange(Nr_crt) %>%
+    select(Conditie) %>% na.omit() 
+Date$Conditie <- Conditie$Conditie     # tidyverse returns tibble, must do this
+IOS <- Date %>% 
+  mutate(IOS = coalesce(IOS_mama, IOS_tata, IOS_iubit, IOS_prieten, IOS_personalitate)) %>%
+  select(IOS)
+Date$IOS <- IOS$IOS   # tidyverse returns tibble, must do this
+rm(Conditie, IOS)    # remove 2 tibbles
+
+# Scoring Stai   (convert numeric - VAS)
+itemiVAS <- c(5, 6, 41, 42)
+
+itemiStaiS_pre <- 7:26
+itemiStaiS_post <- 43:62
+ReversedItems <- c(1,2,5,8,10,11,15,16,19,20)
+
+Date <- Date %>%                 
+  replace(Date == "na", NA) %>%        # scimbam codarea cu na a Doinei
+  mutate_at(vars(itemiStaiS_pre), funs(as.numeric)) %>%        # facem coloanele numerice pt STAI
+  mutate_at(vars(itemiStaiS_post), funs(as.numeric)) %>% 
+  mutate_at(vars(itemiVAS), funs(as.numeric))
+
+Date[ ,itemiStaiS_pre[ReversedItems]] = 5 - Date[ ,itemiStaiS_pre[ReversedItems]]
+Date[ ,itemiStaiS_post[ReversedItems]] = 5 - Date[ ,itemiStaiS_post[ReversedItems]]
+
+Date$StaiS_pre = rowSums(Date[ ,itemiStaiS_pre], na.rm=T ) * NA ^ (rowSums(!is.na(Date[ ,itemiStaiS_pre])) == 0)
+Date$StaiS_post = rowSums(Date[ ,itemiStaiS_post], na.rm=T ) * NA ^ (rowSums(!is.na(Date[ ,itemiStaiS_post])) == 0)
+```
+
+<br>
+
+# STAI-Y
+
+## Plots with p values
+```{r stai_plot, fig.width = 10, fig.asp = 0.8}
+## STAI plot 
+Staimelt <- Date[, c("ID", "Conditie", "StaiS_pre","StaiS_post")] %>% 
+  gather("StaiS_pre", "StaiS_post", key = "Stai_cond", value = "value") %>% 
+  mutate_at(vars(c(1, 2,3)), funs(as.factor)) %>% 
+  mutate(Stai_cond = factor(Stai_cond, levels = c("StaiS_pre","StaiS_post"))) # %>%    # change factor order for plot pre, post
+
+ggplot(Staimelt, aes(x = Stai_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("StaiS_pre","StaiS_post")))
+```
+
+## t tests
+```{r stai_ttest}
+## STAI tables
+Date %>% 
+  group_by(Conditie) %>% 
+  do(broom::tidy(t.test(.$StaiS_pre, 
+                        .$StaiS_post, 
+                        mu = 0, 
+                        alt = "two.sided", 
+                        paired = TRUE, 
+                        conf.level = 0.95))) %>%
+  knitr::kable(digits = 2)
+```
+
+## Smaple size (n) for Power = .8, Sig level = .05, computed delta
+```{r stai_table} 
+stai_table <- 
+Date %>% 
+  group_by(Conditie) %>% 
+  dplyr::summarize(mean_pre = mean(StaiS_pre, na.rm=TRUE),
+                   mean_post = mean(StaiS_post, na.rm=TRUE),
+                   mean_diff = mean(StaiS_pre, na.rm=TRUE) - mean(StaiS_post, na.rm=TRUE),   # m_pre - m_post
+                   sd_pooled = sd(c(StaiS_pre, StaiS_post), na.rm=TRUE),                     # pooled sd
+                   n_pre = sum(!is.na(StaiS_pre)),                                           # n 
+                   n_post = sum(!is.na(StaiS_post)))                                         # n 
+
+stai_power <- 
+stai_table  %>% 
+  rowwise()  %>%
+  do(broom::tidy(power.t.test(power = .8, 
+                              delta =  .$mean_diff,
+                              sd =   .$sd_pooled,
+                              sig.level = .05,
+                              type = "paired",
+                              alternative = "two.sided")))                                # determine sample size requirement
+  
+knitr::kable(cbind(stai_table, stai_power),
+    digits = 2)
+```
+
+
+<br>
+
+# VAS Stres
+
+## Plots with p values
+```{r vasS_plot, fig.width = 10, fig.asp = 0.8}
+## Vas Stres plot 
+Vasstresmelt <- Date[, c("ID", "Conditie", "Vas_stres_pre","Vas_stres_post")] %>% 
+  gather("Vas_stres_pre","Vas_stres_post", key = "Vas_stres_cond", value = "value") %>% 
+  mutate_at(vars(c(1,2,3)), funs(as.factor)) %>% 
+  mutate_at(vars(c(4)), funs(as.numeric)) %>% 
+  mutate(Vas_stres_cond = factor(Vas_stres_cond, levels = c("Vas_stres_pre","Vas_stres_post"))) # change factor order for plot pre, post
+
+ggplot(Vasstresmelt, aes(x = Vas_stres_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_stres_pre","Vas_stres_post")))
+```
+
+## t tests
+```{r vasS_ttest}
+## Vas Stres tables
+Date %>% 
+  group_by(Conditie) %>% 
+  do(broom::tidy(t.test(.$Vas_stres_pre, 
+                        .$Vas_stres_post, 
+                        mu = 0, 
+                        alt = "two.sided", 
+                        paired = TRUE, 
+                        conf.level = 0.95))) %>%
+  knitr::kable(digits = 2)
+```
+
+## Smaple size (n) for Power = .8, Sig level = .05, computed delta
+```{r vasS_table} 
+VasS_table <- 
+Date %>% 
+  group_by(Conditie) %>% 
+  dplyr::summarize(mean_pre = mean(Vas_stres_pre, na.rm=TRUE),
+                   mean_post = mean(Vas_stres_post, na.rm=TRUE),
+                   mean_diff = mean(Vas_stres_pre, na.rm=TRUE) - mean(Vas_stres_post, na.rm=TRUE),   # m_pre - m_post
+                   sd_pooled = sd(c(Vas_stres_pre, Vas_stres_post), na.rm=TRUE),                     # pooled sd
+                   n_pre = sum(!is.na(Vas_stres_pre)),                                           # n 
+                   n_post = sum(!is.na(Vas_stres_post)))                                        # n 
+
+
+
+VasS_power <- 
+VasS_table  %>%  
+  rowwise()  %>%                   
+  do(broom::tidy(power.t.test(power = .8, 
+                              delta =  .$mean_diff,
+                              sd =   .$sd_pooled,
+                              sig.level = .05,
+                              type = "paired",
+                              alternative = "two.sided")))                              # determine sample size requirement
+
+knitr::kable(cbind(VasS_table, VasS_power),
+    digits = 2)
+```
+
+
+<br>
+
+# VAS Wellbeing
+
+## Plots with p values
+```{r vasB_plot, fig.width = 10, fig.asp = 0.8}
+## Vas Stres plot 
+Vasbinemelt <- Date[, c("ID", "Conditie", "Vas_bine_pre","Vas_bine_post")] %>% 
+  gather("Vas_bine_pre","Vas_bine_post", key = "Vas_stres_cond", value = "value") %>% 
+  mutate_at(vars(c(1,2,3)), funs(as.factor)) %>% 
+  mutate_at(vars(c(4)), funs(as.numeric)) %>% 
+  mutate(Vas_stres_cond = factor(Vas_stres_cond, levels = c("Vas_bine_pre","Vas_bine_post"))) # change factor order for plot pre, post
+
+ggplot(Vasbinemelt, aes(x = Vas_stres_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_bine_pre","Vas_bine_post")))
+```
+
+## t tests
+```{r vasB_ttest}
+## Vas Stres tables
+Date %>% 
+  group_by(Conditie) %>% 
+  do(broom::tidy(t.test(.$Vas_bine_pre, 
+                        .$Vas_bine_post, 
+                        mu = 0, 
+                        alt = "two.sided", 
+                        paired = TRUE, 
+                        conf.level = 0.95))) %>%
+  knitr::kable(digits = 2)
+```
+
+## Smaple size (n) for Power = .8, Sig level = .05, computed delta
+```{r vasB_table} 
+VasB_table <- 
+Date %>% 
+  group_by(Conditie) %>% 
+  dplyr::summarize(mean_pre = mean(Vas_bine_pre, na.rm=TRUE),
+                   mean_post = mean(Vas_bine_post, na.rm=TRUE),
+                   mean_diff = mean(Vas_bine_pre, na.rm=TRUE) - mean(Vas_bine_post, na.rm=TRUE),   # m_pre - m_post
+                   sd_pooled = sd(c(Vas_bine_pre, Vas_bine_post), na.rm=TRUE),                     # pooled sd
+                   n_pre = sum(!is.na(Vas_bine_pre)),                                           # n 
+                   n_post = sum(!is.na(Vas_bine_post)))                                     # n 
+
+VasB_power <-
+VasB_table  %>%  
+  rowwise()  %>%                   
+  do(broom::tidy(power.t.test(power = .8, 
+                              delta =  .$mean_diff,
+                              sd =   .$sd_pooled,
+                              sig.level = .05,
+                              type = "paired",
+                              alternative = "two.sided")))                               # determine sample size requirement
+
+knitr::kable(cbind(VasB_table, VasB_power),
+    digits = 2)
+```
+
+
+
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
