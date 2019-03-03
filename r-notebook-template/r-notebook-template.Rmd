@@ -1,0 +1,114 @@
+---
+title: "<br> R Notebook Template" 
+subtitle: "RMardown Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+    pdf_document: 
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja"          # for APA style
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+<!-- Report -->
+
+
+# Load data
+
+```{r raw_data, include = FALSE, cache.extra = file.info("diamonds.csv")}
+rawdata <- readr::read_csv("diamonds.csv")   # source("../passwords.R") # never post your passwords to Github again!
+```
+
+# Processing data
+
+```{r processed_data, cache = TRUE, dependson = "raw_data"}
+processed_data <- rawdata %>% 
+  filter(carat <= 2.5)
+```
+
+## Table of processed data
+
+```{r print_processed_data}
+knitr::kable(
+  processed_data[1:3, ], 
+  caption = "A knitr kable."
+)
+```
+
+## Plot of processed data
+
+```{r plot_processed_data}
+processed_data %>%
+  ggplot(aes(carat)) + 
+    geom_freqpoly(binwidth = 0.01)
+```
+
+
+<!-- Session Info and License -->
+
+<br>
+
+## Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
