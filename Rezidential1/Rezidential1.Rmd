@@ -1,0 +1,825 @@
+---
+title: "<br> Rezidential" 
+subtitle: "Preliminary Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    pdf_document: 
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  cache = TRUE, 
+  warning = FALSE, message = FALSE   # WHEN NOTEBOOK IS FINISHED ... until then leave: warning = TRUE, message = TRUE        
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "knitr", "kableExtra",  # for formatting notebook 
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",          # ggplot2 to publication quality
+  "rio",
+  "Hmisc", "psycho", 
+  "GGally", "corrplot", "RColorBrewer", 
+  "scales",          # for pretty_breaks
+  "car", "summarytools", "tadaatoolbox", "PerformanceAnalytics",
+  "plyr",            # for ddply
+  "geosphere"        # for centroid
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+# if needed
+# wd = "./Rezidential"
+# setwd(wd)
+```
+
+
+<!-- REPORT -->
+
+
+# Load data
+
+```{r raw_data, results = 'hide', cache.extra = file.info("diamonds.csv")}
+# Read
+filename <- "baza de date rezidential.xlsx"   
+
+Data <- rio::import(filename)  
+Data <- Data[, -c(197:202)]    # delete last 6 columns (empty excel columns for excel functions)
+```
+
+
+## Processing data
+
+```{r processed_data, cache = TRUE, dependson = "raw_data"}
+# Clean
+Data$judet <- as.factor(Data$judet)
+Data$gen <- as.factor(Data$gen)  
+Data$tip_chestionar <- as.factor(Data$tip_chestionar) # unique(Data$tip_chestionar) # "9-18ani", "5-8ani", "5-8intarziere"
+Data$v_mama_nastere <- as.factor(Data$v_mama_nastere)
+levels(Data$v_mama_nastere) <- c("<19", "20-25", "26–34", "35>")
+```
+
+<!-- Inspect Data - switched off -->
+```{r inspectdata, echo=FALSE, results="hide"}
+# print(summarytools::dfSummary(Data, style = 'grid', plain.ascii = FALSE, graph.magnif = 0.85),    # suppress output
+#       method = 'render', headings = FALSE)
+# str(Data, list.len=ncol(Data))  # data types are fine
+```
+
+
+## Data Validation
+
+```{r data_validation, dependson = "processed_data"}
+data_validation <- function(x, log_level = futile.logger::WARN,
+                             log_appender = "console",
+                             log_issues = FALSE) {
+  
+  Rezidential_col_names <- c("ID", "judet", "oras", "centru", "tip_chestionar", "nume", "data", "varsta", "varsta_inst", "nr_frati", "nr_frati_inst", "v_mama_nastere", "expunere_tox", "boli", "TCC", "asfixie", "abuz_sub", "grad_h", "intarziere", "tras_dez", "tulb_cond", "neglijare", "temperam", "repetenta", "scoala_spec", "inabil_sc", "schimb_dom", "pierd_loc", "comunit", "gen", "cu_cine_loc", "familie", "cyrm_1", "cyrm_2", "cyrm_3", "cyrm_4", "cyrm_5", "cyrm_6", "cyrm_7", "cyrm_8", "cyrm_9", "cyrm_10", "cyrm_11", "cyrm_12", "cyrm_13", "cyrm_14", "cyrm_15", "cyrm_16", "cyrm_17", "cyrm_18", "cyrm_19", "cyrm_20", "cyrm_21", "cyrm_22", "cyrm_23", "cyrm_24", "cyrm_25", "cyrm_26", "cyrm_27", "cyrm_28", "cesd_1", "cesd_2", "cesd_3", "cesd_4", "cesd_5", "cesd_6", "cesd_7", "cesd_8", "cesd_9", "cesd_10", "cesd_11", "cesd_12", "cesd_13", "cesd_14", "cesd_15", "cesd_16", "cesd_17", "cesd_18", "cesd_19", "cesd_20", "gci_1", "gci_2", "gci_3", "gci_4", "gci_5", "gci_6", "gci_7", "gci_8", "gci_9", "gci_10", "gci_11", "gci_12", "gci_13", "gci_14", "sdq_1", "sdq_2", "sdq_3", "sdq_4", "sdq_5", "sdq_6", "sdq_7", "sdq_8", "sdq_9", "sdq_10", "sdq_11", "sdq_12", "sdq_13", "sdq_14", "sdq_15", "sdq_16", "sdq_17", "sdq_18", "sdq_19", "sdq_20", "sdq_21", "sdq_22", "sdq_23", "sdq_24", "sdq_25", "scar_1", "scar_2", "scar_3", "scar_4", "scar_5", "scar_6", "scar_7", "scar_8", "scar_9", "scar_10", "scar_11", "scar_12", "scar_13", "scar_14", "scar_15", "scar_16", "scar_17", "scar_18", "scar_19", "scar_20", "scar_21", "scar_22", "scar_23", "scar_24", "scar_25", "scar_26", "scar_27", "scar_28", "scar_29", "scar_30", "scar_31", "scar_32", "scar_33", "scar_34", "scar_35", "scar_36", "scar_37", "scar_38", "scar_39", "scar_40", "scar_41", "asc_1", "asc_2", "asc_3", "asc_4", "asc_5", "asc_6", "asc_7", "asc_8", "asc_9", "asc_10", "asc_11", "asc_12", "asc_13", "asc_14", "asc_15", "cyw_nr1", "cyw_nr2", "sec1_1", "sec1_2", "sec1_3", "sec1_4", "sec1_5", "sec1_6", "sec1_7", "sec1_8", "sec1_9", "sec1_10", 
+"sec2_1", "sec2_2", "sec2_3", "sec2_4", "sec2_5", "sec2_6", "sec2_7", "sec2_8", "sec2_9")
+  
+  # Set logger severity threshold, defaults to
+  # high level use (only flags warnings and errors)
+  # Set log_level argument to futile.logger::TRACE for full info
+  futile.logger::flog.threshold(log_level)
+  
+  # Set where to write the log to
+  if (log_appender != "console")
+  {
+    # if not console then to a file called...
+    futile.logger::flog.appender(futile.logger::appender.file(log_appender))
+  }
+  
+  # Checks
+  futile.logger::flog.info('Initiating Rezidential class.
+                           \n\nExpects a data.frame with all Rezidential columns')
+  
+  # Integrity checks on incoming data ----
+  
+  # Check the structure of the data is as expected: data.frame containing no
+  # missing values and three columns, containing sector, year, and one
+  # additional column.
+  
+  futile.logger::flog.info('\n*** Running integrity checks on input dataframe (x):')
+  futile.logger::flog.debug('\nChecking input is properly formatted...')
+  
+  futile.logger::flog.debug('Checking x is a data.frame...')
+  if (!is.data.frame(x))
+  {
+    futile.logger::flog.error("x must be a data.frame",     # x, capture = TRUE)
+                              capture = FALSE)
+  }
+  
+  futile.logger::flog.debug('Checking x has correct number of columns...')
+  if (length(colnames(x)) != 196)
+  {
+    futile.logger::flog.error("x must have 196 columns")
+  }
+  
+  futile.logger::flog.debug('Checking x contains all Rezidential columns...')
+  if (!all(Rezidential_col_names %in% colnames(Data))) stop("x must contain all Rezidential columns")
+  
+  futile.logger::flog.debug('Checking x has gen column with 2 factor levels: f, m...')
+  if (!is.factor(x$gen) | !all(levels(x$gen) %in% c("f", "m")))
+  {
+    futile.logger::flog.error("x must have gen factor with 2 factor levels")
+  }
+  
+  futile.logger::flog.debug('Checking x has tip_chestionar column with 3 factor levels: 9-18ani, 5-8ani, 5-8intarziere...')
+  if (!is.factor(x$tip_chestionar) | !all(levels(x$tip_chestionar) %in% c("9-18ani", "5-8ani", "5-8intarziere")))
+  {
+    futile.logger::flog.error("x must have gen factor with 3 factor levels")
+  }
+  
+ 
+  futile.logger::flog.info('...passed')
+
+  
+  
+  futile.logger::flog.info("\n***Running statistical checks on input dataframe (x)")
+  
+  
+  
+  futile.logger::flog.debug('Checking that CYRM-26 has only NA in items 27 & 28 for 5-8 year olds ...')
+  if(!all(is.na(x[x$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$cyrm_27)) |
+     !all(is.na(x[x$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$cyrm_28))) 
+  {
+    stop("x has CYRM-26 with non-NA in items 27 & 28 for 5-8 year olds")
+  }
+  
+  ### item 7 for 5-8 is item 8 in 9-18, item 7 & 9 from 9-18 dont exist for 5-8
+  futile.logger::flog.debug('Checking that CYW ACE-Q Sect2 has only NA in items 8 & 9 for 5-8 year olds ...')
+  if(!all(is.na(x[x$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$sec2_8)) |
+     !all(is.na(x[x$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$sec2_9))) 
+  {
+    stop("x has CYW ACE-Q Sect2 with non-NA in items 7 & 9 for 5-8 year olds")
+  }  
+  
+  
+
+}
+
+## Run Data Validation
+# dput(names(Data), file = "dput_colnames.txt")       # Checks all column names
+data_validation(Data, log_level = futile.logger::DEBUG)
+
+```
+
+## Sample Map
+
+```{r map_data}
+## Get map
+# https://gadm.org/download_country.html
+# library(raster) # for getData() download map automatically so we dont have to download it by hand
+# gadmRO <- getData('GADM', country='RO', level=1)
+gadmRO <- readRDS("ROU_adm1.rds")  # load downloaded map 
+
+## Count judet from Rezidential
+count_df <- 
+  Data %>%
+    dplyr::count(judet) %>% 
+    dplyr::rename(NAME_1 = judet, count = n) %>%
+    dplyr::mutate(NAME_1 = as.character(NAME_1)) %>%
+    dplyr::mutate(NAME_1 = stringr::str_replace(NAME_1, "Bucuresti", "Ilfov"))    # replace Bucuresti with Ilfov
+
+    
+## Arange dataset for map
+gadmRO@data$NAME_1 <- iconv(gadmRO@data$NAME_1, from="UTF-8", to="ASCII//TRANSLIT")   # encoding and diacritics problems
+gadmRO@data$NAME_1 <- c("Alba", "Arad", "Arges","Bacau","Bihor","Bistrita-Nasaud", "Botosani", "Brasov", "Braila", "Bucharest", "Buzau","Calarasi", "Caras-Severin",   "Cluj", "Constanta", "Covasna", "Dambovita", "Dolj", "Galati", "Giurgiu", "Gorj", "Harghita",  "Hunedoara", "Iasi", "Ialomita",  "Ilfov", "Maramures", "Mehedinti", "Mures", "Neamt", "Olt", "Prahova","Salaj","Satu Mare", "Sibiu", "Suceava", "Teleorman", "Timis","Tulcea", "Valcea", "Vaslui", "Vrancea")
+
+gadmRO@data$id <- rownames(gadmRO@data)
+gadmRO@data$total_sent <- c(30, 25, 101, 65, 30, 20, 0, 30, 10, 0, 30, 20, 35, 0, 55, 0, 20, 0, 45, 25, 50, 20, 20, 300, 0, 125, 20, 10, 0, 20, 120, 80, 80, 20, 30, 150, 0, 30, 11, 0, 20, 16)
+
+gadmRO@data <- left_join(gadmRO@data, count_df, by = "NAME_1")
+
+gadmRO@data <- 
+   gadmRO@data %>%
+      mutate(category = if_else(is.na(count), NA_integer_, count)) %>%       # dont excplude NA, and use na.value in ggplot
+      mutate(category = cut(category, breaks=c(-Inf, 0, 20, 50, 100, 300), 
+                            labels=c("0", "1-20", "20-50", "50-100", "100-300"))) 
+      
+
+RO_df <- fortify(gadmRO)
+RO_df <- left_join(RO_df, gadmRO@data, by = "id")
+
+judete <- 
+  RO_df %>%
+  plyr::ddply(.(id, HASC_1), summarize, 
+                      centrulong = centroid(cbind(long, lat))[1], 
+                      centrulat = centroid(cbind(long, lat))[2])
+# centroid()[1] is longitudine   --    centroid centroid()[2] is latitudine
+judete <- subset(judete, HASC_1!="RO.BI")   # drop Bucuresti bacause we have IF as county
+
+## Output table - unrelated to map data
+gadmRO@data  %>%
+    dplyr::select(NAME_1, total_sent, count) %>% 
+    dplyr::filter(NAME_1 != "Bucharest") %>%
+    dplyr::mutate(NAME_1 = stringr::str_replace(NAME_1, "Ilfov", "Ilfov / Bucuresti")) %>%
+    dplyr::mutate(count = replace_na(count, 0)) %>% 
+    do(bind_rows(., data.frame(NAME_1 = "Total", total_sent = sum(.$total_sent), count = sum(.$count)))) %>%
+    dplyr::mutate(perc_return = round(count/total_sent*100, 2)) %>%
+    dplyr::mutate(perc_return = replace_na(perc_return, "-")) %>%
+  
+    knitr::kable(caption = "Sample Information",
+                 col.names = c("County", "No. Sent", "No. Returned", "% Returned")) %>% 
+    kableExtra::kable_styling(bootstrap_options = "striped", full_width = FALSE, position = "center") %>%
+    kableExtra::row_spec(row = 42, bold = TRUE)
+
+  
+```
+
+```{r map_plot, fig.width = 10, fig.asp = 0.8}
+## Set ggplot2 theme for map
+theme_opts<-list(theme(panel.grid.minor = element_blank(),
+                       panel.grid.major = element_blank(),
+                       panel.background = element_blank(),
+                       plot.background = element_blank(),
+                       axis.line = element_blank(),
+                       axis.text.x = element_blank(),
+                       axis.text.y = element_blank(),
+                       axis.ticks = element_blank(),
+                       axis.title.x = element_blank(),
+                       axis.title.y = element_blank(),
+                       plot.title = element_blank()))
+
+## Plot continuous count -- disabled here 
+# ggplot() + 
+#   geom_polygon(data = RO_df, aes(long, lat, group = group, fill = count )) +
+#   geom_path(data = RO_df, aes(long, lat, group = group), color = "grey", size = 0.1) +
+#   scale_fill_distiller(name = "Chestionare", palette = "Greens", trans = "reverse", 
+#                        breaks = scales::pretty_breaks(n = 5), na.value = "lightyellow" ) +  
+#   labs(title="Nice Map") +
+#   geom_text(data = judete, 
+#             aes(x = centrulong, y = centrulat, label = gsub("^.*\\.","", HASC_1), 
+#             size = 0.2), show.legend = FALSE) +  # extract AB from RO.AB
+#   theme_opts
+
+## Plot categories of counts
+ggplot() + 
+  geom_polygon(data = RO_df, aes(long, lat, group = group, fill = category )) +
+  geom_path(data = RO_df, aes(long, lat, group = group), color = "grey", size = 0.1) +
+  scale_fill_brewer(name = "Chestionare", type = 'div', palette = 'Greens', direction = 1, na.value = "lightyellow") +
+  labs(title="Nice Map") +
+  geom_text(data = judete, 
+            aes(x = centrulong, y = centrulat, label=gsub("^.*\\.","", HASC_1), 
+            size = 0.2), show.legend = FALSE) +  # extract AB from RO.AB
+  theme_opts
+
+```
+
+
+## Transform & Compute new variables
+
+```{r derived_data, cache = TRUE, dependson = "processed_data"}
+## Check Scale Items Names
+# Data[, 13:29]  # itemi predictori ACE
+# Data[, 33:58]  # CYRM-26 doar pt 5-8 ani
+# Data[, 33:60]  # CYRM-28 doar pt 9-18 ani
+# Data[, 61:80]  # CESDC
+# Data[, 81:94]  # GCI
+# Data[, 95:119]  # SDQ
+# Data[, 120:160]  # Scared
+# Data[, 161:175]  # ASCQ
+# Data[, 178:187]  # CYW ACE-Q Sect1  -- sum should be equal to "cyw_nr1"
+# Data[, 188:196]  # CYW ACE-Q Sect2 -- sum should be equal to "cyw_nr2" -- 7 items for 5-8 (excluds sec2_7 & sec2_9), 9 items for 9-18
+
+## Transform 
+  # CYW ACE-Q Sect2 -- 5-8 years has only NA in 8, 9 and 7 corresponds to item 8 in 9-18 years
+  # item 7 will be "rautate" for all levels
+  # item 8 "politie" only 9-18 years
+Data <- 
+  Data %>% 
+  dplyr::mutate(rautate = if_else(tip_chestionar %in% c("5-8ani", "5-8intarziere"), sec2_7, sec2_8)) %>%
+  dplyr::mutate(politie = if_else(tip_chestionar == "9-18ani", sec2_7, as.numeric(NA)))  %>%                  
+  dplyr::mutate(sec2_7 = rautate) %>%
+  dplyr::mutate(sec2_8 = politie) %>%
+  dplyr::select(-c(rautate, politie))
+
+
+## Define function that calculates RowSums but only for rows with less than 10% NAs; and return NA if all row values are NA 
+SpecialRowSums <- function(df, napercent = .1) {
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+    NA,
+    rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+
+## Compute new variables 
+
+# Scared -- recode 1,2,3 in 0,1,2
+  # Total score + cutoff >= 25
+  # A score of 7 for items 1, 6, 9, 12, 15, 18, 19, 22, 24, 27, 30, 34, 38 may indicate Panic Disorder
+  # A score of 9 for items 5, 7, 14, 21, 23, 28, 33, 35, 37 may indicate Generalized Anxiety Disorder
+  # A score of 5 for items 4, 8, 13, 16, 20, 25, 29, 31 may indicate Separation Anxiety
+  # A score of 8 for items 3, 10, 26, 32, 39, 40, 41 may indicate Social Anxiety Disorder
+  # A score of 3 for items 2, 11, 17, 36 may indicate significant school avoidance
+
+Data[, sprintf("scar_%d", 1:41)] <- Data[, sprintf("scar_%d", 1:41)] - 1     # recode SCARED
+
+Data$PD <- SpecialRowSums(Data[, sprintf("scar_%d", c(1, 6, 9, 12, 15, 18, 19, 22, 24, 27, 30, 34, 38))])
+Data$GAD <- SpecialRowSums(Data[, sprintf("scar_%d", c(5, 7, 14, 21, 23, 28, 33, 35, 37))])
+Data$SepA <- SpecialRowSums(Data[, sprintf("scar_%d", c(4, 8, 13, 16, 20, 25, 29, 31))])
+Data$SAD <- SpecialRowSums(Data[, sprintf("scar_%d", c(3, 10, 26, 32, 39, 40, 41))])
+Data$SchA <- SpecialRowSums(Data[, sprintf("scar_%d", c(2, 11, 17, 36))])
+Data$SCARED <- SpecialRowSums(Data[, sprintf("scar_%d", 1:41)])
+
+Data$PD_d <- ifelse(Data$PD >= 7, 1, 0)
+Data$GAD_d <- ifelse(Data$GAD >= 9, 1, 0)
+Data$SepA_d <- ifelse(Data$SepA >= 5, 1, 0)
+Data$SAD_d <- ifelse(Data$SAD >= 8, 1, 0)
+Data$SchA_d <- ifelse(Data$SchA >= 3, 1, 0)
+Data$SCARED_d <- ifelse(Data$PD >= 25, 1, 0)
+
+# CESD -- already coded in 0,1,2,3 
+# reversed: 4, 8, 12, 16
+# 0-14 = Mild or no depression; 15-60 = significant depression
+Data[, sprintf("cesd_%d", c(4, 8, 12, 16))] <- 3 - Data[, sprintf("cesd_%d", c(4, 8, 12, 16))] # recode CESD
+
+Data$CESD <- SpecialRowSums(Data[, sprintf("cesd_%d", 1:20)])
+Data$CESD_d <- ifelse(Data$CESD >= 15, 1, 0)
+
+
+# ASCQ -- already coded in 1,2,3,4,5
+  # Secure: 1 3 7 10 15 
+  # Anxious: 5 6 9 11 14
+  # Avoidant: 2 4 8 12 13
+  # Data[, c("ASecur", "AAnxio", "AAvoid", "ASCQ_f", "ASCQ_d")]
+
+Data$ASecur <- SpecialRowSums(Data[, sprintf("asc_%d", c(1, 3, 7, 10, 15))], napercent = .3)   # if more than 2 NA items => NA
+Data$AAnxio <- SpecialRowSums(Data[, sprintf("asc_%d", c(5, 6, 9, 11, 14))], napercent = .3)
+Data$AAvoid <- SpecialRowSums(Data[, sprintf("asc_%d", c(2, 4, 8, 12, 13))], napercent = .3)
+
+Data <- 
+      Data %>%
+        dplyr::mutate( 
+            ASCQ_f = dplyr::case_when(
+              ASecur > AAnxio & ASecur > AAvoid ~ "Secur",
+              ASecur == AAnxio & ASecur > AAvoid ~ "Secur&Anxio",
+              AAnxio > ASecur & AAnxio > AAvoid ~ "Anxio",
+              AAvoid > ASecur & AAvoid > AAnxio ~ "Avoid",
+              AAvoid == ASecur & AAvoid > AAnxio ~ "Secur&Avoid",
+              AAvoid > ASecur & AAvoid == AAnxio ~ "Anxio&Avoid",
+              ASecur == AAnxio & ASecur == AAvoid ~ "Secur&Anxio&Avoid",
+              TRUE ~ as.character(NA))) %>%
+        dplyr::mutate(ASCQ_f = as.factor(ASCQ_f))
+Data <-
+      Data %>%                     # insecure = 1, secure = 0
+        dplyr::mutate(
+          ASCQ_d = ifelse(ASCQ_f %in% c("Secur", "Secur&Anxio", "Secur&Avoid", "Secur&Anxio&Avoid"), 0, 1)) 
+
+
+# GCIC -- already coded in 1,2,3,4,5
+  # Open Climate (Positive wording): first 9 items
+  # Closed Climate(Negative wording): last 5 items (10, 11 are reversed positively worder)
+  # Total Score ?= Open + rerversed Closed except 10&11  
+
+Data[, sprintf("gci_%d", c(10, 11))] <- 6 - Data[, sprintf("gci_%d", c(10, 11))]
+
+Data$OpenC <- SpecialRowSums(Data[, sprintf("gci_%d", 1:9)], napercent = .3)   # if more than 3 NA items => NA
+Data$CloseC <- SpecialRowSums(Data[, sprintf("gci_%d", 10:14)], napercent = .3) # if more than 2 NA items => NA
+ 
+
+
+# SDQ
+  # diffrent wording for 5-8 and 9-18 but exactly the same items
+  # we have just the first part of SDQ; no impact scores
+  # recode: 7(obeys), 11 (friend), 14 (popular), 21(reflect), 25(attends)
+    # Total = emotion + conduct + hyper + peer  (all subscales exept prosocial)
+    # For each of the 5 scales the score can range from 0 to 10 if all items were completed.  http://www.sdqinfo.org/c9.html
+    # These scores can be scaled up pro-rata if at least 3 items were completed, 
+    # e.g. a score of 4 based on 3 completed items can be scaled up to a score of 7 (6.67 rounded up) for 5 items.
+  # Data[, c("Emotion", "Conduct", "Hyper", "Peer", "Prosoc", "External", "Internal", "SDQ")]
+
+# Recode -- first 1,2,3 to 0,1,2 ...then reverse score items
+Data[, sprintf("sdq_%d", 1:25)] <- Data[, sprintf("sdq_%d", 1:25)] - 1
+Data[, sprintf("sdq_%d", c(7, 11, 14, 21, 25))] <- 2 - Data[, sprintf("sdq_%d", c(7, 11, 14, 21, 25))]
+
+# Define function that scores SDQ subscales and use it
+ScoringSDQ <- function(df){
+  na_vec <- apply(df, 1, function(x) sum(is.na(x))) 
+  scale_score <- ifelse(na_vec < 3, rowMeans(df, na.rm=TRUE), NA)
+  scale_score <- as.numeric(scale_score) * 5
+  scale_score <- floor(0.5 + scale_score)
+}
+
+Data$Emotion <- ScoringSDQ(Data[, sprintf("sdq_%d", c(3, 8, 13, 16, 24))])
+Data$Conduct <- ScoringSDQ(Data[, sprintf("sdq_%d", c(5, 7, 12, 18, 22))])
+Data$Hyper <- ScoringSDQ(Data[, sprintf("sdq_%d", c(2, 10, 15, 21, 25))])   
+Data$Peer <- ScoringSDQ(Data[, sprintf("sdq_%d", c(6, 11, 14, 19, 23))]) 
+Data$Prosoc <- ScoringSDQ(Data[, sprintf("sdq_%d", c(1, 4, 9, 17, 20))])   
+
+Data$External <-  rowSums(Data[, c("Conduct", "Hyper")])
+Data$Internal <- rowSums(Data[, c("Emotion", "Peer")])
+Data$SDQ <- rowSums(Data[, c("Emotion", "Conduct", "Hyper", "Peer")]) 
+
+Data$Emotion_d <- ifelse(Data$Emotion >= 7, 1, 0)   # cutoff scores https://www.leicspart.nhs.uk/Library/poilkj690.pdf
+Data$Conduct_d <- ifelse(Data$Conduct >= 6, 1, 0)
+Data$Hyper_d <- ifelse(Data$Hyper >= 8, 1, 0)   
+Data$Peer_d <- ifelse(Data$Peer >= 5, 1, 0) 
+Data$Prosoc_d <- ifelse(Data$Prosoc <= 4, 1, 0)
+Data$SDQ_d <- ifelse(Data$SDQ >= 20, 1, 0) 
+  
+# CYRM
+  # Data[, 33:58]  # CYRM-26 doar pt 5-8 ani
+  # Data[, 33:60]  # CYRM-28 doar pt 9-18 ani
+  # CYRM 26 (5-8 years)
+    # CYRMscore = SUM (1:26)
+    # CYRM_Individ = SUM (2, 4, 8, 10, 12, 13, 14, 17, 19, 20, 24)
+    # CYRM_Caregiver = SUM (5, 6, 7, 11, 16, 23, 25)
+    # CYRM_Context = SUM (1, 3, 9, 15, 18, 21, 22, 26)
+      # IndPS=SUM (2, 8, 10, 12, 20)
+      # IndPeer= SUM (13, 17)
+      # IndSS= SUM (4, 14, 19, 24)
+      # CrPhys= SUM (5, 7)
+      # CrPsyc= SUM (6, 11, 16, 23, 25)
+      # CntS= SUM (21, 22)
+      # CntEd= SUM (3, 15)
+      # CntC= SUM (1, 9, 18, 26)
+  # CYRM 28 (9-18 years)
+    # CYRMscore = SUM (1:28)
+    # CYRM_Individ = SUM (2, 4, 8, 11, 13, 14, 15, 18, 20, 21, 25)
+    # CYRM_Caregiver = SUM (5, 6, 7, 12, 17, 24, 26)
+    # CYRM_Context = SUM (1, 3, 9, 10, 16, 19, 22, 23, 27, 28)
+
+
+Data$R_Ind_k <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$R_Ind_k <- 
+                               SpecialRowSums(Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), 
+                                              sprintf("cyrm_%d", c(2, 4, 8, 10, 12, 13, 14, 17, 19, 20, 24))],
+                                              napercent = .29)
+Data$R_Care_k <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$R_Care_k <- 
+                               SpecialRowSums(Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), 
+                                              sprintf("cyrm_%d", c(5, 6, 7, 11, 16, 23, 25))],
+                                              napercent = .29)
+Data$R_Cont_k <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), ]$R_Cont_k <- 
+                               SpecialRowSums(Data[Data$tip_chestionar %in% c("5-8ani", "5-8intarziere"), 
+                                              sprintf("cyrm_%d", c(1, 3, 9, 15, 18, 21, 22, 26))],
+                                              napercent = .29)
+Data$CYRM_k <- rep(NA, nrow(Data))
+Data$CYRM_k <- rowSums(Data[, c("R_Ind_k", "R_Care_k", "R_Cont_k")])          # _k scores not comparable to _a scores
+
+Data$R_Ind_a <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar =="9-18ani", ]$R_Ind_a <- 
+                               SpecialRowSums(Data[Data$tip_chestionar == "9-18ani", 
+                                              sprintf("cyrm_%d", c(2, 4, 8, 11, 13, 14, 15, 18, 20, 21, 25))],
+                                              napercent = .29)
+Data$R_Care_a <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar =="9-18ani", ]$R_Care_a <- 
+                               SpecialRowSums(Data[Data$tip_chestionar == "9-18ani", 
+                                              sprintf("cyrm_%d", c(5, 6, 7, 12, 17, 24, 26))],
+                                              napercent = .29)
+Data$R_Cont_a <- rep(NA, nrow(Data))
+Data[Data$tip_chestionar =="9-18ani", ]$R_Cont_a <- 
+                               SpecialRowSums(Data[Data$tip_chestionar  == "9-18ani", 
+                                              sprintf("cyrm_%d", c(1, 3, 9, 10, 16, 19, 22, 23, 27, 28))],
+                                              napercent = .29)
+Data$CYRM_a <- rep(NA, nrow(Data))
+Data$CYRM_a <- rowSums(Data[, c("R_Ind_a", "R_Care_a", "R_Cont_a")])        # _k scores not comparable to _a scores
+
+
+# CYW
+  # 5-8 years have NA in item 7 and 8, but this doesnt count for cyw_nr1 and cyw_nr2 
+Data$CYW <- rowSums(Data[, c("cyw_nr1", "cyw_nr2")], na.rm = TRUE)         
+
+```
+
+
+## Export .R for Rezidential2 notebook
+
+```{r export, echo=FALSE, results="hide"}
+saveRDS(Data, file = "Data_Rezidential.RDS")
+```
+
+
+## Descriptives for Demographics
+
+```{r descr_functions}
+apply_if <- function(mat, p, f) {
+  # Fill NA with FALSE
+  p[is.na(p)] <- FALSE
+  mat[p] <- f(mat[p])
+  mat
+}
+
+apaCorr <- function(mat, corrtype = "pearson") {
+  matCorr <- mat
+  if (class(matCorr) != "rcorr") {
+    matCorr <- rcorr(mat, type = corrtype)
+  }
+
+  # Add one star for each p < 0.05, 0.01, 0.001
+  stars <- apply_if(round(matCorr$r, 2), matCorr$P < 0.05, function(x) paste0(x, "*"))
+  stars <- apply_if(stars, matCorr$P < 0.01, function(x) paste0(x, "*"))
+  stars <- apply_if(stars, matCorr$P < 0.001, function(x) paste0(x, "*"))
+  # Put - on diagonal and blank on upper diagonal
+  stars[upper.tri(stars, diag = T)] <- "-"
+  stars[upper.tri(stars, diag = F)] <- ""
+  n <- length(stars[1,])
+  colnames(stars) <- 1:n
+  # Remove _ and convert to title case
+  row.names(stars) <- tools::toTitleCase(sapply(row.names(stars), gsub, pattern="_", replacement = " "))
+  # Add index number to row names
+  row.names(stars) <- paste(paste0(1:n,"."), row.names(stars))
+  stars
+}
+```
+
+```{r descr_demogr1}
+summarytools::dfSummary(Data[, c("gen", "varsta")], 
+                        style = "grid", plain.ascii = FALSE, graph.magnif = 0.75)  %>% 
+                          print(method = "render", footnote = NA)
+
+tadaa_t.test(data = Data, response = varsta, group = gen, print = "markdown") %>% 
+                          print(method = "render", footnote = NA)
+```
+
+```{r descr_demogr2}
+summarytools::dfSummary(Data[, c("v_mama_nastere", "varsta_inst", "nr_frati", "nr_frati_inst")], 
+                        style = "grid", plain.ascii = FALSE, graph.magnif = 0.75)  %>% 
+                          print(method = "render", footnote = NA)
+
+GGally::ggpairs(Data, columns = c("nr_frati", "nr_frati_inst"), mapping = aes_string(colour = "gen"),
+       upper = list(continuous = "smooth", combo = "box", discrete = "facetbar", na = "na"),
+       lower = list(continuous = "smooth_loess", combo = "facethist", discrete = "ratio", na = "na"), # "facetdensity"
+       diag = list(continuous = wrap("densityDiag", alpha=0.3), discrete = "barDiag", na = "naDiag"))
+
+GGally::ggpairs(Data, columns = c("v_mama_nastere", "varsta_inst"), mapping = aes_string(colour = "gen"),
+       upper = list(continuous = "smooth", combo = "box", discrete = "facetbar", na = "na"),
+       lower = list(continuous = "smooth_loess", combo = "facethist", discrete = "ratio", na = "na"), 
+       diag = list(continuous = wrap("densityDiag", alpha=0.3), discrete = "barDiag", na = "naDiag"))
+
+
+Data %>%    # change back factor to numeric in order to compute correlations
+  mutate(v_mama_nastere = fct_recode(v_mama_nastere, "1" = "<19" , "2" = "20-25", "3" = "26–34", "4" = "35>")) %>%   
+  select(v_mama_nastere, varsta_inst, nr_frati, nr_frati_inst) %>%
+  as.matrix(.) %>%
+    apaCorr(corrtype = "pearson")  %>% knitr::kable(caption = "Correlations", format = "markdown")
+
+# apaCorr(as.matrix(.[, c("v_mama_nastere", "varsta_inst", "nr_frati", "nr_frati_inst")]), corrtype = "pearson") %>% 
+#         knitr::kable(format = "markdown")     # level of significance (p < 0.05, p < 0.01, p < 0.001)
+
+```
+
+
+## Descriptives for Risk
+
+```{r descr_risk, fig.width = 12, fig.asp = 1.6}
+Risk_col_names <- c("expunere_tox", "boli", "TCC", "asfixie", "abuz_sub", "grad_h", "intarziere", "tras_dez", "tulb_cond", 
+                    "neglijare", "temperam", "repetenta", "scoala_spec", "inabil_sc", "schimb_dom", "pierd_loc", "comunit")
+
+# Plot function and Data function
+risk_plot <- function(df){ 
+  ggplot(df, aes(x = variable, y = percent, fill = variable)) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = paste0(round(percent), "%")), vjust = -0.25) +
+     guides(fill=FALSE) + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+     ylab("Percentage") +  xlab("")  
+}
+
+risk_data <- function(df, risk_levels, filter_col, filter_level){
+  filter_col <- rlang::enquo(filter_col)
+  df %>% 
+    filter(!!filter_col %in% filter_level) %>% 
+    select(Risk_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, risk_levels)) 
+}
+
+# Rsik data & plots
+Data_Risk <- 
+  Data %>%    
+    select(Risk_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, variable))     # this makes levels order match row order!
+risk_levels <- levels(Data_Risk$variable)  
+
+risk_plot1 <- 
+  Data_Risk %>%
+    risk_plot() +
+      ggtitle("Risk") 
+
+risk_plot2 <-  
+  risk_data(Data, risk_levels, gen, filter_level = "f") %>%
+    risk_plot() +
+      ggtitle("Risk - girls") 
+
+risk_plot3 <-
+  risk_data(Data, risk_levels, gen, filter_level = "m") %>%
+    risk_plot() +
+      ggtitle("Risk - boys") 
+
+risk_plot4 <-
+  risk_data(Data, risk_levels, tip_chestionar, filter_level = c("5-8ani", "5-8intarziere")) %>%
+    risk_plot() +
+      ggtitle("Risk - 5-8 years") 
+
+risk_plot5 <-
+  risk_data(Data, risk_levels, tip_chestionar, filter_level = "9-18ani") %>%
+    risk_plot() +
+      ggtitle("Risk - 9-18 years")
+
+
+ggpubr::ggarrange(risk_plot1,                                                 
+          ggarrange(risk_plot2, risk_plot3, ncol = 2, labels = c("B", "C")), 
+          ggarrange(risk_plot4, risk_plot5, ncol = 2, labels = c("C", "D")),
+          nrow = 3, 
+          labels = "A")
+
+```
+
+
+## Descriptives for ACEs
+
+```{r descr_ace, fig.width = 12, fig.asp = 1.6}
+# Data$sec2_1    is redundant because all should be 1, even tough there are 403 NA and 872 of 1
+Ace_col_names <- c(sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))
+
+Ace_new_names <- c("divort", "incarcerare", "boala mintala", "amenintare", "umilire", 
+                   "abuz sexual", "lipsuri", "abuz fizic", "adictie", "nesiguranta", 
+                   "bullying", "deces", "emigrare", "boala", "violenta", 
+                   "rautate", "politie", "abuz partener")
+
+# Plot function and Data function
+ace_plot <- function(df){ 
+  ggplot(df, aes(x = variable, y = percent, fill = variable)) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = paste0(round(percent), "%")), vjust = -0.25) +
+     guides(fill=FALSE) + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+     ylab("Percentage") +  xlab("")  
+}
+
+ace_data <- function(df, ace_levels, filter_col, filter_level){
+  filter_col <- rlang::enquo(filter_col)
+  df %>% 
+    filter(!!filter_col %in% filter_level) %>% 
+    select(Ace_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    mutate(variable = stringr::str_replace(variable, Ace_col_names, Ace_new_names)) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, ace_levels)) 
+}  
+  
+# ACEs data & plots
+Data_ACE <- 
+  Data %>%    # barplot(colSums(Data[, Ace_col_names], na.rm = TRUE))
+    select(Ace_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    mutate(variable = stringr::str_replace(variable, Ace_col_names, Ace_new_names)) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, variable))     # this makes levels order match row order!
+ace_levels <- levels(Data_ACE$variable)  
+
+ace_plot1 <- 
+  Data_ACE %>%
+    ace_plot() +
+      ggtitle("ACE") 
+
+ace_plot2 <-  
+  ace_data(Data, ace_levels, gen, filter_level = "f") %>%
+    ace_plot() +
+      ggtitle("ACE - girls") 
+
+ace_plot3 <-
+  ace_data(Data, ace_levels, gen, filter_level = "m") %>%
+    ace_plot() +
+      ggtitle("ACE - boys") 
+
+ace_plot4 <-
+  ace_data(Data, ace_levels, tip_chestionar, filter_level = c("5-8ani", "5-8intarziere")) %>%
+    ace_plot() +
+      ggtitle("ACE - 5-8 years") 
+
+ace_plot5 <-
+  ace_data(Data, ace_levels, tip_chestionar, filter_level = "9-18ani") %>%
+    ace_plot() +
+      ggtitle("ACE - 9-18 years")
+
+
+ggpubr::ggarrange(ace_plot1,                                                 
+          ggarrange(ace_plot2, ace_plot3, ncol = 2, labels = c("B", "C")), 
+          ggarrange(ace_plot4, ace_plot5, ncol = 2, labels = c("C", "D")),
+          nrow = 3, 
+          labels = "A")                                        
+           
+#Data %>%
+  #select(ID, tip_chestionar, gen, sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 1:9)) %>%
+  #gather(variable, value, sec1_1:sec2_9, -c(tip_chestionar, gen), na.rm = FALSE, convert = FALSE) %>%
+  #mutate(value = replace_na(value, 0)) %>%
+  
+```
+
+
+## Descriptives for ACE Score
+
+```{r descr_ace_score}
+summarytools::dfSummary(Data[, "CYW"], 
+                        style = "grid", plain.ascii = FALSE, graph.magnif = 0.75)  %>% 
+                          print(method = "render", footnote = NA)
+
+tadaa_t.test(data = Data, response = CYW, group = gen, print = "markdown") %>% 
+                          print(method = "render", footnote = NA)
+
+GGally::ggpairs(Data, columns = c("CYW", "gen"), mapping = aes_string(colour = "gen"),
+       upper = list(continuous = "smooth", combo = "box", discrete = "facetbar", na = "na"),
+       lower = list(continuous = "smooth_loess", combo = "facethist", discrete = "ratio", na = "na"), 
+       diag = list(continuous = wrap("densityDiag", alpha=0.3), discrete = "barDiag", na = "naDiag"))
+
+```
+
+
+## Correlations: ACE Score, Risk, ACEs
+
+```{r analys_cor, fig.width = 14, fig.asp = 1}
+# Data %>%
+#   rename_at(vars(Ace_col_names), ~ Ace_new_names) %>%
+#   select(CYW, Ace_new_names, Risk_col_names) %>%
+#   replace(is.na(.), 0) %>%
+#   as.matrix(.) %>%
+#     apaCorr(corrtype = "pearson")  %>% knitr::kable(caption = "Correlations", format = "markdown")
+
+Data %>%
+    rename_at(vars(Ace_col_names), ~ Ace_new_names) %>%
+    select(CYW, Ace_new_names, Risk_col_names) %>%
+    replace(is.na(.), 0) %>%
+    as.matrix(.) %>%
+      Hmisc::rcorr(., type = "pearson") %>% 
+      with(                                      # piping with multi-argument functions
+      corrplot::corrplot(.$r, method = "number", type = "upper", p.mat = .$P, sig.level = 0.05, 
+               insig = "blank", tl.col = "black", tl.cex = .9, tl.srt = 45, number.cex = 0.5) 
+      )
+```
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
