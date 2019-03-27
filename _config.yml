@@ -1,0 +1,3 @@
+
+# Some .Rmd files create problems in Jekyll build (especially if they are not in UTF-8)
+exclude: ['*.Rmd', 'ChangeLog.md', "MIT-LICENSE"]
