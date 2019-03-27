@@ -1,0 +1,153 @@
+---
+title: "<br> Balanced randomization for EEG O.4" 
+subtitle: "Randomization for Repeated Stimuli Experiment"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    pdf_document: 
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+---
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "ggplot2",        # best plots
+  "DT"              # data tables
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+<br>
+
+# Randomization Table
+
+```{r randomize_blocks}
+# Repetate
+set.seed(101)
+eeg_rand <- block.random(40, c(Condition1 = 2, Instructor1 = 2, Order1 = 2)) 
+
+table_eeg_rand <- 
+  eeg_rand %>% 
+  as.data.frame(.) %>%  
+  mutate(Condition1 = case_when(Condition1 == 1 ~ "ogl" ,
+                                Condition1 == 2 ~ "ctrl", 
+                                TRUE ~ NA_character_)) %>%
+  mutate(Instructor1 = case_when(Instructor1 == 1 ~ "Alexandra" ,
+                                 Instructor1 == 2 ~ "Romina", 
+                                 TRUE ~ NA_character_)) %>%
+  mutate(Order1 = case_when(Order1 == 1 ~ "Instr-Solo" ,
+                            Order1 == 2 ~ "Solo-Instr", 
+                            TRUE ~ NA_character_)) %>%
+  mutate(Condition2 = if_else(Condition1 == "ogl", "ctrl", "ogl")) %>%
+  mutate(Instructor2 = if_else(Instructor1 == "Alexandra", "Romina", "Alexandra")) %>%
+  mutate(Order2 = if_else(Order1 == "Instr-Solo", "Solo-Instr", "Instr-Solo")) %>%
+  mutate(ID = 1:nrow(.)) 
+
+table_eeg_rand %>%                              # excel downloadable  DT table
+  select(blocks, ID, everything()) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 40,
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+
+# kable table
+# table_eeg_rand %>%                             
+#   select(blocks, ID, everything()) %>%
+#   knitr::kable(caption = "Randomization Table", align = rep('c', 6))
+```
+
+
+<br>
+
+## Check cross-tabs for each day
+
+```{r randomize_check}
+
+table_eeg_rand %>%
+  select(Condition1, Instructor1, Order1) %>%
+  ftable(row.vars = 1)
+  # knitr::kable()
+
+table_eeg_rand %>%
+  select(Condition2, Instructor2, Order2) %>%
+  ftable(row.vars = 1)
+
+# all conditions are balanced by block
+# table_eeg_rand %>%
+#   filter(blocks == 1) %>%
+#   select(Condition1, Instructor1, Order1) %>%
+#   ftable(row.vars = 1)
+```
+
+
+<br>
+
+##  Check balance 
+
+```{r randimize_plot}
+# pairs.panels(eeg_rand)
+
+table_eeg_rand %>%
+  select(-ID, -blocks) %>%
+    pairs.panels()
+```
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
