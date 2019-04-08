@@ -195,6 +195,69 @@ Date %>%
 
 
 <br>
+<br>
+
+
+# Conditions
+
+```{r cond_count}
+## Number of subjects per Condition
+Date %>% 
+  count(Conditie) %>%
+  knitr::kable(caption = "Number of subjects per Condition")
+```
+
+```{r cond_plot, fig.width = 10, fig.asp = 0.8}
+## Means for all variables by Condition
+# Date %>% 
+#   select(ID, 
+#          Vas_rel_global, Vas_rel_arousal, 
+#          CRQ_1, CRQ_2, CRQ_3, CRQ_4, CRQ_5, CRQ_6, 
+#          Conditie, IOS) %>%
+#   group_by(Conditie) %>%
+#   summarise_if(.predicate = function(x) is.numeric(x),
+#              .funs = funs(mean="mean"))
+
+## Plot CRQ items
+my_comparisons <- 
+  gtools::combinations(n = length(unique(Date$Conditie)), r = 2, v = Date$Conditie, repeats.allowed = FALSE) %>%
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character) %>%
+  purrr::pmap(list) %>% 
+  lapply(unlist)
+  
+Date %>% 
+  select(ID, Conditie, 
+         CRQ_1, CRQ_2, CRQ_3, CRQ_4, CRQ_5, CRQ_6) %>%
+  gather(variable, value, CRQ_1:CRQ_6) %>%
+  mutate(Conditie = factor(Conditie, levels = sort(unique(Conditie)))) %>%   # relevel just to match combination pattern for comparison
+    ggboxplot(x = "Conditie", y = "value", facet.by = "variable" ) + 
+    stat_compare_means(comparisons = my_comparisons,            # can't do paired t test because not all arguments have the same length  
+                       label = "p.signif", paired = FALSE, method = "t.test",  na.rm = TRUE) +
+    scale_x_discrete(labels = abbreviate)
+
+## Plot VAS Rel and IOS
+func_boxcomp_cond <- function(var){
+    Date %>% 
+      select(Conditie, var) %>%
+      mutate(Conditie = factor(Conditie, levels = sort(unique(Conditie)))) %>%   # relevel just to match combination pattern for comparison
+        ggboxplot(x = "Conditie", y = var, title = var) +
+        stat_compare_means(comparisons = my_comparisons,            # can't do paired t test because not all arguments have the same length  
+                           label = "p.signif", paired = FALSE, method = "t.test",  na.rm = TRUE)
+}
+
+plot_vasglob <- func_boxcomp_cond("Vas_rel_global")
+plot_vasarou <- func_boxcomp_cond("Vas_rel_arousal")
+plot_ios <- func_boxcomp_cond("IOS")
+ggarrange(plot_vasglob, 
+          plot_ios, 
+          plot_vasarou, 
+          ncol = 2, nrow = 2)
+```
+
+
+<br>
+<br>
 
 # STAI-Y
 
@@ -294,6 +357,148 @@ Date %>%
   knitr::kable(digits = 2)
 ```
 
+<br>
+<br>
+
+# Conditioning on VAS global
+
+## STAI-Y
+```{r reg_stai_vasglobal}
+## STAY
+lm_stai <- lm(StaiS_post ~ StaiS_pre + Vas_rel_global, data = Date)
+apa_lm_stai <- apa_print(lm_stai)
+# apa_table(apa_lm_stai$table,
+#   caption = "Table",
+#   escape = FALSE,
+#   format = "markdown")               # doesnt render the caption and it cant be removed
+knitr::kable(apa_lm_stai$table)
+
+# apa_lm_stai$full_result$modelfit$r2
+
+par(mfrow = c(1, 2)); termplot(lm_stai, partial.resid = TRUE, se = TRUE)
+
+```
+
+<span style="font-size:150%;">*Is there an interaction Condition x Vas rel global?*</span>
+```{r interac_stai_vasglobal}
+lm_stai_inter <- lm(StaiS_post ~ StaiS_pre + Conditie * Vas_rel_global, data = Date)
+
+knitr::kable(apa_print(lm_stai_inter)$table)
+
+plot(visreg::visreg(lm_stai_inter, xvar = "Vas_rel_global", by = "Conditie", plot = FALSE),
+            overlay = TRUE, partial = FALSE, rug = FALSE,
+            xlab = "Vas_rel_global", ylab = "Predicted STAI",
+            line = list(
+            lty = c(1:4, 6),     # 5 is long dash and doesnt look nice   
+            col = c("black", "grey90", "grey70", "grey50", "grey30")),
+            band = FALSE)
+```
+
+
+```{r stai_plot_cond, fig.width = 10, fig.asp = 0.8}
+## STAI plot Cond
+Staimelt_cond <- 
+  Date %>%
+  filter(Vas_rel_global >= 7) %>%
+  select(ID, Conditie, StaiS_pre, StaiS_post) %>%
+  gather("StaiS_pre", "StaiS_post", key = "Stai_cond", value = "value") %>% 
+  mutate_at(vars(c(1, 2, 3)), funs(as.factor)) %>% 
+  mutate(Stai_cond = factor(Stai_cond, levels = c("StaiS_pre","StaiS_post"))) # %>%    # change factor order for plot pre, post
+
+ggplot(Staimelt_cond, aes(x = Stai_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("StaiS_pre","StaiS_post")))
+```
+
+## VAS Stres
+```{r reg_vasS_vasglobal}
+## STAY
+lm_vasS <- lm(Vas_stres_post ~ Vas_stres_pre + Vas_rel_global, data = Date)
+apa_lm_vasS <- apa_print(lm_vasS)
+knitr::kable(apa_lm_vasS$table)
+
+par(mfrow=c(1,2)); termplot(lm_vasS, partial.resid = TRUE, se = TRUE)
+```
+
+<span style="font-size:150%;">*Is there an interaction Condition x Vas rel global?*</span>
+```{r interac_vasS_vasglobal}
+lm_vasS_inter <- lm(Vas_stres_post ~ Vas_stres_pre + Conditie * Vas_rel_global, data = Date)
+
+knitr::kable(apa_print(lm_vasS_inter)$table)
+
+plot(visreg::visreg(lm_vasS_inter, xvar = "Vas_rel_global", by = "Conditie", plot = FALSE),
+            overlay = TRUE, partial = FALSE, rug = FALSE,
+            xlab = "Vas_rel_global", ylab = "Predicted VAS Stress",
+            line = list(
+            lty = c(1:4, 6),     # 5 is long dash and doesnt look nice   
+            col = c("black", "grey90", "grey70", "grey50", "grey30")),
+            band = FALSE)
+```
+
+```{r vasS_plot_cond, fig.width = 10, fig.asp = 0.8}
+## Vas Stres plot 
+Vasstresmelt_cond <- 
+  Date %>%
+  filter(Vas_rel_global >= 7) %>%
+  select(ID, Conditie, Vas_stres_pre, Vas_stres_post) %>%
+  gather("Vas_stres_pre","Vas_stres_post", key = "Vas_stres_cond", value = "value") %>% 
+  mutate_at(vars(c(1,2,3)), funs(as.factor)) %>% 
+  mutate_at(vars(c(4)), funs(as.numeric)) %>% 
+  mutate(Vas_stres_cond = factor(Vas_stres_cond, levels = c("Vas_stres_pre","Vas_stres_post"))) # change factor order for plot pre, post
+
+ggplot(Vasstresmelt_cond, aes(x = Vas_stres_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_stres_pre","Vas_stres_post")))
+```
+
+## VAS Wellbeing
+```{r reg_vasB_vasglobal}
+## STAY
+lm_vasB <- lm(Vas_bine_post ~ Vas_bine_pre + Vas_rel_global, data = Date)
+apa_lm_vasB <- apa_print(lm_vasB)
+knitr::kable(apa_lm_vasB$table)
+
+par(mfrow=c(1,2)); termplot(lm_vasB, partial.resid = TRUE, se = TRUE)
+```
+
+<span style="font-size:150%;">*Is there an interaction Condition x Vas rel global?*</span>
+```{r interac_vasB_vasglobal}
+lm_vasB_inter <- lm(Vas_bine_post ~ Vas_bine_pre + Conditie * Vas_rel_global, data = Date)
+
+knitr::kable(apa_print(lm_vasB_inter)$table)
+
+plot(visreg::visreg(lm_vasB_inter, xvar = "Vas_rel_global", by = "Conditie", plot = FALSE),
+            overlay = TRUE, partial = FALSE, rug = FALSE,
+            xlab = "Vas_rel_global", ylab = "Predicted VAS Wellbeing",
+            line = list(
+            lty = c(1:4, 6),     # 5 is long dash and doesnt look nice   
+            col = c("black", "grey90", "grey70", "grey50", "grey30")),
+            band = FALSE)
+```
+
+```{r vasB_plot_cond, fig.width = 10, fig.asp = 0.8}
+## Vas Stres plot 
+Vasbinemelt_cond <- 
+  Date %>%
+  filter(Vas_rel_global >= 7) %>%
+  select(ID, Conditie, Vas_bine_pre, Vas_bine_post) %>%
+  gather("Vas_bine_pre","Vas_bine_post", key = "Vas_bine_cond", value = "value") %>% 
+  mutate_at(vars(c(1,2,3)), funs(as.factor)) %>% 
+  mutate_at(vars(c(4)), funs(as.numeric)) %>% 
+  mutate(Vas_bine_cond = factor(Vas_bine_cond, levels = c("Vas_bine_pre","Vas_bine_post"))) # change factor order for plot pre, post
+
+ggplot(Vasbinemelt_cond, aes(x = Vas_bine_cond, y = value)) +
+  geom_boxplot() +
+  facet_wrap(~Conditie) +
+  ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_bine_pre","Vas_bine_post")))
+```
+
+<br>
+<br>
+<br>
+<br>
 
 # Melt dataframe for future analyses
 
