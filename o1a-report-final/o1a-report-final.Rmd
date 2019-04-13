@@ -58,7 +58,8 @@ packages <- c(
   "ggplot2",        # best plots
   "ggpubr",         # ggplot2 to publication quality
   "DT",             # nice searchable and downloadable tables
-  "summarytools"
+  "summarytools",
+  "plotly"
   # , ...
 )
 if (!require("pacman")) install.packages("pacman")
@@ -362,6 +363,33 @@ Date %>%
 
 # Conditioning on VAS global
 
+Click on IDs to show in plot
+```{r vasglob_plot, fig.width = 10, fig.asp = 0.8, warning = FALSE}
+# will throw warning because color palette is too small
+
+plotly_data <- 
+  Date %>%
+    mutate(ID = word(ID, 1)) %>%
+    select(ID, Conditie, Vas_rel_global) %>%
+    gather(variable, value, Vas_rel_global) %>%
+    arrange(Conditie) 
+
+# %>%                                  # just a test
+#     ggplot(aes(x = Conditie, y = value, group = ID, colour = ID)) + 
+#     geom_point() + 
+#     geom_line() +
+#     ylab("Vas_rel_global")
+
+plotly::plot_ly(plotly_data,  x= ~Conditie, y= ~value, color = ~ID, 
+                type = 'scatter', mode = 'lines+markers', visible = 'legendonly',
+                hoverinfo = 'text',
+                text = ~paste('ID: ', ID, '</br> ', 
+                      '</br> Vas value: ', value,
+                      '</br> Condition: ', Conditie)) %>%
+        layout(yaxis = list(range = c(0, 10), title = "Vas_rel_global"))
+
+```
+
 ## STAI-Y
 ```{r reg_stai_vasglobal}
 ## STAY
@@ -394,7 +422,7 @@ plot(visreg::visreg(lm_stai_inter, xvar = "Vas_rel_global", by = "Conditie", plo
             band = FALSE)
 ```
 
-
+<span style="font-size:150%;">*Conditoning: Vas_rel_global >= 7*</span>
 ```{r stai_plot_cond, fig.width = 10, fig.asp = 0.8}
 ## STAI plot Cond
 Staimelt_cond <- 
@@ -410,6 +438,18 @@ ggplot(Staimelt_cond, aes(x = Stai_cond, y = value)) +
   facet_wrap(~Conditie) +
   ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("StaiS_pre","StaiS_post")))
 ```
+
+<span style="font-size:150%;">*STAI Post - Pre diff by Vas_rel_global*</span>
+```{r diff_stai_vasglob}
+Date %>%
+  mutate(StaiS_diff = StaiS_post - StaiS_pre) %>%
+  ggplot(aes(x = Vas_rel_global, y = StaiS_diff, color = Conditie, group = Conditie)) + 
+  geom_point() + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +
+  geom_smooth(method = "lm", size = 1, se = FALSE) +
+  xlim(0, 10)
+```
+
 
 ## VAS Stres
 ```{r reg_vasS_vasglobal}
@@ -436,6 +476,7 @@ plot(visreg::visreg(lm_vasS_inter, xvar = "Vas_rel_global", by = "Conditie", plo
             band = FALSE)
 ```
 
+<span style="font-size:150%;">*Conditoning: Vas_rel_global >= 7*</span>
 ```{r vasS_plot_cond, fig.width = 10, fig.asp = 0.8}
 ## Vas Stres plot 
 Vasstresmelt_cond <- 
@@ -452,6 +493,18 @@ ggplot(Vasstresmelt_cond, aes(x = Vas_stres_cond, y = value)) +
   facet_wrap(~Conditie) +
   ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_stres_pre","Vas_stres_post")))
 ```
+
+<span style="font-size:150%;">*VAS Stres Post - Pre diff by Vas_rel_global*</span>
+```{r diff_vasS_vasglob}
+Date %>%
+  mutate(Vas_stres_diff = Vas_stres_post - Vas_stres_pre) %>%
+  ggplot(aes(x = Vas_rel_global, y = Vas_stres_diff, color = Conditie, group = Conditie)) + 
+  geom_point() +
+  geom_smooth(method = "lm", size = 1, se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +
+  xlim(0, 10)
+```
+
 
 ## VAS Wellbeing
 ```{r reg_vasB_vasglobal}
@@ -478,6 +531,7 @@ plot(visreg::visreg(lm_vasB_inter, xvar = "Vas_rel_global", by = "Conditie", plo
             band = FALSE)
 ```
 
+<span style="font-size:150%;">*Conditoning: Vas_rel_global >= 7*</span>
 ```{r vasB_plot_cond, fig.width = 10, fig.asp = 0.8}
 ## Vas Stres plot 
 Vasbinemelt_cond <- 
@@ -494,6 +548,18 @@ ggplot(Vasbinemelt_cond, aes(x = Vas_bine_cond, y = value)) +
   facet_wrap(~Conditie) +
   ggpubr::stat_compare_means(method = "t.test", paired = TRUE, comparisons = list(c("Vas_bine_pre","Vas_bine_post")))
 ```
+
+<span style="font-size:150%;">*VAS Bine Post - Pre diff by Vas_rel_global*</span>
+```{r diff_vasB_vasglob}
+Date %>%
+  mutate(Vas_bine_diff = Vas_bine_post - Vas_bine_pre) %>%
+  ggplot(aes(x = Vas_rel_global, y = Vas_bine_diff, color = Conditie, group = Conditie)) + 
+  geom_point() +
+  geom_smooth(method = "lm", size = 1, se = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +
+  xlim(0, 10)
+```
+
 
 <br>
 <br>
