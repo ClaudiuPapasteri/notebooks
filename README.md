@@ -1,8 +1,6 @@
-# notebooks
+# R Notebooks
 
 ![language: R](https://img.shields.io/badge/language-R-blue.svg)
-
-R Notebooks
 
 This GitHub Repository stores my R Notebooks, allowing GitHub Pages to serve the R Notebooks on my website without me having to include a redundant, heavy `index.html` in every corresponding repository. All the notebooks will be served from a `/notebooks/` folder, which has SEO benefits as well. 
 
@@ -10,12 +8,17 @@ This GitHub Repository stores my R Notebooks, allowing GitHub Pages to serve the
 
 ###### example GitHub Page: https://claudiupapasteri.github.io/notebooks/r-notebook-template/r-notebook-template.nb.html
 
+<br>
+
 ## [R Notebook complete list]( https://claudiupapasteri.github.io/notebooks)
 
+<br>
 
 ## Maintainer
 
 Claudiu Papasteri 
+
+<br>
 
 ## License
 
