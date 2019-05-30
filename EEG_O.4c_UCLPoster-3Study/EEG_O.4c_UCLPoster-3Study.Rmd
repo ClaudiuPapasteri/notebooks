@@ -516,7 +516,7 @@ Unic_merged %>%
 ```
 
 
-## Download Data
+# Download Data
 
 ```{r download_data}
 Unic_merged %>% 
