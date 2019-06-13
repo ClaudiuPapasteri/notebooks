@@ -143,6 +143,24 @@ Data$D_Ox_Neg <- Data[, "Ox_post_Neg"] - Data[, "Ox_pre_Neg"]
 
 # Define Functions 
 
+```{r def_func_subchunkplot, hide=TRUE}
+subchunkify <- function(g, fig_height=7, fig_width=5) {
+  g_deparsed <- paste0(deparse(
+    function() {g}
+  ), collapse = '')
+  
+  sub_chunk <- paste0("
+  `","``{r sub_chunk_", floor(runif(1) * 10000), ", fig.height=", fig_height, ", fig.width=", fig_width, ", echo=FALSE}",
+  "\n(", 
+    g_deparsed
+    , ")()",
+  "\n`","``
+  ")
+  
+  cat(knitr::knit(text = knitr::knit_expand(text = sub_chunk), quiet = TRUE))
+}
+```
+
 ```{r def_func, hide=TRUE}
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Define Function for mining correlations
@@ -341,7 +359,9 @@ func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, p
                                TRUE ~ NA_character_),
            PozNeg = case_when(stringr::str_detect(.$"Cond", "poz|Poz") ~ "Poz",
                               stringr::str_detect(.$"Cond", "neg|Neg") ~ "Neg",
-                              TRUE ~ NA_character_)) 
+                              TRUE ~ NA_character_)) %>%
+    mutate(PrePost = as.factor(PrePost),
+           PozNeg = as.factor(PozNeg))
   
   ## For ANCOVAPost - this is what we use
   df_modif4 <-
@@ -350,14 +370,36 @@ func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, p
     spread("PrePost", "value")
   
   ## Models (here we use ANCOVAPost)    # https://m-clark.github.io/docs/mixedModels/anovamixed.html#introduction
-  mod_ancovaPost = lm(Post ~ Pre + PozNeg, data = df_modif4)
-  # mod_ancovaPost = lm(post ~ pre + treat)      # exactly the same with aov(post ~ pre + treat)
+  full_ancovaPost <-                                          # this is better than using lm() and glht()
+      jmv::ancova(
+        formula = Post ~ Pre + PozNeg,
+        data = df_modif4,
+        homo = TRUE,
+        ss = "3",                                                     
+        postHoc = ~ PozNeg,
+        postHocCorr = list("tukey"),
+        effectSize = list("eta", "partEta")
+      )
+  
+      # mod_ancovaPost <- lm(Post ~ Pre + PozNeg, data = df_modif4)            # this is a Covariate Second model
+      # mod_ancovaPost_ss3 <- car::Anova(mod_ancovaPost, type = "III")         # Type III sums of squares; see Andy Fields 2012
+      # postHocs <- multcomp::glht(mod_ancovaPost, linfct = multcomp::mcp(PozNeg = "Tukey"))  # differences between the adjusted means,
+      # sum_postHocs <- summary(postHocs)                                               # use Tukey or Dunnett’s post hoc tests
+      # conf_postHocs <- confint(postHocs)
+  scatter <-                                                             # Check for homogeneity of regression slopes
+    ggplot(df_modif4, aes(Pre, Post, colour = PozNeg)) +
+    geom_point(aes(shape = PozNeg), size = 3) +
+    geom_smooth(method = "lm", aes(fill = PozNeg), alpha = 0.1)
+    
+  
+  ## Other Models that work for this date
+  # mod_ancovaPost <- lm(post ~ pre + treat)      # exactly the same with aov(post ~ pre + treat)
   # summary(mod_ancovaPost)
   # 
-  # mod_anovaRM = aov(score ~ treat*time + Error(id), dflong)
+  # mod_anovaRM <- aov(score ~ treat*time + Error(id), dflong)
   # summary(mod_anovaRM)
   # 
-  # mod_lme = lme4::lmer(score ~ treat*time + (1|id), data=dflong)
+  # mod_lme <- lme4::lmer(score ~ treat*time + (1|id), data=dflong)
   # anova(lmeModel)
   
   ## Output
@@ -378,10 +420,23 @@ func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, p
   cat("\n")
   
   cat("#### ANCOVA Post")
-  # print(list(summary(mod_ancovaPost), coef(mod_ancovaPost)))
-  tidy(mod_ancovaPost) %>% 
-    mutate(p.signif = sapply(p.value, function(x) stars_signif(x))) %>% 
-    print()
+  cat("\n")
+  cat("##### Homogeneity test")
+  print(tibble::as.tibble(full_ancovaPost$assump$homo))
+  cat("##### ANCOVA output")
+  print(tibble::as.tibble(full_ancovaPost$main))
+  # tidy(mod_ancovaPost) %>% 
+  #   mutate(p.signif = sapply(p.value, function(x) stars_signif(x))) %>% 
+  #   print()
+  # cat("\n")
+  cat("##### Post Hoc")
+  print(tibble::as.tibble(full_ancovaPost$postHoc[[1]]))
+  # tidy(sum_postHocs) %>% 
+  #   mutate(p.signif = sapply(p.value, function(x) stars_signif(x))) %>% 
+  #   print()
+  cat("\n")
+  cat("##### Homogeneity of regression slopes")
+  subchunkify(plot(scatter), 5, 5)
 }
 ```
 
@@ -495,6 +550,120 @@ df_OxyPost_cor <-
 df_OxyPost_cor %>%
     print(n = Inf)
 df_OxyPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with Stess
+
+```{r cor_VasS, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with VasS
+df_VasSAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+    dplyr::as_tibble() %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .)))                           # only VasS, but both Pre and Post VasS
+
+df_VasSAll_cor %>%              
+    print(n = Inf)                                     
+
+# Correlations only on Pre measures with VasS
+df_VasSPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .))) 
+
+df_VasSPre_cor %>%
+  print(n = Inf)
+df_VasSPre_cor %>% 
+  func_dotplot_cor()
+
+# Correlations only on Post measures with VasS
+df_VasSPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .))) 
+
+df_VasSPost_cor %>%
+    print(n = Inf)
+df_VasSPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with Well Being
+
+```{r cor_VasB, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with VasB
+df_VasBAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+  dplyr::as_tibble() %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .)))                           # only VasB, but both Pre and Post VasB
+
+df_VasBAll_cor %>%              
+  print(n = Inf)                                     
+
+# Correlations only on Pre measures with VasB
+df_VasBPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .))) 
+
+df_VasBPre_cor %>%
+  print(n = Inf)
+df_VasBPre_cor %>%
+  func_dotplot_cor()
+
+# Correlations only on Post measures with VasB
+df_VasBPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .))) 
+
+df_VasBPost_cor %>%
+  print(n = Inf)
+df_VasBPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with IOS 
+
+```{r cor_IOS, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with IOS
+df_IOSAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+  dplyr::as_tibble() %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .)))                           # only IOS, but both Pre and Post IOS
+
+df_IOSAll_cor %>%              
+  print(n = Inf)                                     
+
+# Correlations only on Pre measures with IOS
+df_IOSPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .))) 
+
+df_IOSPre_cor %>%
+  print(n = Inf)
+df_IOSPre_cor %>%
+  func_dotplot_cor()
+
+# Correlations only on Post measures with IOS
+df_IOSPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .))) 
+
+df_IOSPost_cor %>%
+  print(n = Inf)
+df_IOSPost_cor %>% 
   func_dotplot_cor()
 ```
 
