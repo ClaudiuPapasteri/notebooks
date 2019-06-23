@@ -14,10 +14,10 @@ output:
             font-family: Arial
             fig_width: 10
             fig_height: 9
-    pdf_document: 
-            toc: true
-            toc_depth: 2
-            number_sections: true
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
             # fontsize: 11pt
             # geometry: margin=1in
             # fig_width: 7
@@ -269,7 +269,8 @@ Data_teatru <-
                           `Etapã, zi` == "III.2" ~ "zi6", 
                           `Etapã, zi` == "IV.1" ~ "zi7", 
                           `Etapã, zi` == "IV.2" ~ "zi8", 
-                          TRUE ~ NA_character_)) 
+                          TRUE ~ NA_character_)) %>%
+  unite(col = "Etapa_Zi", Etapa, Zi, remove = FALSE)
 
 Data_psiho <- 
   Data_psiho %>%
@@ -286,7 +287,8 @@ Data_psiho <-
                         `Etapã, zi` == "III.2" ~ "zi6", 
                         `Etapã, zi` == "IV.1" ~ "zi7", 
                         `Etapã, zi` == "IV.2" ~ "zi8", 
-                        TRUE ~ NA_character_)) 
+                        TRUE ~ NA_character_)) %>%
+  unite(col = "Etapa_Zi", Etapa, Zi, remove = FALSE)
 
 ## Unite data sets
 Data_teatru$Dataset <- rep("teatru", nrow(Data_teatru))
@@ -295,6 +297,21 @@ Data_psiho$Dataset <- rep("psiho", nrow(Data_psiho))
 Data_United <- rbind(Data_teatru, Data_psiho)
 ```
 
+
+# Sample descriptives
+
+```{r sample_desc}
+cat("## Number of subjects")
+Data_United %>% 
+ dplyr::rename(ID = `Indicativ subiect`) %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+cat("## Number of subjects by Teatru/Psiho")
+Data_United %>%
+ dplyr::rename(ID = `Indicativ subiect`) %>% 
+ group_by(Dataset) %>%
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+```
 
 # Outcomes Pre-Post Intervention
 
@@ -404,8 +421,10 @@ plot_panas_zi <- function(df, pre_var, post_var){
   
   stat.test <-
     df_modif %>%
-    rstatix::pairwise_t_test(value ~ Zi) %>%                # pairwise
-    # rstatix::adjust_pvalue() %>%                          # (stat_compare_means doesnt do adjusted), parwise is already adjusted here
+    select(value, variable, Zi) %>%
+    tidyr::drop_na() %>%                          # need to remove NAs so factor level of condition can be droped as well         
+    rstatix::t_test(value ~ Zi) %>%                # automatically does pairwise, but has problems were factor levels of grouping with NA
+    # rstatix::adjust_pvalue() %>%                          
     rstatix::add_significance() %>%                                                       
     filter(p.signif != "ns") 
   
@@ -470,23 +489,28 @@ plot_prepost_zi2 <- function(df, pre_var, post_var){
   
   stat.test <-
     df_modif %>%
-    #group_by(`Indicativ subiect`) %>%
+    # group_by(`Indicativ subiect`) %>%
     rstatix::t_test(value ~ condition) %>%
-    rstatix::adjust_pvalue() %>%
+    # rstatix::adjust_pvalue() %>%
     rstatix::add_significance() %>%
     filter(p.signif != "ns") 
   
-  ggplot(df_modif, aes(y = value, x = condition)) +
-    ggtitle(deparse(substitute(df))) + 
-    geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred") +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-    stat_pvalue_manual(stat.test, label = "p.signif", 
-                       y.position = seq(max(df_modif$value, na.rm = TRUE)+2, max(df_modif$value, na.rm = TRUE)*2, 
-                                        length.out = nrow(stat.test)))                                                  # very hacky
+  p <- 
+    ggplot(df_modif, aes(y = value, x = condition)) +
+      ggtitle(deparse(substitute(df))) + 
+      geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      stat_pvalue_manual(stat.test, label = "p.signif", 
+                         y.position = seq(max(df_modif$value, na.rm = TRUE)+2, max(df_modif$value, na.rm = TRUE)*2, 
+                                          length.out = nrow(stat.test)))                                                  # very hacky
+  
+  print(p)
+  return(stat.test) %>% print(n = Inf)
+  
 }
 
 
-
+# cat("## By Zi")
 cat("### Teatru")
 plot_prepost_zi(Data_teatru, "IOS pre", "IOS post")
 plot_prepost_zi2(Data_teatru, "IOS pre", "IOS post")
@@ -496,6 +520,59 @@ plot_prepost_zi2(Data_psiho, "IOS pre", "IOS post")
 cat("### United")
 plot_prepost_zi(Data_United, "IOS pre", "IOS post")
 plot_prepost_zi2(Data_United, "IOS pre", "IOS post")
+
+
+cat("## ANOVA for Baseline each Etapa")
+plot_anova_base <- function(df, pre_var, post_var){
+  df %>%
+    select(Etapa, Zi, pre_var, post_var) %>%
+    gather(pre_var, post_var, key = "variable", value = "value") %>%
+    mutate(variable = factor(variable, levels = c(pre_var, post_var))) %>%
+    filter(variable == pre_var)  %>%
+      
+    jmv::ANOVA(formula = value ~ Zi,
+               effectSize = list('eta', 'partEta')) -> anova_base
+    
+    print(tibble::as.tibble(anova_base$main))
+}
+plot_anova_base(Data_United, "IOS pre", "IOS post")
+
+
+cat("## By Etapa")
+plot_prepost_etapa <- function(df, pre_var, post_var){
+  df_modif <-
+    df %>%
+      select(Etapa, Zi, pre_var, post_var) %>%
+      gather(pre_var, post_var, key = "variable", value = "value") %>%
+      mutate(variable = factor(variable, levels = c(pre_var, post_var))) %>%
+      filter(variable == pre_var & Zi %in% sprintf("zi%d", seq(1, 8, by = 2))  |
+             variable == post_var & Zi %in% sprintf("zi%d", seq(2, 8, by = 2)))  
+  
+  stat.test <- 
+    df_modif %>%     
+      group_by(Etapa) %>%
+      rstatix::t_test(value ~ Zi) %>%
+      # rstatix::adjust_pvalue() %>%
+      rstatix::add_significance() %>%
+      filter(p.signif != "ns")
+  
+  p <- 
+    ggplot(data = df_modif, aes(y = value, x = variable)) +
+    facet_wrap(~Etapa, nrow = 1) + 
+    ggtitle(deparse(substitute(df))) + 
+    geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred")  +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    ggpubr::stat_compare_means(method = "t.test",
+                               label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                               #paired = TRUE,
+                               comparisons = list(c(pre_var, post_var)))
+
+  print(p)
+  return(stat.test) %>% print(n = Inf)
+}
+plot_prepost_etapa(Data_teatru, "IOS pre", "IOS post")
+
+
 ```
 
 
@@ -514,7 +591,7 @@ plot_preexpost_zi <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_var
     df_modif %>%
     group_by(Zi) %>%
     tidyr::drop_na(value) %>%                                     # filter so grouping factor levels get droped and we can compare with unevel levels
-    rstatix::pairwise_t_test(value ~ variable) %>%                # pairwise
+    rstatix::t_test(value ~ variable) %>%                # pairwise
     rstatix::add_significance() %>%                                    
     filter(p.signif != "ns") 
   
@@ -532,7 +609,7 @@ plot_preexpost_zi <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_var
   p
 }
 
-
+cat("## By Zi")
 cat("## VAS stres")
 cat("### Teatru")
 plot_preexpost_zi(Data_teatru, "VAS stres pre", "VAS stres post ex1", "VAS stres post ex2", "VAS stres post ex3")
@@ -558,6 +635,51 @@ cat("### Psiho")
 plot_preexpost_zi(Data_psiho, "VAS corp pre", "VAS corp post ex1", "VAS corp post ex2", "VAS corp post ex3")
 cat("### United")
 plot_preexpost_zi(Data_United, "VAS corp pre", "VAS corp post ex1", "VAS corp post ex2", "VAS corp post ex3")
+
+
+
+
+plot_preexpost_etapa <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_var){
+  df_modif <-
+    df %>%
+    gather(pre_var, post_x1_var, post_x2_var, post_x3_var, key = "variable", value = "value") %>%
+    filter((variable == pre_var & Zi %in% sprintf("zi%d", seq(1, 8, by = 2)))  |                           # pre  
+           (variable == post_x1_var & Zi %in% c("zi2", "zi8"))  |                                    # post variations
+           (variable == post_x2_var & Zi == "zi4")  |
+           (variable == post_x3_var & Zi == "zi6"))  %>%
+    mutate(variable = case_when(stringr::str_detect(variable, "pre") ~ "pre",
+                                stringr::str_detect(variable, "post") ~ "post")) %>%
+    mutate(variable = factor(variable, levels = c("pre", "post")))
+
+  stat.test <-
+    df_modif %>%
+    group_by(Etapa) %>%
+    tidyr::drop_na(value) %>%                                     # filter so grouping factor levels get droped and we can compare with unevel levels
+    rstatix::t_test(value ~ variable) %>%                # pairwise
+    rstatix::add_significance() %>%
+    filter(p.signif != "ns")
+
+  p<-
+    ggplot(df_modif, aes(y = value, x = variable)) +
+      facet_wrap(~Etapa, nrow = 1) +
+      ggtitle(deparse(substitute(df))) +
+      geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      stat_pvalue_manual(stat.test, label = "p.signif",
+                         y.position = seq(max(df_modif$value, na.rm = TRUE)+2, max(df_modif$value, na.rm = TRUE)*2,
+                                          length.out = nrow(stat.test)))                                                  # very hacky
+
+  print(p)
+  return(stat.test) %>% print(n = Inf)
+}
+
+cat("## By Etapa - Only United")
+cat("### VAS Stres")
+plot_preexpost_etapa(Data_United, "VAS stres pre", "VAS stres post ex1", "VAS stres post ex2", "VAS stres post ex3")
+cat("### VAS St bine")
+plot_preexpost_etapa(Data_United, "VAS stare de bine pre", "VAS stare de bine post ex1", "VAS stare de bine post ex2", "VAS stare de bine post ex3")
+cat("### VAS St bine corp")
+plot_preexpost_etapa(Data_United, "VAS corp pre", "VAS corp post ex1", "VAS corp post ex2", "VAS corp post ex3")
 ```
 
 
