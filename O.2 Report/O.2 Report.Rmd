@@ -5,6 +5,7 @@ author: "<br> Claudiu Papasteri"
 date: "`r format(Sys.time(), '%d %m %Y')`"
 output: 
     html_notebook:
+          # self_contained: no
             code_folding: hide
             toc: true
             toc_depth: 2
@@ -291,6 +292,12 @@ func_t_box <- function(df, ind, pre_var, post_var){
   
   stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
   
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
   plot <- 
     ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
                      color = "Cond", line.color = "gray", line.size = 0.4,
@@ -301,6 +308,7 @@ func_t_box <- function(df, ind, pre_var, post_var){
   
   cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
   print(stat_comp)
+  print(stat_comp2)
   print(plot)
 }
 
