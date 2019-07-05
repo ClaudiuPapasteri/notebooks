@@ -1,0 +1,361 @@
+---
+title: "<br> O1A Report" 
+subtitle: "Oxytocin and Cortisol"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plyr", 
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+wd <- "C:/Users/Mihai/Desktop/o1a-report-oxy"
+setwd(wd)
+```
+
+
+<!-- Report -->
+
+
+# Load data
+
+```{r raw_data, results = 'hide'}
+## Read
+Data <- rio::import("rezultate_oxitocina_pre_post_O1a_id28corectat.xlsx", sheet = "oxitocina+cortizol")
+Data_PsySOP <- readRDS("Date_merged_Psy&SOP.RDS")
+```
+
+
+# Processing data
+
+```{r processed_data, cache = TRUE, dependson = "raw_data"}
+## Clean
+Data <-
+  Data %>%
+    dplyr::filter(rowSums(is.na(.)) < 8) %>%               # filter out rows (no more than 7 NA on row)
+    dplyr::select(which(colMeans(is.na(.)) < 0.5))         # filter out columns with Catalina's statistics (no more than 1/2 NA on column values)
+
+
+## Transform in oder to be consistent with past behavioral data 
+oldnames = colnames(Data)
+newnames = c("ID_pre","Cortizol_pre", "Oxitocina_pre", "ID_post","Cortizol_post", "Oxitocina_post", "Conditie")
+
+Data <-
+  Data %>% 
+  dplyr::rename_at(vars(oldnames), ~ newnames) %>%
+  dplyr::select(-ID_post) %>%
+  dplyr::mutate(ID_pre = stringr::str_remove_all(ID_pre, c(" proba A|/proba A"))) %>%     # small inconsistency "/proba"
+  tidyr::separate(ID_pre,  c("ID", "Ziua", "Nr_zi"), "\\s+") %>%                          # split on white space
+  dplyr::mutate(Ziua = rep("zi", length.out = n())) %>%
+  tidyr::unite("Zi", c("Ziua", "Nr_zi"), sep = "", remove = TRUE) %>%
+  mutate(ID = as.numeric(str_extract(ID, "[^/]+"))) %>%                                   # [^/]+ matches 1 or more chars other than /
+  mutate(ID = as.character(ID))                                                             # ID Psy&SOP are char, not numeric...for merge
+
+## Melt -- not needed here
+Data_melt <-
+  Data %>% 
+  gather(variable, value, -ID, -Zi, -Conditie) %>%
+  tidyr::separate(variable,  c("variable", "PrePost"), "_") %>%
+  spread(variable, value) %>%
+  mutate(PrePost = factor(PrePost, levels = c("pre","post"))) %>%
+  dplyr::arrange(ID)
+```
+
+<!-- Inspect Data - switched off -->
+```{r inspectdata, echo=FALSE, results="hide"} 
+# print(summarytools::dfSummary(Date, style = 'grid', plain.ascii = FALSE, graph.magnif = 0.85),    # suppress output
+#       method = 'render', headings = FALSE)
+# str(Date, list.len=ncol(Date))  # data types are fine
+```
+
+
+# Merge with SOP
+
+```{r merged_data, cache = TRUE, dependson = "processed_data"}
+## Merge with Psy&SOP data
+Data_merged <- left_join(Data_PsySOP, Data, by = c("ID", "Conditie"))             # all good: ID 1,4,36,42 dont have Oxy&Cort 
+
+varnottable <- c("Nume_Prenume", "NA_per_row",
+                 "IOS_mama", "IOS_tata", "IOS_iubit", "IOS_prieten", "IOS_personalitate",
+                 sprintf("Stais_pre_%01d", seq(1,20)), 
+                 sprintf("Stais_post_%01d", seq(1,20)))
+
+Data_merged <- 
+  Data_merged %>%
+  rename_at(vars(ends_with("Pre")), funs(gsub("Pre", "pre", .))) %>%              # _Pre and _Post -> tolower ... helps for automation
+  rename_at(vars(ends_with("Post")), funs(gsub("Post", "post", .))) %>%
+  select(-varnottable)
+```
+
+
+## Table of Merged O.1.A (Psy&SOP&Oxy)
+
+```{r table_merged_data}
+Data_merged %>%                              
+    DT::datatable(                                  # excel downloadable  DT table
+      extensions = 'Buttons',
+      options = list(pageLength = 20,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+```
+
+
+<br>
+<br>
+
+
+# Define Functions
+
+```{r def_func}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Define Function for mining correlations
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Function for p-value significance -- both for func_ancova_multibox(), Get_Top_Relationships() and Correlations_With_One()
+stars_signif <- function(pval) {
+  stars = "ns"
+  if(pval <= 0.001)
+    stars = "***"
+  if(pval > 0.001 & pval <= 0.01)
+    stars = "**"
+  if(pval > 0.01 & pval <= 0.05)
+    stars = "*"
+  if(pval > 0.05 & pval <= 0.1)
+    stars = "."
+  stars
+}
+
+
+## Function that returns correlations of all variables in descending order.
+# Arg for threshold with default at .3 will keep only correlantions above .3 and below -.3. Also has threshhold for p-value. 
+Get_Top_Relationships <- function(data_set, 
+                                  correlation_abs_threshold=0.3,
+                                  pvalue_threshold=0.05) {
+  require(psych)
+  require(dplyr)
+  feature_names <- names(data_set)
+  # strip var names to index for pair-wise identification
+  names(data_set) <- seq(1:ncol(data_set))
+  # calculate correlation and significance numbers
+  cor_data_df <- psych::corr.test(data_set)
+  # apply var names to correlation matrix over index
+  rownames(cor_data_df$r) <- feature_names
+  colnames(cor_data_df$r) <- feature_names
+  # top cor and sig
+  relationships_set <- cor_data_df$ci[,c('r','p')]
+  # apply var names to data over index pairs
+  relationships_set$feature_1 <- feature_names[as.numeric(sapply(strsplit(rownames(relationships_set), "-"), `[`, 1))]
+  relationships_set$feature_2 <- feature_names[as.numeric(
+    sapply(strsplit(rownames(relationships_set), "-"), `[`, 2))]
+  relationships_set <- dplyr::select(relationships_set, feature_1, feature_2, r, p) %>% dplyr::rename(correlation = r, p.value = p)
+  # return only the most insteresting relationships
+  return(relationships_set %>%
+         filter(abs(correlation) > correlation_abs_threshold &
+                  p.value < pvalue_threshold) %>%
+         arrange(p.value) %>%
+         mutate(p.signif = sapply(p.value, function(x) stars_signif(x)))) %>%
+         mutate(p.value = round(p.value, 3)) 
+
+}
+
+
+## Function for ploting correlation data frames resulting from Get_Top_Relationships and Correlations_With_One()
+func_dotplot_cor <- function(df){                                        # https://www.r-pkg.org/pkg/ggpubr
+  dotplotcor_scale_fill <- function(...){                                # Fix colors to signif factor levels even if missing
+    ggplot2:::manual_scale(                                   
+      'color', 
+      values = setNames(
+        c("darkgreen", "green3", "lawngreen", "yellow", "red"), 
+        c("***", "**", "*", ".", "ns")), 
+      ...
+    )
+  }                                           
+  
+  dtoplot_theme <- 
+    ggpubr::theme_pubr() +
+    theme(axis.text.y = element_text(size = 10))
+  
+  if(!"Variable" %in% colnames(df)){                                             # in oder to work for both Get_Top_Relationships and Correlations_With_One()
+  df <- 
+    df %>%                                            
+      unite(cor_between, c("feature_1", "feature_2"), sep = " X ")               # unite 2 columns to x name from plot
+  }else df <- df %>% dplyr::rename(cor_between = Variable)                       # change Variable to x name from plot
+  
+  df %>%
+    ggpubr::ggdotchart(x = "cor_between", y = "correlation",
+                       color = "p.signif",                                       # Color by sig
+                       #   palette = c("#00AFBB", "#E7B800", "#FC4E07"),         # Custom color palette
+                       sorting = "descending",                                   # Sort value in descending order
+                       add = "segments",                                         # Add segments from y = 0 to dots
+                       add.params = list(color = "lightgray", size = 2),         # Change segment color and size
+                       group = "p.signif",                                       # Order by groups
+                       dot.size = 8,                                             # Large dot size
+                       xlab = "",
+                       rotate = TRUE,                                            # Rotate vertically
+                       label = round(.$correlation, 1),                          # Add mpg values as dot labels
+                       font.label = list(color = "white", size = 9, 
+                                         vjust = 0.5),                           # Adjust label parameters
+                       ggtheme = dtoplot_theme) +                                # ggplot2 theme
+    dotplotcor_scale_fill() +                                            # Fix colors to signif factor levels even if missing
+    geom_hline(yintercept = 0, linetype = 2, color = "lightgray")
+}
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Function for t test and boxplot
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+func_t_box <- function(df, ID, Conditie, pre_var, post_var){
+  df_modif <-
+    df %>%
+    select(ID, Conditie, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "PrePost", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(PrePost = factor(PrePost, levels = c(pre_var, post_var))) 
+  
+  stat_comp <-
+    df_modif %>% 
+    group_by(Conditie) %>% 
+    do(tidy(t.test(.$value ~ .$PrePost,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "PrePost", y = "value", id = ID, 
+                     color = "PrePost", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+    facet_wrap(~Conditie) +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$PrePost) * 0.90, label.y = max(df_modif$value) * 1.15) + 
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(plot)
+}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```
+
+
+# Analyses
+
+## Pre-Post differences on Oxytocin and Cortisol
+
+```{r t_oxy_cort, fig.width=10, fig.height=11, results='asis'}
+func_t_box(Data, "ID", "Conditie", "Cortizol_pre", "Cortizol_post")  
+func_t_box(Data, "ID", "Conditie", "Oxitocina_pre", "Oxitocina_post") 
+```
+
+
+## Correlations between Difference Scores
+
+```{r cor_diff, fig.width=10, fig.height=12}
+## Automatic Post-Pre Difference Scores
+var_prepost <- colnames(Data_merged[, grepl(".*pre|.*post", colnames(Data_merged))])    # find variables that have "pre" and "post"
+var_prepost <-  gsub("_pre", "", var_prepost)                                           # delete pre and post from colname
+var_prepost <-  gsub("_post", "", var_prepost)
+var_prepost <- unique(var_prepost)                                                      # keep unique -- all good         
+new_diffvar_name <- vector(mode="character", length = length(var_prepost))              # initialize vector for for()
+
+for(i in seq_along(var_prepost)){
+    var_name_pre <- paste0(var_prepost[i], "_pre")
+    var_name_post <- paste0(var_prepost[i], "_post")
+    new_diffvar_name[i] <- paste0(var_prepost[i], "_Diff")
+    Data_merged[, new_diffvar_name[i]] <- Data_merged[, var_name_post] - Data_merged[, var_name_pre]
+}
+
+# Select variables
+vars_cor <- new_diffvar_name[!new_diffvar_name %in% c("AllButtons_Diff", "AllButtons45_Diff", 
+                                                      "Ones_Diff", "Ones45_Diff",
+                                                      "Threes_Diff", "Threes45_Diff", 
+                                                      "Twos_Diff", "Twos45_Diff")]       # exclude these
+vars_cor <- c(vars_cor,
+              c("Vas_rel_global", "Vas_rel_arousal", "CRQ_1", "CRQ_2", "CRQ_3", "CRQ_4", "CRQ_5", "CRQ_6"))
+
+## Correlations
+Get_Top_Relationships(Data_merged[, vars_cor])
+Get_Top_Relationships(Data_merged[, vars_cor]) %>% func_dotplot_cor()
+```
+
+
+
+<br>
+<br>
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
