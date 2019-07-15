@@ -72,7 +72,7 @@ theme_set(theme_apa())
 ```
 
 ```{r working_directory, include = FALSE}
-wd <- "C:/Users/Mihai/Desktop/o1a-report-oxy"
+wd <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1a-report-oxy"
 setwd(wd)
 ```
 
@@ -337,6 +337,79 @@ vars_cor <- c(vars_cor,
 ## Correlations
 Get_Top_Relationships(Data_merged[, vars_cor])
 Get_Top_Relationships(Data_merged[, vars_cor]) %>% func_dotplot_cor()
+```
+
+
+<br>
+
+# Conditioning on VAS global
+
+## Pre-Post differences on Oxytocin and Cortisol
+
+```{r cond_t_oxy_cort, fig.width=10, fig.height=11, results='asis'}
+Data_merged %>%
+  filter(Vas_rel_global >= 7) %>%
+  func_t_box(., "ID", "Conditie", "Cortizol_pre", "Cortizol_post") 
+
+Data_merged %>%
+  filter(Vas_rel_global >= 7) %>%
+  func_t_box(., "ID", "Conditie", "Oxitocina_pre", "Oxitocina_post") 
+```
+
+
+<br>
+
+# Moderation Analysis
+
+```{r mod_oxy_cort, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
+## Define Function
+func_moderation <- function(Data, dep, mod, pred){
+  moderation <- 
+    Data %>%
+      medmod::mod(., dep = dep, mod = mod, pred = pred,
+                  ci = TRUE, estMethod = 'standard', test = TRUE, simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+  
+  cat(paste("<b> Moderation: ", "Dep = ", dep, "Pred = ", pred, "Mod = ", mod, "</b>"))
+  moderation$mod %>% 
+    knitr::kable(caption = "Moderation", digits = 3) %>%
+    print()
+  moderation$simpleSlope$plot %>%
+    print()
+}
+
+## Apply Function
+func_moderation(Data = Data_merged, dep = "Oxitocina_post", mod = "Vas_rel_arousal", pred = "Oxitocina_pre")
+func_moderation(Data = Data_merged, dep = "Cortizol_post", mod = "Vas_rel_arousal", pred = "Cortizol_pre")
+
+# bla <-
+#   Data_merged %>%
+#   mutate(Conditie = as.numeric(as.factor(Conditie)))
+# 
+# psych::mediate(data = bla, Oxitocina_post ~ Oxitocina_pre + Conditie + Vas_rel_global)   # moderation with covariate and diagram
+```
+
+
+# Mediation Analysis
+
+```{r med_oxy_cort, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE,   include=FALSE}
+## Define Function
+func_mediation <- function(Data, dep, med, pred){
+  mediation <- 
+    Data %>%
+      medmod::med(., dep = dep, med = med, pred = pred,
+                  ci = TRUE, label = TRUE, paths = TRUE, pm = TRUE, estPlot = TRUE)
+  
+  cat(paste("<b> Mediation: ", "Dep = ", dep, "Pred = ", pred, "Med = ", med, "</b>"))
+  mediation$med %>% 
+    knitr::kable(caption = "Moderation", digits = 3) %>%
+    print()
+  mediation$estPlot %>%
+    print()
+}
+
+## Apply Function
+func_mediation(Data = Data_merged, dep = "Oxitocina_post", med = "CRQ_4", pred = "Oxitocina_pre")
+func_mediation(Data = Data_merged, dep = "Cortizol_post", med = "CRQ_4", pred = "Cortizol_pre")
 ```
 
 
