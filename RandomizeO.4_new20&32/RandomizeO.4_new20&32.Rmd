@@ -140,7 +140,7 @@ table_eeg_rand %>%
 ```{r randomize_blocks30}
 # Repetate
 set.seed(101)
-eeg_rand32 <- psych::block.random(32, c(Condition1 = 2, Order1 = 2, Set1 = 2)) 
+eeg_rand32 <- psych::block.random(32, c(Condition1 = 2, Order1 = 2, Set1 = 4)) 
 
 table_eeg_rand32 <- 
   eeg_rand32 %>% 
@@ -152,11 +152,13 @@ table_eeg_rand32 <-
                             Order1 == 2 ~ "Solo-Instr", 
                             TRUE ~ NA_character_)) %>%
   mutate(Set1 = case_when(Set1 == 1 ~ "1-2" ,
-                            Set1 == 2 ~ "2-1", 
-                            TRUE ~ NA_character_)) %>%
+                          Set1 == 2 ~ "2-1",
+                          Set1 == 3 ~ "1-2f" ,
+                          Set1 == 4 ~ "2-1f",
+                          TRUE ~ NA_character_)) %>%
   mutate(Condition2 = if_else(Condition1 == "ogl", "ctrl", "ogl")) %>%
   mutate(Order2 = if_else(Order1 == "Instr-Solo", "Solo-Instr", "Instr-Solo")) %>%
-  mutate(Set2 = if_else(Set1 == "1-2", "2-1", "1-2")) %>%
+  mutate(Set2 = if_else(Set1 %in% c("1-2", "2-1f"), "2-1", "1-2")) %>%
   mutate(ID = 1:nrow(.)) %>%
   mutate(Instructor = rep(NA, nrow(.)))
   
