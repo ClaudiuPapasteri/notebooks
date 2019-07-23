@@ -151,7 +151,7 @@ table_eeg_rand32 <-
   mutate(Order1 = case_when(Order1 == 1 ~ "Instr-Solo" ,
                             Order1 == 2 ~ "Solo-Instr", 
                             TRUE ~ NA_character_)) %>%
-  mutate(Order1 = case_when(Set1 == 1 ~ "1-2" ,
+  mutate(Set1 = case_when(Set1 == 1 ~ "1-2" ,
                             Set1 == 2 ~ "2-1", 
                             TRUE ~ NA_character_)) %>%
   mutate(Condition2 = if_else(Condition1 == "ogl", "ctrl", "ogl")) %>%
