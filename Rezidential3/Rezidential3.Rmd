@@ -1,0 +1,213 @@
+---
+title: "<br> Rezidential" 
+subtitle: "Network Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+    #         toc: true
+    #         toc_depth: 2
+    #         number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  cache = TRUE, 
+  warning = FALSE, message = FALSE   # WHEN NOTEBOOK IS FINISHED ... until then leave: warning = TRUE, message = TRUE        
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "knitr", "kableExtra", "papaja",  
+  "tidyverse", "plyr",      
+  "psych", "psycho",           
+  "broom", "summarytools", "tadaatoolbox", "PerformanceAnalytics",          
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "Hmisc", 
+  "GGally", "corrplot", "RColorBrewer", 
+  "car",
+  "IsingFit", "qgraph", "igraph"     # for network analyses
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+# if needed
+# wd = "./Rezidential"
+# setwd(wd)
+```
+
+
+<!-- REPORT -->
+
+# Load data
+
+```{r rds_data, results = 'hide', cache.extra = file.info("Data_Rezidential.RDS")}
+## Read
+filename <- "Data_Rezidential.RDS"   
+
+Data <- readRDS(filename)  
+```
+
+
+## Modify ACE Score to take into account that all are institutionalized
+
+```{r derived_data, dependson = "rds_data"}
+Data$CYW <- ifelse(Data$CYW == 0, 0, Data$CYW - 1) 
+```
+
+
+## Percentage of individually reported ACEs out of ACE Score
+
+```{r perc_indivACE}
+indiv_ACE_sum <- rowSums(Data[, c(sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))], na.rm = TRUE)
+# sum(Data$CYW - indiv_ACE_sum < 0)    # 7 cases where indiv_ACE_sum > Data$CYW
+
+## Summaries
+cat("### summary individually reported")
+summary(indiv_ACE_sum, na.rm = TRUE)
+cat("### summary overall reported")
+summary(Data$CYW, na.rm = TRUE)
+
+# Plots
+acescore_df <- data.frame(ID = Data$ID, Individual = indiv_ACE_sum, Overall = Data$CYW)
+acescore_df %>%
+  gather(Var, Val, -ID) %>%
+    # ggviolin(., x = "Var", y = "Val", 
+    #             add = c("boxplot", "mean_sd")) +
+    ggerrorplot(., x = "Var", y = "Val",
+            desc_stat = "mean_sd", color = "black",
+            add = "violin", add.params = list(color = "darkgrey"),
+            xlab = NULL, ylab = "Reported score") +
+    stat_compare_means(comparisons = list( c("Individual", "Overall")), label = "p.signif")+ # Add significance levels
+    stat_compare_means(label.y = 20, label.x = 0.55)
+
+
+cat("### simple percent of sums of events")
+sum(acescore_df$Individual) / sum(acescore_df$Overall) * 100     # so they report only 70% of ACEs individually
+
+
+```
+
+
+# Network
+
+```{r ACE_net}
+## Dataframe
+Ace_col_names <- c(sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))
+Ace_new_names <- c("divort", "incarcerare", "boala mintala", "amenintare", "umilire", 
+                   "abuz sexual", "lipsuri", "abuz fizic", "adictie", "nesiguranta", 
+                   "bullying", "deces", "emigrare", "boala", "violenta", 
+                   "rautate", "politie", "abuz partener") 
+
+netword_df <- Data[, c("ID", sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))]
+netword_df <- 
+  netword_df %>%
+  replace(is.na(.), 0) %>%
+  rename_at(vars(Ace_col_names), ~ Ace_new_names)
+
+## Fit eLasso net  
+eLasso_net <- IsingFit::IsingFit(netword_df[, names(netword_df) != "ID"], 
+                                family = "binomial",
+                                AND = TRUE, gamma = 0.25, 
+                                plot = TRUE, progressbar = FALSE,
+                                title = "eLasso")
+
+## Reproduce graph for community analysis (Walktrap clustering)
+net_plot <- qgraph::qgraph(eLasso_net$weiadj, 
+                           layout = "spring", weighted = TRUE, 
+                           labels = rownames(eLasso_net$weiadj),
+                           title = "eLasso - reproduced qgraph")  # put labels to avoid abbrev
+# plot(net_plot)
+centr_net_plot <- centralityPlot(eLasso_net$weiadj) # centrality_auto(eLasso_net$weiadj) to get matrix
+
+## Community analysis (Walktrap clustering)
+# ig_eLasso <- igraph::graph_from_adjacency_matrix(eLasso_net$weiadj, mode = "undirected" ,weighted = TRUE)
+ig_eLasso <- igraph::as.igraph(net_plot)
+plot(ig_eLasso, main = "eLasso - reproduced igraph")  # just check
+ig_eLasso_communities <- igraph::cluster_walktrap(ig_eLasso)
+ig_eLasso_commun_mem <- as.factor(ig_eLasso_communities$membership)
+
+## Plot qgraph with community results
+# Coloured
+qgraph::qgraph(net_plot, 
+               groups = ig_eLasso_commun_mem,
+               legend.cex = 0.7,                          # borders = FALSE, pastel = TRUE,
+               color = c("lightblue", "lightsalmon", "lightgreen", "lightgrey"),
+               title = NULL)
+# Greyscale
+qgraph::qgraph(net_plot, 
+               groups = ig_eLasso_commun_mem,
+               edge.color = "black", fade = TRUE,
+               legend.cex = 0.7,                          
+               color = c("grey90", "grey59", "grey35", "white"),
+               title = NULL)
+              
+              
+```
+
+
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
