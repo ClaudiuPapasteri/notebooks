@@ -51,6 +51,28 @@ for(i in seq_along(var_prepost)){
   Data_nycq[, new_diffvar_name[i]] <- Data_nycq[, var_name_post] - Data_nycq[, var_name_pre]
 }
 
+
+## Sort OGL and ECRAN separatly
+Data_arsq_OLG <-
+  Data_arsq %>%
+  filter(Conditie == "OGL")
+
+Data_arsq_ECRAN <-
+  Data_arsq %>%
+  filter(Conditie == "ECRAN")
+
+Data_nycq_OLG <-
+  Data_nycq %>%
+  filter(Conditie == "OGL")
+
+Data_nycq_ECRAN <-
+  Data_nycq %>%
+  filter(Conditie == "ECRAN")
+
 ## Write
-# xlsx::write.xlsx2(Data_arsq, "Data_arsq Diff for Miralena.xlsx")
-# xlsx::write.xlsx2(Data_nycq, "Data_nycq Diff for Miralena.xlsx")
+# xlsx::write.xlsx2(Data_arsq_OLG, "Data_arsq Diff for Miralena.xlsx", sheetName = "OGL", append = TRUE)
+# xlsx::write.xlsx2(Data_arsq_ECRAN, "Data_arsq Diff for Miralena.xlsx", sheetName = "ECRAN", append = TRUE)
+# xlsx::write.xlsx2(Data_nycq_OLG, "Data_nycq Diff for Miralena.xlsx", sheetName = "OGL", append = TRUE)
+# xlsx::write.xlsx2(Data_nycq_ECRAN, "Data_nycq Diff for Miralena.xlsx", sheetName = "ECRAN", append = TRUE)
+
+
