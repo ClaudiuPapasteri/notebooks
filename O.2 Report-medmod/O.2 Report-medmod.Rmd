@@ -1,0 +1,514 @@
+---
+title: "<br> O.2 Report-medmod" 
+subtitle: "Mediation and Moderation"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+          # self_contained: no
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+     # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plyr", 
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+<!-- Report -->
+
+
+# Read and Merge
+
+
+```{r read_merge, results='asis', warning=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read and Merge
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+wd <- "E:/Cinetic idei noi/EXPERIMENTE OGL Frontiers (O.2 & O.0.3 & O.0.2)"
+setwd(wd)
+
+DataTrust <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 Date PrelucrareSPSS cu NEO si STAI", "O.2 Date pt Trust BUN cu NEO si STAIY.xlsx"))
+DataDG <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 Date PrelucrareSPSS cu NEO si STAI", "O.2 Date pt DG BUN cu NEO si STAIY.xlsx"))
+DataVAS <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 VAS,IOS", "O.2 Date PrelucrareSPSS.xlsx"))
+DataBIO <- rio::import(file.path(wd, "O.2 BIO", "O.2 Ox si Cortizol.xlsx"))
+  
+Data_merge1 <- merge(DataVAS, DataTrust)  
+Data_merge2 <- merge(Data_merge1, DataDG) 
+Data_merge3 <- merge(Data_merge2, DataBIO)
+
+Data <- Data_merge3
+
+test_names <- unique(unlist(lapply(list(DataTrust, DataDG, DataVAS, DataBIO), names)))
+merge_names <- names(Data)
+
+if(identical(merge_names[order(merge_names)], test_names[order(test_names)])){    # the order matters in identical()
+  cat("**Merge was succesful**")
+  rm("Data_merge1", "Data_merge2", "Data_merge3", "DataBIO", "DataDG", "DataTrust", "DataVAS", "test_names", "merge_names")
+}else cat("**Merge unsuccesful**") 
+```
+
+
+# Derive new variables (not used here)
+
+```{r derive_var, hide=TRUE, eval=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Derive new variables
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Data$D_VasS_Poz <- Data[, "VasS_postPoz"] - Data[, "VasS_prePoz"] 
+Data$D_VasS_Neg <- Data[, "VasS_postNeg"] - Data[, "VasS_preNeg"]
+Data$D_VasB_Poz <- Data[, "VasB_postPoz"] - Data[, "VasB_prePoz"] 
+Data$D_VasB_Neg <- Data[, "VasB_postNeg"] - Data[, "VasB_preNeg"]
+Data$D_IOS_Poz <- Data[, "IOS_postPoz"] - Data[, "IOS_prePoz"] 
+Data$D_IOS_Neg <- Data[, "IOS_postNeg"] - Data[, "IOS_preNeg"]
+
+Data$D_Sam1_Poz <- Data[, "Sam1_postPoz"] - Data[, "Sam1_prePoz"] 
+Data$D_Sam1_Neg <- Data[, "Sam1_postNeg"] - Data[, "Sam1_preNeg"]
+Data$D_Sam2_Poz <- Data[, "Sam2_postPoz"] - Data[, "Sam2_prePoz"] 
+Data$D_Sam2_Neg <- Data[, "Sam2_postNeg"] - Data[, "Sam2_preNeg"]
+Data$D_Sam3_Poz <- Data[, "Sam3_postPoz"] - Data[, "Sam3_prePoz"] 
+Data$D_Sam3_Neg <- Data[, "Sam3_postNeg"] - Data[, "Sam3_preNeg"]
+
+Data$D_DG_Poz <- Data[, "DG_postPozTot"] - Data[, "DG_prePozTot"] 
+Data$D_DG_Neg <- Data[, "DG_postNegTot"] - Data[, "DG_preNegTot"]
+
+Data$D_TrustMin_Poz <- Data[, "TrustMinPozPost"] - Data[, "TrustMinPozPre"] 
+Data$D_TrustMin_Neg <- Data[, "TrustMinNegPost"] - Data[, "TrustMinNegPre"]
+Data$D_TrustTot_Poz <- Data[, "TrustTotPozPost"] - Data[, "TrustTotPozPre"] 
+Data$D_TrustTot_Neg <- Data[, "TrustTotNegPost"] - Data[, "TrustTotNegPre"]
+
+Data$D_Cort_Poz <- Data[, "Cort_post_Poz"] - Data[, "Cort_pre_Poz"] 
+Data$D_Cort_Neg <- Data[, "Cort_post_Neg"] - Data[, "Cort_pre_Neg"]
+Data$D_Ox_Poz <- Data[, "Ox_post_Poz"] - Data[, "Ox_pre_Poz"] 
+Data$D_Ox_Neg <- Data[, "Ox_post_Neg"] - Data[, "Ox_pre_Neg"]
+```
+
+
+## Define Functions
+
+```{r def_fun_medmod}
+find_med <- function(df, dfp = NULL, num_only = TRUE, verbose = TRUE) {
+  count = 0
+  mediation_model_list <<- list()
+  
+  if(num_only == TRUE){
+  numeric_cols <- unlist(lapply(df, is.numeric))                                      # get only numeric columns
+  df <- df[, numeric_cols]
+  }
+  
+  # permutations for Mediation - Check: factorial(len_names)/factorial(len_names-3)
+  names <- colnames(df)
+  len_names = length(names)
+  
+  if(is.null(dfp)){
+    dfp <- lapply(1:len_names, function(i){
+      tmp <- lapply(1:len_names, function(j){
+        tmp <- lapply(1:len_names, function(k){
+          if(j != i & k != i & k != j) c(names[i], names[j], names[k])
+        })
+        do.call(rbind, tmp)
+      })
+      do.call(rbind, tmp)
+    })
+    dfp <- do.call(rbind.data.frame, dfp)
+    names(dfp) <- paste("var", 1:3, sep = "_")
+    dfp[, ] <- lapply(dfp[, ], as.character)    
+  } else {
+    dfp <- dfp
+  }
+  
+  
+  for (row in 1:nrow(dfp)) {                
+    
+    results <- medmod::med(data = df,                                                  
+                          dep = dfp[row, 1], med = dfp[row, 2], pred = dfp[row, 3], 
+                          ci = TRUE, label = TRUE, 
+                          paths = TRUE, pm = TRUE, 
+                          estPlot = FALSE)             
+    
+    pmed <- as.data.frame(results$med)[1, 8]           # p-value of Indirect Effect
+
+    if(pmed < 0.05 && !is.na(pmed)) {
+      count <- count + 1
+      if(verbose == TRUE) {
+        cat("Mediator Variable:", dfp[row, 2], "| Predictor:", dfp[row, 3], "| Dependent:", dfp[row, 1])
+        print(results$med)
+        print(results$paths)
+      }
+      mediation_model_list[["MedEs"]][[paste("model", count, sep = "_")]] <<- as.data.frame(results$med)   # return as list of dataframes
+      mediation_model_list[["PathEs"]][[paste("model", count, sep = "_")]] <<- as.data.frame(results$paths)
+      mediation_model_list[["Syntax"]][[paste("model", count, sep = "_")]] <<- results$modelSyntax
+
+    }
+  }
+  cat("\n","Report: ", count, "significant mediations out of", row, "total tries.")
+}
+
+
+
+find_mod <- function(df, dfp = NULL, num_only = TRUE, verbose = TRUE) {
+  count = 0
+  moderation_model_list <<- list()
+
+  if(num_only == TRUE){
+  numeric_cols <- unlist(lapply(df, is.numeric))                                      # get only numeric columns
+  df <- df[, numeric_cols]
+  }
+  
+  # restricted permutations for Moderation - Check: choose(len_names, 3)*3
+  names <- colnames(df)
+  len_names = length(names)
+  
+  if(is.null(dfp)){
+    dfp <- lapply(1:len_names, function(i){
+      tmp <- lapply(1:(len_names-1), function(j){
+        tmp <- lapply((j+1):len_names, function(k){
+          if(j != i & k != i) c(names[i], names[j], names[k])
+        })
+        do.call(rbind, tmp)
+      })
+      do.call(rbind, tmp)
+    })
+    dfp <- do.call(rbind.data.frame, dfp)
+    names(dfp) <- paste("var", 1:3, sep = "_")
+    dfp[, ] <- lapply(dfp[, ], as.character)    
+  } else {
+    dfp <- dfp
+  }
+  
+  for (row in 1:nrow(dfp)) {                
+    
+    results <- medmod::mod(data = df,                                                   # mod does centering automatically
+                          dep = dfp[row, 1], mod = dfp[row, 2], pred = dfp[row, 3], 
+                          estMethod = "standard", test = TRUE, 
+                          simpleSlopeEst = FALSE, simpleSlopePlot = FALSE)             # when testing use estMethod = 'bootstrap', bootstrap = 500 
+    
+    pmod <- as.data.frame(results$mod)[3,5]
+
+    if(pmod < 0.05 && !is.na(pmod)) {
+      count <- count + 1
+        if(verbose == TRUE) {
+        cat("Dependent Variable:", dfp[row, 1])
+        print(results$mod) 
+        }
+      moderation_model_list[["Model"]][[paste("model", count, sep = "_")]] <<- as.data.frame(results$mod)   # return as list of dataframes
+      moderation_model_list[["Syntax"]][[paste("model", count, sep = "_")]] <<- results$modelSyntax
+      
+    }
+  }
+  cat("\n","Report: ", count, "significant moderations out of", row, "total tries.")
+}
+
+
+```
+
+
+```{r def_fun_LCSmed, warning=FALSE, message=FALSE}
+#######################################################################################################################################
+## LCS ANCOVA mediation function (adapted for lavaan from doi: 10.1080/10705511.2016.1274657)
+#######################################################################################################################################
+
+library(lavaan)
+library(semPlot)
+
+lcs_ancova_med <- function(df, x, y1, y2, m1, m2){
+  
+  arguments <- as.list(match.call())
+  x = eval(arguments$x, df)
+  y1 = eval(arguments$y1, df)
+  y2 = eval(arguments$y2, df)
+  m1 = eval(arguments$m1, df)
+  m2 = eval(arguments$m2, df)  
+  
+  df_mod <- data.frame(x, y1, y2, m1, m2)     # use this df creating part like this: lcs_ancova_med(mtcars, mpg, cyl, disp, hp, drat)
+
+  mod_syntax <- 
+  '
+  # Defining change in M as a function of M1 and M2
+  deltam =~ 1*m2
+  deltam ~~ deltam
+  deltam ~ 1
+  m2 ~ 1*m1
+  m2 ~~ 0*m1
+  m2 ~~ 0*m2
+  m2 ~ 0*1
+  m1 ~ 1
+  # Defining the change in Y as a function of Y1 and Y2
+  deltay =~ 1*y2
+  deltay ~~ deltay
+  deltay ~ 1
+  y2 ~ 1*y1
+  y2 ~~ 0*y1
+  y2 ~~ 0*y2
+  y2 ~ 0*1
+  y1 ~ 1
+  # Estimating the Pretest correlation between M1 and Y1 and Variance of X
+  m1 ~~ y1
+  # Estimated covariance between M1 and X and Y1 and X because these covariances may not be equal to zero especially 
+  # if X is not a randomized experiment without these the model has 2 degrees of freedom (covariances are only constrained to zero) 
+  # but ANCOVA model should start out as saturated and have 0 degrees of freedom 
+  m1 ~~ x # these covariances may not be equal to zero especially if X is not a randomized experiment
+  x ~~ y1 # these covariances may not be equal to zero especially if X is not a randomized experiment
+  # Regression of change in M on X and pretest measures
+  deltam ~ am2x*x + sm1*m1 + y1
+  # Regression of change in Y on X, change in M, and pretest measures
+  deltay ~ x + by2m2*deltam + b*m1 + sy1*y1
+  
+  # Making constraints to match estimates to ANCOVA
+  # Estimate of effect of M1 on M2 in ANCOVA
+  sm := sm1+1 
+  # Estimate of effect of Y1 on Y2 in ANCOVA
+  sy := sy1+1 
+  # Estimate of effect of M1 on Y2 in ANCOVA
+  by2m1 := b-by2m2 
+  # Estimate of mediated effect
+  med := am2x*by2m2 
+  '  
+  
+  mod <- lavaan::sem(model = mod_syntax, data = df_mod, test = "bootstrap")  
+}
+
+
+
+#######################################################################################################################################
+# Use - dont run
+#######################################################################################################################################
+
+# mod <- lcs_ancova_med(df = df2, x = Cond, y1 = Out1, y2 = Out2, m1 = Med1, m2 = Med2)
+# 
+# summary(mod, standardized = TRUE)
+# semPlot::semPaths(mod, layout = "spring",  nCharNodes = 0, nCharEdges = 0, what = "path", whatLabels = "path", edge.label.cex = 0.8) 
+
+```
+
+
+# Downloadable Table
+
+```{r dt_table}
+Data %>% 
+  select(-"Nume Prenume") %>%
+    DT::datatable(                                  # excel downloadable  DT table
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+```
+
+
+# Analyses
+
+## Melt Data
+
+```{r melt_data}
+Data_med <- Data %>%
+  select(-c(1:4,6,7), 
+         -c("DG_prePoz1", "DG_prePoz2", "DG_prePoz3", "DG_postPoz1", "DG_postPoz2", "DG_postPoz3",  
+           "DG_preNeg1", "DG_preNeg2", "DG_preNeg3" , "DG_postNeg1", "DG_postNeg2", "DG_postNeg3"))
+
+## Data not melted to long
+# Data_med %>%
+#   find_med()       # not run here to keep report clean
+
+## Data melted to long (Cond = Poz/Neg)
+# Data_med_melt <- 
+#   Data_med %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "Pre|_pre|_Pre", "_pre"))) %>%         # consistent Condition and Time
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "Post|_post|_Post", "_post"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "Poz|poz|_Poz|_poz", "_poz"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "Neg|neg|_Neg|_neg", "_neg"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "_neg_pre", "_pre_neg"))) %>%          # consistent ordering in names
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "_neg_post", "_post_neg"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "_poz_pre", "_pre_poz"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "_poz_post", "_post_poz"))) %>%
+#     dplyr::rename_all(list(~stringr::str_replace_all(., "Tot", ""))) %>%                       # detele Tot "DG_pre_negTot", "TrustTot_post_poz"
+#     gather(Var, Val, -c(1:38)) %>%
+#     separate(Var, into = c("Var", "Time", "Condition")) %>%
+#     mutate(Time = factor(Time, levels = c("pre", "post"))) %>%
+#     mutate(Condition = factor(Condition, levels = c("poz", "neg"))) %>%
+#     spread(Var, Val) 
+
+Data_med_melt <- 
+  Data_med %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "Pre|_pre|_Pre", "_pre"))) %>%         # consistent Condition and Time
+    dplyr::rename_all(list(~stringr::str_replace_all(., "Post|_post|_Post", "_post"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "Poz|poz|_Poz|_poz", "_poz"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "Neg|neg|_Neg|_neg", "_neg"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "_neg_pre", "_pre_neg"))) %>%          # consistent ordering in names
+    dplyr::rename_all(list(~stringr::str_replace_all(., "_neg_post", "_post_neg"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "_poz_pre", "_pre_poz"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "_poz_post", "_post_poz"))) %>%
+    dplyr::rename_all(list(~stringr::str_replace_all(., "Tot", ""))) %>%                       # detele Tot "DG_pre_negTot", "TrustTot_post_poz"
+    gather(Var, Val, -c(1:38)) %>%
+    tidyr::separate(Var, into = c("Var", "Time", "Condition")) %>%
+    tidyr::unite("Var", c("Var", "Time")) %>%
+    mutate(Condition = factor(Condition, levels = c("poz", "neg"))) %>%
+    mutate(Condition = dplyr::recode(Condition, "poz" = 1, "neg" = 2)) %>% 
+    spread(Var, Val) 
+
+```
+
+
+## Search Mediations and Moderations
+
+```{r find_medmod, results='hide'}
+dfp <- data.frame(
+  var1 = colnames(Data_med_melt)[grep("_post", colnames(Data_med_melt))],
+  var2 = rep("Condition", 13),
+  var3 = colnames(Data_med_melt)[grep("_pre", colnames(Data_med_melt))],
+  stringsAsFactors = FALSE
+)
+
+find_med(df = Data_med_melt, dfp = dfp, num_only = FALSE)                 # nothing
+find_mod(df = Data_med_melt, dfp = dfp, num_only = FALSE)                 # DG_pre:Condition
+
+
+# medmod::med(data = Data_med_melt,                                                  
+#            dep = "Ox_post", med = "Condition", pred = "Ox_pre", 
+#            ci = TRUE, label = TRUE, 
+#            paths = TRUE, pm = TRUE, 
+#            estPlot = FALSE)
+# 
+# medmod::mod(data = Data_med_melt,                                                   # mod does centering automatically
+#             dep = "Ox_post", mod = "Condition", pred = "Ox_pre",  
+#             estMethod = "standard", test = TRUE, 
+#             simpleSlopeEst = FALSE, simpleSlopePlot = FALSE)
+
+```
+
+
+```{r find_medmod_output}
+# mediation_model_list$Model   # no models to show
+moderation_model_list$Model %>% 
+  knitr::kable(digits = 2)
+```
+
+
+## LCS ANCOVA longitudinal mediation
+
+```{r find_LCSmed}
+Data_med_melt_transform <- Data_med_melt    # some observed variances are (at least) a factor 1000 times larger than others
+Data_med_melt_transform$DG_pre <- Data_med_melt_transform$DG_pre / 100  
+Data_med_melt_transform$DG_post <- Data_med_melt_transform$DG_post / 100
+
+mod <- lcs_ancova_med(df = Data_med_melt_transform, x = Condition, y1 = DG_pre, y2 = DG_post, m1 = Ox_pre, m2 = Ox_post)
+summary(mod, standardized = TRUE)    # nope
+semPlot::semPaths(mod, layout = "spring",  nCharNodes = 0, nCharEdges = 0, what = "path", whatLabels = "path", edge.label.cex = 0.8) 
+
+
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = VasS_pre, y2 = VasS_post, m1 = Ox_pre, m2 = Ox_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = VasB_pre, y2 = VasB_post, m1 = Ox_pre, m2 = Ox_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = IOS_pre, y2 = IOS_post, m1 = Ox_pre, m2 = Ox_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Trust_pre, y2 = Trust_post, m1 = Ox_pre, m2 = Ox_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# 
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Ox_pre, y2 = Ox_post, m1 = IOS_pre, m2 = IOS_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Ox_pre, y2 = Ox_post, m1 = VasS_pre, m2 = VasS_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Ox_pre, y2 = Ox_post, m1 = VasB_pre, m2 = VasB_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# 
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Cort_pre, y2 = Cort_post, m1 = IOS_pre, m2 = IOS_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Cort_pre, y2 = Cort_post, m1 = VasS_pre, m2 = VasS_post)
+# summary(mod, standardized = TRUE)    # nope
+# 
+# mod <- lcs_ancova_med(df = Data_med_melt, x = Condition, y1 = Cort_pre, y2 = Cort_post, m1 = VasB_pre, m2 = VasB_post)
+# summary(mod, standardized = TRUE)    # nope
+```
+
+
+
+
+
+<br>
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
