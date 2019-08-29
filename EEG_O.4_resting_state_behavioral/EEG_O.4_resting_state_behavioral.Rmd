@@ -1,0 +1,214 @@
+---
+title: "<br> O.4 Resting State - behavioral" 
+subtitle: "30 subjects - ARSQ & NYCQ"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+          # self_contained: no
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+     # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plyr", 
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+<!-- Report -->
+
+
+# Read 
+
+
+```{r read_merge, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read and Merge
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+wd <- "C:/Users/Mihai/Desktop/O.4 prealabil pt Frontiers/O.4 Scale Scoring/scorate 21.08.2019"
+setwd(wd)
+
+Data_arsq <- readRDS("Data_arsq.RDS")
+Data_nycq <- readRDS("Data_nycq.RDS")
+
+Data_arsq <-
+  Data_arsq %>%
+  select(-"Data.x", -"Data.y") %>%
+  na_if("NA") %>%                           # make NA chars NA so to not get warning message of NAs introduced by coercion
+  mutate_at(vars(- c(1:5)), funs(as.numeric(as.character(.))))
+
+Data_nycq <-
+  Data_nycq %>%
+  select(-"Data.x", -"Data.y") %>%
+  na_if("NA") %>%                           # make NA chars NA so to not get warning message of NAs introduced by coercion
+  mutate_at(vars(- c(1:5)), funs(as.numeric(as.character(.))))
+```
+
+
+# Define Functions 
+
+```{r def_func, hide=TRUE, results='asis'}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, cond, pre_var, post_var){
+  df_modif <-
+    df %>%
+    filter(Conditie == cond) %>%
+    select(ind, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "PrePost", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(PrePost = factor(PrePost, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ PrePost, data = df_modif, method = "t.test", paired = TRUE)
+  
+  #sample_size <- sum(duplicated(df_modif[, ind]))        # get nr of duplicates = sample size for paired test
+  sample_size <-
+    df_modif %>%
+    filter(duplicated(.[["ID"]])) %>%      # something is fishy: OGL 31, ECRAN 29 observations
+    dplyr::summarize(n = n())
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$PrePost,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "PrePost", y = "value", id = ind, title = cond, 
+                     color = "PrePost", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$PrePost)-0.4, label.y = max(df_modif$value)+1) + 
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", cond, " - ", pre_var, " ", post_var, " (N = ", sample_size$n, ")", "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  cat("\n")                      
+  print(plot)
+  cat("\n")
+  plot.new()                     # Need this workaround for interleaving tables and plots in R Markdown, within loop
+  dev.off()
+}
+```
+
+
+# Analyses
+
+## Simple before-after analyses with t test
+
+```{r t_test, fig.width=5, fig.height=6, results='asis'}
+## Simple before-after analyses with t test
+# func_t_box(Data_arsq, "ID", "OGL", "discont_pre", "discont_post")  # sig  
+# func_t_box(Data_arsq, "ID", "ECRAN", "discont_pre", "discont_post")  # nonsig
+
+cat("#### ARSQ")
+var_names <- colnames(Data_arsq)[c(6:15, 41:50)]                     # dont add individual items 
+var_names_pre <- grep("_pre", var_names, value = TRUE)
+var_names_post <- grep("_post", var_names, value = TRUE) 
+var_names_length <- length(var_names_pre)
+var_cond <- cbind(rep("OGL", var_names_length), rep("ECRAN", var_names_length))
+
+for (i in seq_along(1:var_names_length)){ 
+  func_t_box(Data_arsq, "ID", var_cond[i,1], var_names_pre[i], var_names_post[i])      # "OGL"  
+  func_t_box(Data_arsq, "ID", var_cond[i,2] , var_names_pre[i], var_names_post[i])     # "ECRAN"
+}
+
+
+cat("#### NYCQ")
+var_names <- colnames(Data_nycq)[-c(1:5)]                    
+var_names_pre <- grep("_pre", var_names, value = TRUE)
+var_names_post <- grep("_post", var_names, value = TRUE) 
+var_names_length <- length(var_names_pre)
+var_cond <- cbind(rep("OGL", var_names_length), rep("ECRAN", var_names_length))
+
+for (i in seq_along(1:var_names_length)){ 
+  func_t_box(Data_nycq, "ID", var_cond[i,1], var_names_pre[i], var_names_post[i])      # "OGL" 
+  func_t_box(Data_nycq, "ID", var_cond[i,2] , var_names_pre[i], var_names_post[i])     # "ECRAN"
+}
+  
+
+```
+
+
+
+
+
+
+<br>
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
