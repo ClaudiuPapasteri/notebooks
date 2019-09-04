@@ -1,0 +1,484 @@
+---
+title: "<br> Drama Exercises" 
+subtitle: "Cinetic Summer School"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # word_document        
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+
+# Tables knitting to Word
+doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
+# if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "E:/Cinetic idei noi/Cinetic elevi"
+file <- "A13 Tabel 3.xlsx"
+
+setwd(folder)
+Data <- rio::import(file.path(folder, file),
+                           skip = 1)
+
+## Tidy up data
+# Function coalesce rows: colapse when NA, unite with "_" when not NA
+coalesce2 <- function(...) {
+  Reduce(function(x, y) {
+    i <- which(is.na(x))
+    j <- which(!is.na(x) & !is.na(y))
+    x[i] <- y[i]
+    x[j] <- paste(x[j], y[j], sep = "_")
+    x},
+    list(...))
+}
+
+colnames(Data) <- coalesce2(Data[2,], Data[3,])
+Data <- Data[-c(1:3),]
+
+
+## Check duplicate column names due to excel
+tibble::enframe(names(Data)) %>% 
+  dplyr::count(value) %>% 
+  dplyr::filter(n > 1)
+
+## Make valid column names (no duplicates)
+validate.names = function(df){
+  rtn = df
+  valid_column_names = make.names(names = names(df), unique = TRUE, allow_ = TRUE)
+  names(rtn) = valid_column_names
+  rtn
+}
+
+Data <- 
+  Data %>% 
+  validate.names() %>%                                       # make.names()
+  rename_all(~stringr::str_replace_all(., "\\.", "_"))       # make.names() uses ".", change to "_"
+
+## Delete columns with only NA
+Data <-
+  Data %>%
+  select_if(~!(all(is.na(.)) | all(. == "")))
+
+
+## Rename columns corresponding to items
+# Function to paste a string before column name if it doesnt already start with that string
+paste_tocolnames <- function(vec_colnames, string_paste){
+  ind <- grep(pattern = string_paste, vec_colnames)                   # ignore column that already has string patterm
+  vec_colnames[-ind] <- paste0(string_paste, vec_colnames[-ind])      # paste pattern to the rest of them
+  return(vec_colnames)
+}
+
+colnames(Data)[6:25] <- paste_tocolnames(colnames(Data)[6:25], "PANAS_pre_")
+colnames(Data)[61:64] <- paste_tocolnames(colnames(Data)[61:64], "SRS_post_")
+colnames(Data)[65:84] <- paste_tocolnames(colnames(Data)[65:84], "PANAS_post_")
+
+Data <- 
+  Data %>% 
+  rename_all(~stringr::str_replace_all(., "_\\d", ""))              # delete pattern "_1" that was introduced for duplicate column names
+
+colnames(Data) <- enc2native(colnames(Data))      # fix encoding
+
+
+## Recode known missing values
+# str(Data_psiho, list.len = ncol(Data_psiho))
+# str(Data_psiho, list.len = ncol(Data_psiho))
+Data <-
+  Data %>%
+  replace(. == "/", NA) %>%                                     # missing values are coded "/"
+  replace(. == "-", NA) %>%                                     # missing values are coded "-"
+  replace(. == "NA", NA)                                        # missing values are coded "NA"
+
+
+## Check for non-numeric elements in data sets
+check_numeric1 <- as.data.frame(sapply(Data, varhandle::check.numeric)) 
+# sapply(check_numeric1, function(x) length(which(!x)))     # look at columns with non-numeric and count of non-numeric values
+
+nonnumeric1 <- sapply(check_numeric1, function(x) which(!x, arr.ind = TRUE))    # find row numbers for non-numeric values
+nonnumeric1[lapply(nonnumeric1, length) > 0]                                   # return only columns and rown numbers were non-numeric
+
+## Recode to numeric
+Data <- 
+  Data %>% 
+  mutate_at(vars(6:84), funs(as.numeric(as.character(.))))  
+
+## Recode ID 
+Data <-
+  Data %>%
+  dplyr::rename(ID = `Indica_tiv_subiect`) 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Scoring Questionnaires
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Define function that calculates RowSums but only for rows with less than 10% NAs; and return NA if all row values are NA 
+SpecialRowSums <- function(df, napercent = .1) {
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+
+## --  APS NOT ADMINISTERED --
+## APS: simple sum 
+# Data_teatru$`APS pre_Total` <- SpecialRowSums(Data_teatru[ ,sprintf("APS pre_%d", 1:16)], napercent = .13)  # not more than 2 NAs for 16 items
+# Data_teatru$`APS post_Total` <- SpecialRowSums(Data_teatru[ ,sprintf("APS post_%d", 1:16)], napercent = .13)
+
+## --  PSS NOT ADMINISTERED --
+## PSS-SF 14: Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+# keys_PSS <- c(1,1,1,-1,-1,-1,-1,1,-1,-1,1,1,-1,1)
+# 
+# Data_teatru$`PPS pre_Total` <- 
+#   SpecialRowSums(
+#   psych::reverse.code(items = Data_teatru[ ,sprintf("PPS pre_%d", 1:14)], keys = keys_PSS,  mini = 0, maxi = 4),
+#   napercent = .1)  # not more than 1 NAs for 14 items 
+# Data_teatru$`PPS post_Total` <- 
+#   SpecialRowSums(
+#     psych::reverse.code(items = Data_teatru[ ,sprintf("PPS post_%d", 1:14)], keys = keys_PSS,  mini = 0, maxi = 4),
+#     napercent = .1)
+
+
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.
+Data$PA_pre_Total <- SpecialRowSums(Data[ ,5 + c(1,3,5,9,10,12,14,16,17,19)], napercent = .11) # not more than 1 NAs for 10 items
+Data$NA_pre_Total <- SpecialRowSums(Data[ ,5 + c(2,4,6,7,8,11,13,15,18,20)], napercent = .11)
+
+Data$PA_post_Total <- SpecialRowSums(Data[ ,64 + c(1,3,5,9,10,12,14,16,17,19)], napercent = .11) 
+Data$NA_post_Total <- SpecialRowSums(Data[ ,64 + c(2,4,6,7,8,11,13,15,18,20)], napercent = .11)
+
+
+## Make data frames for Etapa III and IV
+Data_III <- subset(Data, Etapa == "III")
+Data_IV <- subset(Data, Etapa == "IV")
+```
+
+
+# Sample descriptives
+
+```{r sample_desc}
+cat("## Number of subjects")
+Data %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+cat("## Number of subjects by Etapa")
+Data %>%
+ group_by(Etapa) %>%
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+```
+
+
+# Define Funtion for Pre-Post Comparison
+
+```{r func_wilcox}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   OUTCOMES PRE-POST INTERVENTION   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Function to run for diffrent dataframes (in this case: Etapa III and Iv)
+## Func wilcox, t test & simple boxplot
+func_wilcox_box <- function(df, ind, pre_var, post_var){
+  df_modif <-
+    df %>%
+    select(ind, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "wilcox.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "wilcox.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+4) + 
+      ggpubr::stat_compare_means(method = "wilcox.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+# IOS
+## IOS Pre-Post Intervention - Whole Sample
+
+```{r ios_wholesample, fig.width=6, fig.align='center', fig.height=8, results='asis'}
+## Run function func_wilcox_box() on whole sample
+func_wilcox_box(Data, "ID", "IOS_pre", "IOS_post") 
+```
+
+
+## IOS Pre-Post Intervention for each Etapa
+
+```{r ios_etapa, fig.width=6, fig.align='center', fig.height=8, results='asis'}
+## Run function func_wilcox_box() for Etapa III
+cat("### Etapa III")
+func_wilcox_box(Data_III, "ID", "IOS_pre", "IOS_post") 
+
+## Run function for func_wilcox_box() Etapa IV
+cat("### Etapa IV")
+func_wilcox_box(Data_IV, "ID", "IOS_pre", "IOS_post") 
+```
+
+# PANAS
+## PANAS Pre-Post Intervention - Whole Sample
+
+```{r panas_wholesample, fig.width=6, fig.align='center', fig.height=8, results='asis'}
+## Run function func_wilcox_box() on whole sample
+func_wilcox_box(Data, "ID", "PA_pre_Total", "PA_post_Total") 
+func_wilcox_box(Data, "ID", "NA_pre_Total", "NA_post_Total") 
+```
+
+
+## PANAS Pre-Post Intervention for each Etapa
+
+```{r panas_etapa, fig.width=6, fig.align='center', fig.height=8, results='asis'}
+## Run function func_wilcox_box() for Etapa III
+cat("### Etapa III")
+func_wilcox_box(Data_III, "ID", "PA_pre_Total", "PA_post_Total") 
+func_wilcox_box(Data_III, "ID", "NA_pre_Total", "NA_post_Total") 
+
+## Run function for func_wilcox_box() Etapa IV
+cat("### Etapa IV")
+func_wilcox_box(Data_IV, "ID", "PA_pre_Total", "PA_post_Total") 
+func_wilcox_box(Data_IV, "ID", "NA_pre_Total", "NA_post_Total")
+```
+
+
+# VAS variables for Etapa III
+
+```{r vas_variables_etapa3, fig.width=15, fig.height=12, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   Variables multiple measurements in zi    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Function plot pre-ex1-ex2-..-post data for Etapa III
+plot_preexpost_ex <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_var, post_x4_var, post_x5_var, post_x6_var){
+  df_modif <-
+    df %>%
+    gather(pre_var, post_x1_var, post_x2_var, post_x3_var, post_x4_var, post_x5_var, post_x6_var, key = "variable", value = "value") %>%
+    mutate(variable = factor(variable, levels = c(pre_var, post_x1_var, post_x2_var, post_x3_var, post_x4_var, post_x5_var, post_x6_var)))
+    
+  # Wilcox test
+  stat.test1 <-
+    df_modif %>%
+    # group_by(Etapa) %>%                             # no need .. going by Etapa separatly
+    tidyr::drop_na(value) %>%                                 # filter so grouping factor levels get droped and we can compare with uneven levels
+    rstatix::wilcox_test(value ~ variable) %>%                # pairwise
+    rstatix::add_significance("p") %>%
+    filter(p.signif != "ns")
+  
+  # t test
+  stat.test2 <-
+    df_modif %>%
+    # group_by(Etapa) %>%                                # no need .. going by Etapa separatly
+    tidyr::drop_na(value) %>%                                 # filter so grouping factor levels get droped and we can compare with uneven levels
+    rstatix::t_test(value ~ variable) %>%                # pairwise
+    rstatix::add_significance("p") %>%                                    
+    filter(p.signif != "ns") 
+  
+  p<-
+    ggplot(df_modif, aes(y = value, x = variable)) +
+      # facet_wrap(~Etapa, nrow = 1) +                     # no need .. going by Etapa separatly
+      ggtitle(deparse(substitute(df))) + 
+      geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      ggpubr::stat_pvalue_manual(stat.test1, label = "p.signif",
+                         y.position = seq(max(df_modif$value, na.rm = TRUE)+2, max(df_modif$value, na.rm = TRUE)*2,
+                                          length.out = nrow(stat.test1)))                                                  # very hacky
+  cat("#### Wilcoxon test")
+  return(stat.test1) %>% print(n = Inf)
+  cat("#### t test")
+  return(stat.test2) %>% print(n = Inf)
+  p
+}
+
+
+cat("## VAS stres")                # names(Data[, grep("VAS_stres", names(Data))])
+plot_preexpost_ex(Data_III, 
+                  "VAS_stres_pre", "VAS_stres_post_ex1", 
+                  "VAS_stres_post_ex2", "VAS_stres_post_ex3",
+                  "VAS_stres_post_ex4", "VAS_stres_post_ex5", "VAS_stres_post_ex6")
+
+
+cat("## VAS stare de bine")       # names(Data[, grep("VAS_stare_de", names(Data))])
+plot_preexpost_ex(Data_III,
+                  "VAS_stare_de_bine_pre", "VAS_stare_de_bine_post_ex1", 
+                  "VAS_stare_de_bine_post_ex2", "VAS_stare_de_bine_post_ex3",
+                  "VAS_stare_de_bine_post_ex4", "VAS_stare_de_bine_post_ex5", "VAS_stare_de_bine_post_ex6")
+
+
+cat("## VAS corp")                # names(Data[, grep("VAS_corp", names(Data))])
+plot_preexpost_ex(Data_III, 
+                  "VAS_corp_pre", "VAS_corp_post_ex1",
+                  "VAS_corp_post_ex2", "VAS_corp_post_ex3",
+                  "VAS_corp_post_ex4", "VAS_corp_post_ex5", "VAS_corp_post_ex6")
+```
+
+
+# VAS variables for Etapa IV
+
+```{r vas_variables_etapa4, fig.width=6, fig.height=8, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   Variables multiple measurements in zi    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Function plot pre-ex1-ex2-..-post data for Etapa III
+plot_preexpost_ex4 <- function(df, pre_var, post_x1_var, post_x2_var){
+  df_modif <-
+    df %>%
+    gather(pre_var, post_x1_var, post_x2_var, key = "variable", value = "value") %>%
+    mutate(variable = factor(variable, levels = c(pre_var, post_x1_var, post_x2_var)))
+    
+  # Wilcox test
+  stat.test1 <-
+    df_modif %>%
+    # group_by(Etapa) %>%                             # no need .. going by Etapa separatly
+    tidyr::drop_na(value) %>%                                 # filter so grouping factor levels get droped and we can compare with uneven levels
+    rstatix::wilcox_test(value ~ variable) %>%                # pairwise
+    rstatix::add_significance("p") %>%
+    filter(p.signif != "ns")
+  
+  # t test
+  stat.test2 <-
+    df_modif %>%
+    # group_by(Etapa) %>%                                # no need .. going by Etapa separatly
+    tidyr::drop_na(value) %>%                                 # filter so grouping factor levels get droped and we can compare with uneven levels
+    rstatix::t_test(value ~ variable) %>%                # pairwise
+    rstatix::add_significance("p") %>%                                    
+    filter(p.signif != "ns") 
+  
+  p <-
+    ggplot(df_modif, aes(y = value, x = variable)) +
+      # facet_wrap(~Etapa, nrow = 1) +                     # no need .. going by Etapa separatly
+      ggtitle(deparse(substitute(df))) + 
+      geom_boxplot() + stat_summary(fun.data = mean_se,  colour = "darkred") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+  
+  if(dim(stat.test1)[1] != 0) {     # do this only if the significance dataframe has > 0 rows
+    p <- 
+      p +
+      ggpubr::stat_pvalue_manual(stat.test1, label = "p.signif",
+                         y.position = seq(max(df_modif$value, na.rm = TRUE)+2, max(df_modif$value, na.rm = TRUE)*2,
+                                          length.out = nrow(stat.test1)))                                                  # very hacky
+  }
+  
+  cat("#### Wilcoxon test")
+  return(stat.test1) %>% print(n = Inf)
+  cat("#### t test")
+  return(stat.test2) %>% print(n = Inf)
+  p
+}
+
+
+cat("## VAS stres")                # names(Data[, grep("VAS_stres", names(Data))])
+plot_preexpost_ex4(Data_IV, 
+                  "VAS_stres_pre", "VAS_stres_post_ex1", "VAS_stres_post_ex2")
+
+
+cat("## VAS stare de bine")       # names(Data[, grep("VAS_stare_de", names(Data))])
+plot_preexpost_ex4(Data_IV,
+                  "VAS_stare_de_bine_pre", "VAS_stare_de_bine_post_ex1", "VAS_stare_de_bine_post_ex2")
+
+
+cat("## VAS corp")                # names(Data[, grep("VAS_corp", names(Data))])
+plot_preexpost_ex4(Data_IV, 
+                  "VAS_corp_pre", "VAS_corp_post_ex1", "VAS_corp_post_ex2")
+```
+
+
+
+
+<br>
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
