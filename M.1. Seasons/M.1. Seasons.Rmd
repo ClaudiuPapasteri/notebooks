@@ -1,0 +1,306 @@
+---
+title: "<br> Analyses for M.1. (Autobiographical Memories)" 
+subtitle: "Focus on Seasons - individual stimuli"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # word_document        
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+
+# Tables knitting to Word
+doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
+# if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "E:/Cinetic idei noi/Cinetic elevi"
+file <- "M1 de introdus anotimpuri.xlsx"
+
+setwd(folder)
+Data <- rio::import(file.path(folder, file))
+
+## Recode NA
+Data <- 
+  Data %>%             # sum(is.na(Data)) = 5873
+  na_if("na")          # sum(is.na(Data)) = 6199
+
+
+## Variable names
+nume <- c("Stim", "Varsta_amin", "Ano", "Val", "Viv", "Relv")
+toate <- paste(nume, rep(1:15, each = length(nume)), sep = "_")
+
+## Check that all variable names are consistent with column headers
+if(toate %in% names(Data)){
+  cat("All column names are consistent.")
+} else {
+  cat("Column names are NOT consistent. \n")
+  cat("Missmatches: \n ")
+  setdiff(toate, names(Data))
+}
+```
+
+
+# Sample descriptives
+
+```{r sample_desc}
+cat("## Number of subjects")
+Data %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+cat("## Number of subjects per Protocol")
+Data %>%
+ group_by(Protocol) %>%
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+```
+
+
+# Season Memories and Valence
+
+## Make data frames
+
+```{r df_seanson}
+## Exclude P6 & P7
+Data_Season <- 
+  Data %>%
+  dplyr::filter(!Protocol %in% c(6, 7))
+
+## Melt to Long
+
+# Data_Vara <-                          # pivot_longer() only in development version of tidyr... dont use now
+#   Data_Season %>%                     # devtools::install_github("tidyverse/tidyr")
+#   tidyr::pivot_longer(
+#     -c(1:5),
+#     #cols = starts_with("Ano"), 
+#     names_to = c(".value", "var"), 
+#     names_sep = "_", 
+#     values_drop_na = TRUE
+#   )
+
+Data_Season_melt <-                         
+  Data_Season %>%
+  gather(variable, value, -c(1:5)) %>%
+  mutate(group = readr::parse_number(variable)) %>%
+  mutate(variable = gsub("\\d","",x = variable)) %>%
+  spread(variable, value) %>%
+  rename_all(~stringr::str_replace_all(., "_", "")) %>%           # delete the "_" at end
+  mutate(Ano = factor(Ano, levels = c("Vara", "Primavara", "Toamna", "Iarna"))) %>%
+  mutate_at(vars("Relv", "Val", "Varstaamin", "Viv"), funs(as.numeric(as.character(.))))
+  
+## Season data frames
+Data_Vara <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+  filter(Ano == "Vara")
+
+Data_Primavara <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+  filter(Ano == "Primavara")
+
+Data_Toamna <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+  filter(Ano == "Toamna")
+
+Data_Iarna <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+  filter(Ano == "Iarna")
+
+
+## Excel downloadable DT tables
+Data_Vara %>%                              
+  select(-Nume) %>%
+    DT::datatable(                                  
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+
+Data_Primavara %>%                              
+  select(-Nume) %>%
+    DT::datatable(                                  
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+
+Data_Toamna %>%                              
+  select(-Nume) %>%
+    DT::datatable(                                  
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+
+Data_Iarna %>%                              
+  select(-Nume) %>%
+    DT::datatable(                                  
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+
+```
+
+
+## Define Function for Plots
+
+```{r def_func_plot}
+## Data Frame for Plots
+Data_Season_melt_nona <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano))
+
+## Function for Ano Plot
+my_comparisons <- 
+  gtools::combinations(n = length(unique(Data_Season_melt_nona$Ano)), r = 2, v = as.character(Data_Season_melt_nona$Ano), repeats.allowed = FALSE) %>%
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character) %>%
+  purrr::pmap(list) %>% 
+  lapply(unlist)
+
+func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set = 1){
+  p <-
+    df  %>%
+    ggpubr::ggbarplot(x = "Ano", y = y_var, 
+                      add = "mean_se",
+                      color = "black", fill = "lightgray",
+                      xlab = "Anotimp", ylab = y_var_lab,
+                      label = TRUE, lab.nb.digits = 2, lab.pos= "in") +
+    stat_compare_means(method = "anova",
+                       label.x = 0.9, label.y = label.y_set) +
+    stat_compare_means(comparisons = my_comparisons,
+                       label = "p.signif", method = "t.test", paired = FALSE, na.rm = TRUE) 
+  ggpar(p, yticks.by = yticks.by_set)                                     # the rating scale is 1-7
+}
+```
+
+
+
+## Plots
+
+```{r plot_seanson, fig.height=8, fig.width=7, fig.align='center'}
+## Test for Val -- works well
+# Data_Season_melt_nona  %>%
+#   ggpubr::ggbarplot(x = "Ano", y = "Val", 
+#                     add = "mean_se",
+#                     color = "black", fill = "lightgray",
+#                     xlab = "Anotimp", ylab = "Valenta",
+#                     label = TRUE, lab.nb.digits = 2, lab.pos= "in") +
+#   stat_compare_means(method = "anova",
+#                      label.x = 0.9, label.y = 7) +
+#   stat_compare_means(comparisons = my_comparisons,
+#                      label = "p.signif", method = "t.test", paired = FALSE, na.rm = TRUE) 
+
+
+func_plot_ano(Data_Season_melt_nona, "Val", "Valenta")
+func_plot_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
+func_plot_ano(Data_Season_melt_nona, "Viv", "Vivid")
+func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_set = 50, yticks.by_set = 5)
+
+```
+
+
+
+
+<br>
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
