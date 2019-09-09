@@ -79,16 +79,19 @@ theme_set(theme_apa())
 # Read 
 
 
-```{r read_merge, results='asis'}
+```{r read_merge, results='asis', warning=FALSE}
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Read and Merge
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 wd <- "C:/Users/Mihai/Desktop/O.4 prealabil pt Frontiers/O.4 Scale Scoring/scorate 21.08.2019"
 setwd(wd)
 
+## Read
 Data_arsq <- readRDS("Data_arsq.RDS")
 Data_nycq <- readRDS("Data_nycq.RDS")
+Data_vas <- xlsx::read.xlsx2("VAS, IOS.xlsx", sheetName = "Toti")
 
+## Transform
 Data_arsq <-
   Data_arsq %>%
   select(-"Data.x", -"Data.y") %>%
@@ -101,10 +104,21 @@ Data_nycq <-
   na_if("NA") %>%                           # make NA chars NA so to not get warning message of NAs introduced by coercion
   mutate_at(vars(- c(1:5)), funs(as.numeric(as.character(.))))
 
+## To numeric
+Data_vas <-
+  Data_vas %>%
+  mutate_at(vars(6:11), function(x) as.numeric(as.character(x))) %>%
+  filter(ID %in% c(2:8, 10:14, 16:33))
+
+## Calc Diff Scores
+Data_vas$VaS_Diff <- Data_vas$VaS_post - Data_vas$VaS_pre 
+Data_vas$VaB_Diff <- Data_vas$VaB_post - Data_vas$VaB_pre
+Data_vas$IOS_Diff <- Data_vas$IOS_post - Data_vas$IOS_pre
 
 # Fix a typo
 Data_arsq[(Data_arsq$ID == 32 & Data_arsq$Order == 2) ,]$Conditie <- "ECRAN"
 Data_nycq[(Data_nycq$ID == 32 & Data_nycq$Order == 2) ,]$Conditie <- "ECRAN"
+Data_vas[(Data_vas$ID == 32 & Data_vas$Data == "18.07.2019") ,]$Conditie <- "ECRAN"
 ```
 
 
@@ -164,6 +178,20 @@ func_t_box <- function(df, ind, cond, pre_var, post_var){
 ## Simple before-after analyses with t test
 # func_t_box(Data_arsq, "ID", "OGL", "discont_pre", "discont_post")  # sig  
 # func_t_box(Data_arsq, "ID", "ECRAN", "discont_pre", "discont_post")  # nonsig
+
+cat("#### VAS Stress")
+func_t_box(Data_vas, "ID", "OGL", "VaS_pre", "VaS_post")
+func_t_box(Data_vas, "ID", "ECRAN", "VaS_pre", "VaS_post")
+
+cat("#### VAS Well-being")
+func_t_box(Data_vas, "ID", "OGL", "VaB_pre", "VaB_post")
+func_t_box(Data_vas, "ID", "ECRAN", "VaB_pre", "VaB_post")
+
+cat("#### IOS")
+func_t_box(Data_vas, "ID", "OGL", "IOS_pre", "IOS_post")
+func_t_box(Data_vas, "ID", "ECRAN", "IOS_pre", "IOS_post")
+
+
 
 cat("#### ARSQ")
 var_names <- colnames(Data_arsq)[c(6:15, 41:50)]                     # dont add individual items 
