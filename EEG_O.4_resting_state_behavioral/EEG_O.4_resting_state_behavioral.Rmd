@@ -100,6 +100,11 @@ Data_nycq <-
   select(-"Data.x", -"Data.y") %>%
   na_if("NA") %>%                           # make NA chars NA so to not get warning message of NAs introduced by coercion
   mutate_at(vars(- c(1:5)), funs(as.numeric(as.character(.))))
+
+
+# Fix a typo
+Data_arsq[(Data_arsq$ID == 32 & Data_arsq$Order == 2) ,]$Conditie <- "ECRAN"
+Data_nycq[(Data_nycq$ID == 32 & Data_nycq$Order == 2) ,]$Conditie <- "ECRAN"
 ```
 
 
