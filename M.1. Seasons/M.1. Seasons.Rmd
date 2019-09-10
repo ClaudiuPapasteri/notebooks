@@ -220,18 +220,18 @@ Data_Iarna %>%
                      dom = 'Bfrtip', 
                      buttons = c('excel', "csv")))
 
+
+## Data Frame for Plots
+Data_Season_melt_nona <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano))
 ```
 
 
 ## Define Function for Plots
 
 ```{r def_func_plot}
-## Data Frame for Plots
-Data_Season_melt_nona <-
-  Data_Season_melt %>%
-  filter(!is.na(Ano))
-
-## Function for Ano Plot
+## Function for Ano Bar Plot
 my_comparisons <- 
   gtools::combinations(n = length(unique(Data_Season_melt_nona$Ano)), r = 2, v = as.character(Data_Season_melt_nona$Ano), repeats.allowed = FALSE) %>%
   as.data.frame() %>% 
@@ -253,6 +253,30 @@ func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set =
                        label = "p.signif", method = "t.test", paired = FALSE, na.rm = TRUE) 
   ggpar(p, yticks.by = yticks.by_set)                                     # the rating scale is 1-7
 }
+
+
+## Dodged 
+func_dodged_ano <- function(df, y_var, y_var_lab){
+  y_var<- sym(y_var)
+
+  p <-
+    df  %>%
+    dplyr::count(Ano, !!y_var) %>%                        # Group by, then count number in each group
+    mutate(pct = prop.table(n)) %>%                     # Calculate percent within each var
+    mutate(Val_fac = as.factor(!!y_var)) %>%
+    ggplot(aes(x = Ano, y = pct, fill = Val_fac, label = scales::percent(pct))) + 
+      geom_col(position = 'dodge') + 
+      geom_text(position = position_dodge(width = .9),    # move to center of bars
+                vjust = -0.5,                             # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle(y_var_lab) +
+      xlab("Anotimp") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Value", nrow = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "bottom", legend.direction = "horizontal", legend.justification = c(0, 1))
+  p
+}  
 ```
 
 
@@ -277,8 +301,45 @@ func_plot_ano(Data_Season_melt_nona, "Val", "Valenta")
 func_plot_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
 func_plot_ano(Data_Season_melt_nona, "Viv", "Vivid")
 func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_set = 50, yticks.by_set = 5)
-
 ```
+
+
+## Plots with values
+
+```{r plot_seanson2, fig.height=8, fig.width=12, fig.align='center'}
+# # Stacked - Test for Val -- works well
+# Data_Season_melt_nona %>% 
+#   dplyr::count(Ano, Val) %>%                   # Group by, then count number in each group
+#   mutate(pct = n/sum(n)) %>%                   # Calculate percent within each var; could use prop.table(n)
+#   mutate(Val_fac = as.factor(Val)) %>%
+# ggplot(aes(Ano, n, fill = Val_fac)) +
+#   geom_bar(stat = "identity") +                 
+#   geom_text(aes(label = paste0(sprintf("%1.1f", pct*100), "%"), size = scales::rescale(pct, to=c(2, 5))), 
+#             position = position_stack(vjust=0.5), show.legend = FALSE)
+# 
+# 
+# # Dodged - Test for Val -- works well
+# Data_Season_melt_nona %>% 
+#   dplyr::count(Ano, Val) %>%                        # Group by, then count number in each group
+#   mutate(pct = prop.table(n)) %>%                   # Calculate percent within each var
+#   mutate(Val_fac = as.factor(Val)) %>%
+#   ggplot(aes(x = Ano, y = pct, fill = Val_fac, label = scales::percent(pct))) + 
+#     geom_col(position = 'dodge') + 
+#     geom_text(position = position_dodge(width = .9),    # move to center of bars
+#               vjust = -0.5,                             # nudge above top of bar
+#               size = 3) + 
+#     scale_y_continuous(labels = scales::percent) +
+#     xlab("Anotimp") + ylab("Percentage %") + 
+#     guides(fill = guide_legend(title = "Value", nrow = 1)) + 
+#     scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+#     theme(legend.position = "bottom", legend.direction = "horizontal", legend.justification = c(0, 1)) 
+  
+
+func_dodged_ano(Data_Season_melt_nona, "Val", "Valenta")
+func_dodged_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
+func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid")
+```
+
 
 
 
