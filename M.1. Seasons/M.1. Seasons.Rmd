@@ -162,64 +162,73 @@ Data_Season_melt <-
   mutate_at(vars("Relv", "Val", "Varstaamin", "Viv"), funs(as.numeric(as.character(.))))
   
 ## Season data frames
-Data_Vara <-
-  Data_Season_melt %>%
-  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
-  filter(Ano == "Vara")
+# Data_Vara <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Vara")
+# 
+# Data_Primavara <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Primavara")
+# 
+# Data_Toamna <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Toamna")
+# 
+# Data_Iarna <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Iarna")
+# 
+# 
+# ## Excel downloadable DT tables
+# Data_Vara %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Primavara %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Toamna %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Iarna %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
 
-Data_Primavara <-
-  Data_Season_melt %>%
-  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
-  filter(Ano == "Primavara")
 
-Data_Toamna <-
-  Data_Season_melt %>%
-  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
-  filter(Ano == "Toamna")
-
-Data_Iarna <-
-  Data_Season_melt %>%
-  filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
-  filter(Ano == "Iarna")
-
-
-## Excel downloadable DT tables
-Data_Vara %>%                              
-  select(-Nume) %>%
-    DT::datatable(                                  
+Data_Season_melt %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
       extensions = 'Buttons',
       options = list(pageLength = 10,
-                     scrollX='500px', 
-                     dom = 'Bfrtip', 
+                     scrollX='500px',
+                     dom = 'Bfrtip',
                      buttons = c('excel', "csv")))
-
-Data_Primavara %>%                              
-  select(-Nume) %>%
-    DT::datatable(                                  
-      extensions = 'Buttons',
-      options = list(pageLength = 10,
-                     scrollX='500px', 
-                     dom = 'Bfrtip', 
-                     buttons = c('excel', "csv")))
-
-Data_Toamna %>%                              
-  select(-Nume) %>%
-    DT::datatable(                                  
-      extensions = 'Buttons',
-      options = list(pageLength = 10,
-                     scrollX='500px', 
-                     dom = 'Bfrtip', 
-                     buttons = c('excel', "csv")))
-
-Data_Iarna %>%                              
-  select(-Nume) %>%
-    DT::datatable(                                  
-      extensions = 'Buttons',
-      options = list(pageLength = 10,
-                     scrollX='500px', 
-                     dom = 'Bfrtip', 
-                     buttons = c('excel', "csv")))
-
 
 ## Data Frame for Plots
 Data_Season_melt_nona <-
@@ -239,14 +248,20 @@ my_comparisons <-
   purrr::pmap(list) %>% 
   lapply(unlist)
 
-func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set = 1){
+func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set = 1, facet = FALSE){
+  if(facet){
+    facet <- "Protocol"
+  }else{
+    facet <- NULL
+  }
   p <-
     df  %>%
     ggpubr::ggbarplot(x = "Ano", y = y_var, 
                       add = "mean_se",
                       color = "black", fill = "lightgray",
                       xlab = "Anotimp", ylab = y_var_lab,
-                      label = TRUE, lab.nb.digits = 2, lab.pos= "in") +
+                      label = TRUE, lab.nb.digits = 2, lab.pos= "in",
+                      facet.by = facet) +
     stat_compare_means(method = "anova",
                        label.x = 0.9, label.y = label.y_set) +
     stat_compare_means(comparisons = my_comparisons,
@@ -256,9 +271,16 @@ func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set =
 
 
 ## Dodged 
-func_dodged_ano <- function(df, y_var, y_var_lab){
+func_dodged_ano <- function(df, y_var, y_var_lab, facet = FALSE){
   y_var<- sym(y_var)
-
+  
+  if(facet) {
+    df <- 
+      df %>% 
+      mutate(Protocol = paste0("Protocol ", Protocol)) %>%
+      group_by(Protocol)  
+  }
+  
   p <-
     df  %>%
     dplyr::count(Ano, !!y_var) %>%                        # Group by, then count number in each group
@@ -270,18 +292,20 @@ func_dodged_ano <- function(df, y_var, y_var_lab){
                 vjust = -0.5,                             # nudge above top of bar
                 size = 3) + 
       scale_y_continuous(labels = scales::percent) +
+      {if(facet) facet_wrap(~Protocol, scales = "free", ncol = 1, nrow = 8)} +
       ggtitle(y_var_lab) +
       xlab("Anotimp") + ylab("Percentage %") + 
       guides(fill = guide_legend(title = "Value", nrow = 1)) + 
       scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
-      theme(legend.position = "bottom", legend.direction = "horizontal", legend.justification = c(0, 1))
+      theme(legend.position = "bottom", legend.direction = "horizontal", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
   p
 }  
 ```
 
 
 
-## Plots
+## Plots of Seansons
 
 ```{r plot_seanson, fig.height=8, fig.width=7, fig.align='center'}
 ## Test for Val -- works well
@@ -304,9 +328,19 @@ func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_se
 ```
 
 
-## Plots with values
+## Plots of Seansons by Protocol
 
-```{r plot_seanson2, fig.height=8, fig.width=12, fig.align='center'}
+```{r plot_seanson2, fig.height=10, fig.width=12, fig.align='center'}
+func_plot_ano(Data_Season_melt_nona, "Val", "Valenta", facet = TRUE) 
+func_plot_ano(Data_Season_melt_nona, "Relv", "Relevanta personala", facet = TRUE)
+func_plot_ano(Data_Season_melt_nona, "Viv", "Vivid", facet = TRUE)
+func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_set = 50, yticks.by_set = 5, facet = TRUE)
+```
+
+
+## Plots with proportion of values
+
+```{r plot_seanson_prop, fig.height=8, fig.width=12, fig.align='center'}
 # # Stacked - Test for Val -- works well
 # Data_Season_melt_nona %>% 
 #   dplyr::count(Ano, Val) %>%                   # Group by, then count number in each group
@@ -339,6 +373,17 @@ func_dodged_ano(Data_Season_melt_nona, "Val", "Valenta")
 func_dodged_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
 func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid")
 ```
+
+
+## Plots with proportion of values by Protocol
+
+```{r plot_seanson_prop2, fig.height=25, fig.width=10, fig.align='center'}
+func_dodged_ano(Data_Season_melt_nona, "Val", "Valenta", facet = TRUE)
+func_dodged_ano(Data_Season_melt_nona, "Relv", "Relevanta personala", facet = TRUE)
+func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid", facet = TRUE)
+```
+
+
 
 
 
