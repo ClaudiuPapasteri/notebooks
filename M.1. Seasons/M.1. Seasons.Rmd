@@ -42,7 +42,9 @@ output:
 knitr::opts_chunk$set(
   comment = "#",
   collapse = TRUE,
-  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+  echo = TRUE, 
+  warning = FALSE, message = FALSE, error = FALSE,
+  cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
 )
 
 # General R options and info
@@ -58,7 +60,8 @@ packages <- c(
   "broom", "rstatix",
   "summarytools", "tadaatoolbox",           
   "ggplot2", "ggpubr", "scales",        
-  "rio"
+  "rio",
+  "fmsb", "likert"
   # , ...
 )
 if (!require("pacman")) install.packages("pacman")
@@ -133,7 +136,7 @@ Data %>%
 
 ## Make data frames
 
-```{r df_seanson}
+```{r df_seanson, results='asis', warning=FALSE}
 ## Exclude P6 & P7
 Data_Season <- 
   Data %>%
@@ -396,8 +399,133 @@ func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid", facet = TRUE)
 ```
 
 
+## Likert Plots for Season
+
+```{r plot_likert, results='asis', fig.height=6, fig.width=8, fig.align='center'}
+# Proportions and z-scores
+Prop_val <- 
+  Data_Season_melt_nona %>%
+    dplyr::select(ID, Protocol, Ano, Val) %>%
+    group_by(Ano) %>%
+    mutate(
+      Val = as.factor(Val),
+      Val = forcats::fct_collapse(Val, low = c("1", "2", "3"), neutral = "4", high = c("5", "6", "7"))
+      ) %>%
+    dplyr::count(Val) %>% 
+    mutate(total = sum(n),
+           perc = 100*n/total)
+
+cat("### Proportions - compared to 0.5 probability")
+Prop_val %>%
+filter(Val == "high") %>%
+  rowwise %>%
+  mutate(tst = list(broom::tidy(prop.test(n, total, conf.level = 0.95)))) %>%
+  tidyr::unnest(tst)
+
+Prop_val %>%
+filter(Val == "low") %>%
+  rowwise %>%
+  mutate(tst = list(broom::tidy(prop.test(n, total, conf.level = 0.95)))) %>% 
+  tidyr::unnest(tst)
 
 
+cat("### Proportions - Multiple comparisons")
+Pair_Comp_prop_high <-       # compaire all proportions pairwise
+  Prop_val %>%
+  filter(Val == "high") %>%
+  dplyr::select(-perc) %>%
+  unite("Categ", c("Ano", "Val"), sep = "-") %>%
+  column_to_rownames("Categ") 
+
+Pair_Comp_prop_high_mat <-
+  Pair_Comp_prop_high %>%
+    rownames_to_column("rowname") %>%
+    dplyr::rename(success = n) %>%
+    mutate(failure = total - success) %>%
+    dplyr::select(-total) %>%
+    column_to_rownames("rowname") %>%
+    as.matrix() 
+
+Pair_Comp_prop_low <-       # compaire all proportions pairwise
+  Prop_val %>%
+  filter(Val == "low") %>%
+  dplyr::select(-perc) %>%
+  unite("Categ", c("Ano", "Val"), sep = "-") %>%
+  column_to_rownames("Categ") 
+
+Pair_Comp_prop_low_mat <-
+  Pair_Comp_prop_low %>%
+  rownames_to_column("rowname") %>%
+  dplyr::rename(success = n) %>%
+  mutate(failure = total - success) %>%
+  dplyr::select(-total) %>%
+  column_to_rownames("rowname") %>%
+  as.matrix()
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions")
+pairwise.prop.test(x = Pair_Comp_prop_high_mat, p.adjust.method = "none") %>% 
+  tidy()
+pairwise.prop.test(x = Pair_Comp_prop_low_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions (Fisher exact)")    # library(fmsb)
+fmsb::pairwise.fisher.test(x = Pair_Comp_prop_high_mat, p.adjust.method = "none") %>% 
+  tidy()
+fmsb::pairwise.fisher.test(x = Pair_Comp_prop_low_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+
+# library(paircompviz)
+# paircompviz::paircomp(Pair_Comp_prop_high$n, Pair_Comp_prop_high$total, correct = FALSE,
+#                       test = "prop", result = TRUE, p.adjust.method = "none") 
+
+# Data for Plot
+cat("### Proportions - Plot of Low-Neutral-High")
+Likert_val <- 
+  Data_Season_melt_nona %>%
+  dplyr::select(ID, Protocol, group, Ano, Val) %>%
+  spread(key = Ano, value = Val) %>%
+  mutate_at(vars("Vara", "Primavara", "Toamna", "Iarna"), ~as.factor(.))
+
+# Plots  # library(likert)
+Likertobj_Val <- likert(Likert_val[, c("Vara", "Primavara", "Toamna", "Iarna")], nlevels = 7)   # here are percentages
+Likertobj_Val_perc <- Likertobj_Val$results
+# check if same with Prop dataframe above; or prop.table(table(Likert_val$Vara))
+
+plot(Likertobj_Val, type = "bar", 
+     centered = TRUE, center = 4, include.center = TRUE,              # "4" is neutral
+     wrap = 30, low.color = 'burlywood', high.color = 'maroon') +
+  guides(fill = guide_legend(nrow = 1))
+
+```
+
+
+## Likert Plots for Season
+
+```{r rel_Anofreq_Val, results='asis', fig.height=7, fig.width=7, fig.align='center'}
+Anofreq_Val <- 
+  Data_Season_melt_nona %>%
+    dplyr::select(ID, Protocol, Ano, Val) %>%
+    group_by(ID, Ano) %>%
+    dplyr::summarize(Mean_Val = mean(Val, na.rm=TRUE),
+                     Freq_Ano = n()) 
+
+cat("### Scatter plot with correlation coefficient for all Seasons")
+ggpubr::ggscatter(Anofreq_Val, x = "Freq_Ano", y = "Mean_Val",
+            add = "reg.line",  
+            add.params = list(color = "blue", fill = "lightgray"), 
+            conf.int = TRUE ) +
+stat_cor(method = "pearson", label.x = 7, label.y = 10)
+
+
+cat("### Scatter plot with correlation coefficient for each Season")
+ggpubr::ggscatter(Anofreq_Val, x = "Freq_Ano", y = "Mean_Val",
+   color = "Ano", palette = "jco",
+   add = "reg.line", conf.int = TRUE,
+   xlim = c(0, 15), ylim = c(0, 8)) + 
+stat_cor(aes(color = Ano), method = "pearson", label.x = 11)
+
+```
 
 
 
