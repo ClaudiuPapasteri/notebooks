@@ -1,0 +1,624 @@
+---
+title: "<br> Analyses for M.1. without P8 (Autobiographical Memories)" 
+subtitle: "Focus on Seasons - individual stimuli"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # word_document        
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  warning = FALSE, message = FALSE, error = FALSE,
+  cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "fmsb", "likert"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+
+# Tables knitting to Word
+doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
+# if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "E:/Cinetic idei noi/Cinetic elevi"
+file <- "M1 de introdus anotimpuri.xlsx"
+
+setwd(folder)
+Data <- rio::import(file.path(folder, file))
+
+## Recode NA
+Data <- 
+  Data %>%             # sum(is.na(Data)) = 5873
+  na_if("na")          # sum(is.na(Data)) = 6199
+
+
+## Variable names
+nume <- c("Stim", "Varsta_amin", "Ano", "Val", "Viv", "Relv")
+toate <- paste(nume, rep(1:15, each = length(nume)), sep = "_")
+
+## Check that all variable names are consistent with column headers
+if(toate %in% names(Data)){
+  cat("All column names are consistent.")
+} else {
+  cat("Column names are NOT consistent. \n")
+  cat("Missmatches: \n ")
+  setdiff(toate, names(Data))
+}
+```
+
+
+# Sample descriptives
+
+```{r sample_desc}
+cat("## Number of subjects")
+Data %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+cat("## Number of subjects per Protocol")
+Data %>%
+ group_by(Protocol) %>%
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+```
+
+
+# Season Memories and Valence
+
+## Make data frames
+
+```{r df_seanson, results='asis', warning=FALSE}
+## Exclude P6 & P7
+Data_Season <- 
+  Data %>%
+  dplyr::filter(!Protocol %in% c(6, 7, 8))
+
+## Melt to Long
+
+# Data_Vara <-                          # pivot_longer() only in development version of tidyr... dont use now
+#   Data_Season %>%                     # devtools::install_github("tidyverse/tidyr")
+#   tidyr::pivot_longer(
+#     -c(1:5),
+#     #cols = starts_with("Ano"), 
+#     names_to = c(".value", "var"), 
+#     names_sep = "_", 
+#     values_drop_na = TRUE
+#   )
+
+Data_Season_melt <-                         
+  Data_Season %>%
+  gather(variable, value, -c(1:5)) %>%
+  mutate(group = readr::parse_number(variable)) %>%
+  mutate(variable = gsub("\\d","",x = variable)) %>%
+  spread(variable, value) %>%
+  rename_all(~stringr::str_replace_all(., "_", "")) %>%           # delete the "_" at end
+  mutate(Ano = factor(Ano, levels = c("Vara", "Primavara", "Toamna", "Iarna"))) %>%
+  mutate_at(vars("Relv", "Val", "Varstaamin", "Viv"), funs(as.numeric(as.character(.))))
+  
+## Season data frames
+# Data_Vara <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Vara")
+# 
+# Data_Primavara <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Primavara")
+# 
+# Data_Toamna <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Toamna")
+# 
+# Data_Iarna <-
+#   Data_Season_melt %>%
+#   filter(!is.na(Ano)) %>%                # delete rows were there is no Ano
+#   filter(Ano == "Iarna")
+# 
+# 
+# ## Excel downloadable DT tables
+# Data_Vara %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Primavara %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Toamna %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+# 
+# Data_Iarna %>%                              
+#   select(-Nume) %>%
+#     DT::datatable(                                  
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px', 
+#                      dom = 'Bfrtip', 
+#                      buttons = c('excel', "csv")))
+
+
+cat("### Melt to Long Format")
+Data_Season_melt %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+
+cat("### Wide Format")
+Data_Season %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+
+
+## Data Frame for Plots
+Data_Season_melt_nona <-
+  Data_Season_melt %>%
+  filter(!is.na(Ano))
+```
+
+
+## Define Function for Plots
+
+```{r def_func_plot}
+## Function for Ano Bar Plot
+my_comparisons <- 
+  gtools::combinations(n = length(unique(Data_Season_melt_nona$Ano)), r = 2, v = as.character(Data_Season_melt_nona$Ano), repeats.allowed = FALSE) %>%
+  as.data.frame() %>% 
+  mutate_if(is.factor, as.character) %>%
+  purrr::pmap(list) %>% 
+  lapply(unlist)
+
+func_plot_ano <- function(df, y_var, y_var_lab, label.y_set = 7, yticks.by_set = 1, facet = FALSE){
+  if(facet){
+    facet <- "Protocol"
+  }else{
+    facet <- NULL
+  }
+  p <-
+    df  %>%
+    ggpubr::ggbarplot(x = "Ano", y = y_var, 
+                      add = "mean_se",
+                      color = "black", fill = "lightgray",
+                      xlab = "Anotimp", ylab = y_var_lab,
+                      label = TRUE, lab.nb.digits = 2, lab.pos= "in",
+                      facet.by = facet) +
+    stat_compare_means(method = "anova",
+                       label.x = 0.9, label.y = label.y_set) +
+    stat_compare_means(comparisons = my_comparisons,
+                       label = "p.signif", method = "t.test", paired = FALSE, na.rm = TRUE) 
+  ggpar(p, yticks.by = yticks.by_set)                                     # the rating scale is 1-7
+}
+
+
+## Dodged 
+func_dodged_ano <- function(df, y_var, y_var_lab, facet = FALSE){
+  y_var<- sym(y_var)
+  
+  if(facet) {
+    df <- 
+      df %>% 
+      mutate(Protocol = paste0("Protocol ", Protocol)) %>%
+      group_by(Protocol)  
+  }
+  
+  p <-
+    df  %>%
+    dplyr::count(Ano, !!y_var) %>%                        # Group by, then count number in each group
+    mutate(pct = prop.table(n)) %>%                     # Calculate percent within each var
+    mutate(Val_fac = as.factor(!!y_var)) %>%
+    ggplot(aes(x = Ano, y = pct, fill = Val_fac, label = scales::percent(pct))) + 
+      geom_col(position = 'dodge') + 
+      geom_text(position = position_dodge(width = .9),    # move to center of bars
+                vjust = -0.5,                             # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      {if(facet) facet_wrap(~Protocol, scales = "free", ncol = 1, nrow = 8)} +
+      ggtitle(y_var_lab) +
+      xlab("Anotimp") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Value", nrow = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "bottom", legend.direction = "horizontal", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+  p
+}  
+```
+
+
+
+## Plots of Seasons
+
+```{r plot_seanson, fig.height=7, fig.width=6, fig.align='center'}
+## Test for Val -- works well
+# Data_Season_melt_nona  %>%
+#   ggpubr::ggbarplot(x = "Ano", y = "Val", 
+#                     add = "mean_se",
+#                     color = "black", fill = "lightgray",
+#                     xlab = "Anotimp", ylab = "Valenta",
+#                     label = TRUE, lab.nb.digits = 2, lab.pos= "in") +
+#   stat_compare_means(method = "anova",
+#                      label.x = 0.9, label.y = 7) +
+#   stat_compare_means(comparisons = my_comparisons,
+#                      label = "p.signif", method = "t.test", paired = FALSE, na.rm = TRUE) 
+
+
+func_plot_ano(Data_Season_melt_nona, "Val", "Valenta")
+func_plot_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
+func_plot_ano(Data_Season_melt_nona, "Viv", "Vivid")
+func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_set = 50, yticks.by_set = 5)
+```
+
+
+## Plots of Seasons by Protocol
+
+```{r plot_seanson2, fig.height=10, fig.width=12, fig.align='center'}
+func_plot_ano(Data_Season_melt_nona, "Val", "Valenta", facet = TRUE) 
+func_plot_ano(Data_Season_melt_nona, "Relv", "Relevanta personala", facet = TRUE)
+func_plot_ano(Data_Season_melt_nona, "Viv", "Vivid", facet = TRUE)
+func_plot_ano(Data_Season_melt_nona, "Varstaamin", "Varsta amintire", label.y_set = 50, yticks.by_set = 5, facet = TRUE)
+```
+
+
+## Plots with proportion of values
+
+```{r plot_seanson_prop_stacked, fig.height=9, fig.width=8, fig.align='center', results='asis'}
+# Stacked - Test for Val -- works well
+cat("### Stacked: Val")
+Data_Season_melt_nona %>%
+  dplyr::count(Ano, Val) %>%                   # Group by, then count number in each group
+  mutate(pct = n/sum(n)) %>%                   # Calculate percent within each var; could use prop.table(n)
+  mutate(Val_fac = as.factor(Val)) %>%
+ggplot(aes(Ano, n, fill = Val_fac)) +
+  geom_bar(stat = "identity") +  
+  geom_text(aes(label = paste0(sprintf("%1.1f", pct*100), "%"), size = scales::rescale(pct, to=c(2, 5))),
+            position = position_stack(vjust=0.5), show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Value", nrow = 1)) + 
+  theme(legend.position = "bottom", legend.direction = "horizontal", legend.justification = c(0, 1))
+
+```
+
+
+```{r plot_seanson_prop_dodge, fig.height=8, fig.width=12, fig.align='center', results='asis'}
+# # Dodged - Test for Val -- works well
+# Data_Season_melt_nona %>% 
+#   dplyr::count(Ano, Val) %>%                        # Group by, then count number in each group
+#   mutate(pct = prop.table(n)) %>%                   # Calculate percent within each var
+#   mutate(Val_fac = as.factor(Val)) %>%
+#   ggplot(aes(x = Ano, y = pct, fill = Val_fac, label = scales::percent(pct))) + 
+#     geom_col(position = 'dodge') + 
+#     geom_text(position = position_dodge(width = .9),    # move to center of bars
+#               vjust = -0.5,                             # nudge above top of bar
+#               size = 3) + 
+#     scale_y_continuous(labels = scales::percent) +
+#     xlab("Anotimp") + ylab("Percentage %") + 
+#     guides(fill = guide_legend(title = "Value", nrow = 1)) + 
+#     scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+#     theme(legend.position = "bottom", legend.direction = "horizontal", legend.justification = c(0, 1)) 
+  
+cat("### Dodged: Val, Relev, Vivid")
+func_dodged_ano(Data_Season_melt_nona, "Val", "Valenta")
+func_dodged_ano(Data_Season_melt_nona, "Relv", "Relevanta personala")
+func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid")
+```
+
+
+## Plots with proportion of values by Protocol
+
+```{r plot_seanson_prop2, fig.height=25, fig.width=10, fig.align='center'}
+func_dodged_ano(Data_Season_melt_nona, "Val", "Valenta", facet = TRUE)
+func_dodged_ano(Data_Season_melt_nona, "Relv", "Relevanta personala", facet = TRUE)
+func_dodged_ano(Data_Season_melt_nona, "Viv", "Vivid", facet = TRUE)
+```
+
+
+## Likert Plots for Season
+
+```{r plot_likert, results='asis', fig.height=6, fig.width=8, fig.align='center'}
+# Proportions and z-scores
+Prop_val <- 
+  Data_Season_melt_nona %>%
+    dplyr::select(ID, Protocol, Ano, Val) %>%
+    group_by(Ano) %>%
+    mutate(
+      Val = as.factor(Val),
+      Val = forcats::fct_collapse(Val, low = c("1", "2", "3"), neutral = "4", high = c("5", "6", "7"))
+      ) %>%
+    dplyr::count(Val) %>% 
+    mutate(total = sum(n),
+           perc = 100*n/total)
+
+cat("### Proportions - compared to 0.5 probability")
+Prop_val %>%
+filter(Val == "high") %>%
+  rowwise %>%
+  mutate(tst = list(broom::tidy(prop.test(n, total, conf.level = 0.95)))) %>%
+  tidyr::unnest(tst)
+
+Prop_val %>%
+filter(Val == "low") %>%
+  rowwise %>%
+  mutate(tst = list(broom::tidy(prop.test(n, total, conf.level = 0.95)))) %>% 
+  tidyr::unnest(tst)
+
+
+cat("### Proportions - Multiple comparisons")
+Pair_Comp_prop_high <-       # compaire all proportions pairwise
+  Prop_val %>%
+  filter(Val == "high") %>%
+  dplyr::select(-perc) %>%
+  unite("Categ", c("Ano", "Val"), sep = "-") %>%
+  column_to_rownames("Categ") 
+
+Pair_Comp_prop_high_mat <-
+  Pair_Comp_prop_high %>%
+    rownames_to_column("rowname") %>%
+    dplyr::rename(success = n) %>%
+    mutate(failure = total - success) %>%
+    dplyr::select(-total) %>%
+    column_to_rownames("rowname") %>%
+    as.matrix() 
+
+Pair_Comp_prop_low <-       # compaire all proportions pairwise
+  Prop_val %>%
+  filter(Val == "low") %>%
+  dplyr::select(-perc) %>%
+  unite("Categ", c("Ano", "Val"), sep = "-") %>%
+  column_to_rownames("Categ") 
+
+Pair_Comp_prop_low_mat <-
+  Pair_Comp_prop_low %>%
+  rownames_to_column("rowname") %>%
+  dplyr::rename(success = n) %>%
+  mutate(failure = total - success) %>%
+  dplyr::select(-total) %>%
+  column_to_rownames("rowname") %>%
+  as.matrix()
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions")
+pairwise.prop.test(x = Pair_Comp_prop_high_mat, p.adjust.method = "none") %>% 
+  tidy()
+pairwise.prop.test(x = Pair_Comp_prop_low_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions (Fisher exact)")    # library(fmsb)
+fmsb::pairwise.fisher.test(x = Pair_Comp_prop_high_mat, p.adjust.method = "none") %>% 
+  tidy()
+fmsb::pairwise.fisher.test(x = Pair_Comp_prop_low_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+
+# library(paircompviz)
+# paircompviz::paircomp(Pair_Comp_prop_high$n, Pair_Comp_prop_high$total, correct = FALSE,
+#                       test = "prop", result = TRUE, p.adjust.method = "none") 
+
+# Data for Plot
+cat("### Proportions - Plot of Low-Neutral-High")
+Likert_val <- 
+  Data_Season_melt_nona %>%
+  dplyr::select(ID, Protocol, group, Ano, Val) %>%
+  spread(key = Ano, value = Val) %>%
+  mutate_at(vars("Vara", "Primavara", "Toamna", "Iarna"), ~as.factor(.))
+
+# Plots  # library(likert)
+Likertobj_Val <- likert(Likert_val[, c("Vara", "Primavara", "Toamna", "Iarna")], nlevels = 7)   # here are percentages
+Likertobj_Val_perc <- Likertobj_Val$results
+# check if same with Prop dataframe above; or prop.table(table(Likert_val$Vara))
+
+plot(Likertobj_Val, type = "bar", 
+     centered = TRUE, center = 4, include.center = TRUE,              # "4" is neutral
+     wrap = 30, low.color = 'burlywood', high.color = 'maroon') +
+  guides(fill = guide_legend(nrow = 1))
+
+```
+
+
+## Relationship: Frequency of remembering - Valence
+
+```{r rel_Anofreq_Val, results='asis', fig.height=7, fig.width=7, fig.align='center'}
+Anofreq_Val <- 
+  Data_Season_melt_nona %>%
+    dplyr::select(ID, Protocol, Ano, Val) %>%
+    group_by(ID, Ano) %>%
+    dplyr::summarize(Mean_Val = mean(Val, na.rm=TRUE),
+                     Freq_Ano = n()) 
+
+cat("### Scatter plot with correlation coefficient for all Seasons")
+ggpubr::ggscatter(Anofreq_Val, x = "Freq_Ano", y = "Mean_Val",
+            add = "reg.line",  
+            add.params = list(color = "blue", fill = "lightgray"), 
+            conf.int = TRUE ) +
+stat_cor(method = "pearson", label.x = 7, label.y = 10)
+
+
+cat("### Scatter plot with correlation coefficient for each Season")
+ggpubr::ggscatter(Anofreq_Val, x = "Freq_Ano", y = "Mean_Val",
+   color = "Ano", palette = "jco",
+   add = "reg.line", conf.int = TRUE,
+   xlim = c(0, 15), ylim = c(0, 8)) + 
+stat_cor(aes(color = Ano), method = "pearson", label.x = 11)
+
+```
+
+
+## Most negative Valence (ones)
+
+```{r plot_likert_ones, results='asis', fig.height=10, fig.width=10, fig.align='center'}
+# Proportions and z-scores
+Prop_val2 <- 
+  Data_Season_melt_nona %>%
+    dplyr::select(ID, Protocol, Ano, Val) %>%
+    group_by(Ano) %>%
+    dplyr::count(Val) %>% 
+    mutate(total = sum(n),
+           perc = 100*n/total)
+
+cat("### Proportions - compared to 0.5 probability")
+Prop_val2 %>%
+filter(Val == 1) %>%
+  rowwise %>%
+  mutate(tst = list(broom::tidy(prop.test(n, total, conf.level = 0.95)))) %>%
+  tidyr::unnest(tst)
+
+cat("### Proportions - Multiple comparisons")
+Pair_Comp_prop_ones <-       # compaire all proportions pairwise
+  Prop_val2 %>%
+  filter(Val == 1) %>%
+  dplyr::select(-perc) %>%
+  unite("Categ", c("Ano", "Val"), sep = "-") %>%
+  column_to_rownames("Categ") 
+
+Pair_Comp_prop_ones_mat <-
+  Pair_Comp_prop_ones %>%
+    rownames_to_column("rowname") %>%
+    dplyr::rename(success = n) %>%
+    mutate(failure = total - success) %>%
+    dplyr::select(-total) %>%
+    column_to_rownames("rowname") %>%
+    as.matrix() 
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions")
+pairwise.prop.test(x = Pair_Comp_prop_ones_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+cat("#### Pairwise comparisons using Pairwise comparison of proportions (Fisher exact)")    # library(fmsb)
+fmsb::pairwise.fisher.test(x = Pair_Comp_prop_ones_mat, p.adjust.method = "none") %>% 
+  tidy()
+
+# Data for Plot
+cat("### Proportions - Plot of Low-Neutral-High")
+Likert_val_all <- 
+  Data_Season_melt_nona %>%
+  dplyr::select(ID, Protocol, group, Ano, Val) %>%
+  spread(key = Ano, value = Val) %>%
+  mutate_at(vars("Vara", "Primavara", "Toamna", "Iarna"), ~as.factor(.))
+
+# Plots  # library(likert)
+Likertobj_Val_all <- likert(Likert_val[, c("Vara", "Primavara", "Toamna", "Iarna")], nlevels = 7)   # here are percentages
+Likertobj_Val_perc_all <- Likertobj_Val$results
+
+plot(Likertobj_Val_all, type = "heat") + 
+  ggtitle("Mean (SD) vs Percetages of Valence Ratings") + 
+  theme(legend.position = 'none')
+
+```
+
+
+
+
+
+
+
+<br>
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
