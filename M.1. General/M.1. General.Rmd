@@ -42,7 +42,9 @@ output:
 knitr::opts_chunk$set(
   comment = "#",
   collapse = TRUE,
-  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+  echo = TRUE, 
+  warning = FALSE, message = FALSE, error = FALSE,
+  cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
 )
 
 # General R options and info
@@ -67,10 +69,13 @@ pacman::p_load(char = packages)
 # Themes for ggplot2 ploting (here used APA style)
 theme_set(theme_apa())
 
-
 # Tables knitting to Word
 doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
 # if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+
+# Set wd for Notebook
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M.1. General"
+# knitr::opts_knit$set(root.dir = normalizePath(folder))
 ```
 
 
@@ -88,18 +93,16 @@ doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables us
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## Read files
-folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M.1 General"
 file <- "Date Complete M1 v.13 siPPGGSRamilaza.sav"
 
-setwd(folder)
+# setwd(folder)
 Data <- rio::import(file.path(folder, file))
-
 ```
 
 
 # Make data frame
 
-```{r df_seanson}
+```{r df_excel}
 Data %>%
   dplyr::select(-Nume) %>%
     DT::datatable(
@@ -108,14 +111,154 @@ Data %>%
                      scrollX='500px',
                      dom = 'Bfrtip',
                      buttons = c('excel', "csv")))
+```
 
+
+## Exclude Protocol 8 (mother)
+```{r df_filtered}
+Data <- 
+  Data %>%
+  filter(P != 8)
+    
+```
+
+
+# Define Functions 
+
+```{r def_func, hide=TRUE, results='asis'}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var, facet = FALSE, xlab = ""){  
+  if(facet){
+    facet <- "Protocol"
+  }else{
+    facet <- NULL
+  }
+  
+  df_modif <-
+    df %>%
+    select(ind, P, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "PrePost", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(PrePost = factor(PrePost, levels = c(pre_var, post_var))) 
+  
+  if(!is.null(facet)){
+    df_modif <-
+      df_modif %>%
+      group_by(P) %>%
+      mutate(Protocol = paste0("Protocol = ", P, ", n = ", n()))
+  }
+  
+  stat_comp <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$PrePost,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "PrePost", y = "value", id = ind, 
+                     color = "PrePost", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none",
+                     facet.by = facet, ncol = 3, 
+                     xlab = xlab) +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$PrePost)-0.4, label.y = max(df_modif$value)+1) + 
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  print(stat_comp)
+  cat("\n")                      
+  print(plot)
+  cat("\n")
+  plot.new()                     # Need this workaround for interleaving tables and plots in R Markdown, within loop
+  dev.off()
+}
+```
+
+
+# Plot
+```{r plot1, fig.width=8, fig.height=6, results='asis'}
+## Dodged Bar plot of Age and Gender - with
+Data  %>%
+  mutate(Varta_categ = cut(Varsta, 
+                           breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, 60, Inf), 
+                           labels=c("<25","25-29","30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60>"), 
+                           right = FALSE)) %>%  
+  mutate(Varsta = as.factor(Varsta),
+         Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  dplyr::count(Varta_categ, Gen) %>%                        # Group by, then count number in each group
+  mutate(pct = prop.table(n)) %>%                     # Calculate percent within each var
+  ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+    geom_col(position = 'dodge') + 
+    geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,                             # nudge above top of bar
+              size = 3) + 
+    scale_y_continuous(labels = scales::percent) +
+    ggtitle("") +
+    xlab("Varsta") + ylab("Percentage %") + 
+    guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+    scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+    theme(legend.position = "right", legend.direction = "vertical", 
+          legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
 
 ```
 
 
+# Analyses
+
+## Simple before-after analyses with t test
+
+```{r t_test1, fig.width=5, fig.height=6, results='asis'}
+## Simple before-after analyses with t test
+cat("#### VAS Stress")
+func_t_box(Data, ind = "ID", "Stres_pre", "Stres_post", facet = FALSE) 
+```
 
 
+```{r t_test2, fig.width=8, fig.height=12, results='asis'}
+## Simple before-after analyses with t test
+cat("#### VAS Stress")
+func_t_box(Data, ind = "ID", "Stres_pre", "Stres_post", facet = TRUE) 
+```
 
+
+## Correlations: Anotimpuri - Calitate Amintiri (without P6, P7)
+
+```{r cor1, fig.width=9, fig.height=9, results='asis'}
+dateplot1 <- Data[, c("P", "Primavara", "Vara", "Toamna", "Iarna", "Media_s1", "Media_s2", "Media_s3",  "SocDih_Part",  "SocDih_FamN",  "SocDih_FamInd",  "SocDih_Priet",  "SocDih_Amici",  "SocDih_Necun",  "SocDih_Antag",  "SocDih_TotAprop",  "SocDih_TotNeaprop", "STAI_T")] 
+names(dateplot1) <- c("P", "Primavara", "Vara", "Toamna", "Iarna", "S1- Valenta", "S2 - Vividness", "S3 - Relevanta",  "Partener",  "Familie nucleu",  "Familie extinsa",  "Prieteni",  "Amici",  "Necunoscuti",  "Antagonisti",  "Toti Apropiatii",  "Toti Neapropiatii", "STAI_T")
+dateplot1 <- subset(dateplot1, P!=6 & P!=7)
+
+COR <- Hmisc::rcorr(as.matrix(dateplot1[,-1]))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, method = "number", type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .9, tl.srt = 45)  
+```
+
+## Correlations: Personality - Qualities of Memories (without P6, P7)
+
+```{r cor2, fig.width=11, fig.height=11, results='asis'}
+dateplot2 <- Data[, c(24, 40, 56, 87:121, 126)] 
+names(dateplot2)[1:3] <- c("S1- Valenta", "S2 - Vividness", "S3 - Relevanta")
+
+COR <- Hmisc::rcorr(as.matrix(dateplot2))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+```
+
+
+## Correlations: Social - Personality
+
+```{r cor3, fig.width=11, fig.height=11, results='asis'}
+dateplot3 <- Data[, c(131:139, 87:121)]
+names(dateplot3)[1:9] <- c("Partener",  "Familie nucleu",  "Familie extinsa",  "Prieteni",  "Amici",  "Necunoscuti",  "Antagonisti",  "Toti Apropiatii",  "Toti Neapropiatii")
+
+COR <- Hmisc::rcorr(as.matrix(dateplot3))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+```
 
 
 <br>
