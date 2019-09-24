@@ -115,17 +115,17 @@ Data %>%
 
 
 ## Exclude Protocol 8 (mother)
+
 ```{r df_filtered}
 Data <- 
   Data %>%
   filter(P != 8)
-    
 ```
 
 
 # Define Functions 
 
-```{r def_func, hide=TRUE, results='asis'}
+```{r def_func_ttest, hide=TRUE, results='asis'}
 ## Func t test si boxplot simplu
 func_t_box <- function(df, ind, pre_var, post_var, facet = FALSE, xlab = ""){  
   if(facet){
@@ -175,9 +175,61 @@ func_t_box <- function(df, ind, pre_var, post_var, facet = FALSE, xlab = ""){
 ```
 
 
+```{r def_func_heatcorplotly, hide=TRUE, results='asis'}
+heat_cor_plotly <- function(df, x_vars = NULL, y_vars = NULL, low_color = "cyan",  high_color = "red",  ...){   
+  # inherit type = c("pearson","spearman") from Hmisc::rcorr() 
+  library(ggplot2)
+  library(plotly)
+  library(reshape2)
+  library(Hmisc)
+  
+  # use all numeric columns only, print message if non-numeric are found
+  numeric_cols <- unlist(lapply(df, is.numeric))
+  if(!all(numeric_cols)) message("Warning: Non-numeric columns were excluded!")
+  df <- df[, numeric_cols]
+  
+  df_mat <- as.matrix(df)
+  rt <- Hmisc::rcorr(df_mat, ...)
+  
+  # extract correlations, p-values and merge into another dataframe
+  mtlr <- reshape2::melt(rt$r, value.name = "Correlation")
+  mtlp <- reshape2::melt(rt$P, value.name = "P-Value")
+  
+  mtl <- merge(mtlr, mtlp)
+  
+  # give possibility to prune the correlation matrix
+  if(!is.null(x_vars)){
+    mtl <- mtl[(mtl$Var1 %in% x_vars), ]
+  }
+  if(!is.null(x_vars)){
+    mtl <- mtl[(mtl$Var2 %in% y_vars), ]
+  }
+  
+  # want to avoid scientific notetion, but this doesnt work as numeric
+  # mtl$Correlation <- as.numeric(format(mtl$Correlation, digits = 4, scientific = FALSE))  # doesnt work
+  # mtl$`P-Value` <- as.numeric(format(mtl$`P-Value`, digits = 4, scientific = FALSE)) 
+  options(scipen = 999)
+  mtl$Correlation <- round(mtl$Correlation, 3)
+  mtl$`P-Value` <- round(mtl$`P-Value`, 3)
+
+  gx <-
+    ggplot2::ggplot(mtl, 
+           aes(Var1, Var2, 
+               fill = Correlation,  
+               text = paste("P-val = ", `P-Value`))) +
+    ggplot2::geom_tile() + 
+    ggplot2::scale_fill_gradient(low = low_color,  high = high_color, limits = c(-1, 1), breaks = c(-1, -.5, 0, .5, 1)) +
+    ggplot2::theme_minimal() +
+    {if(any(nchar(names(df)) > 6)) ggplot2::theme(axis.text.x = element_text(angle = 90, hjust = 1))}  # vertical x axis labels if lenghty
+  plotly::ggplotly(gx)  
+}
+```
+
+
 # Plot
+
 ```{r plot1, fig.width=8, fig.height=6, results='asis'}
-## Dodged Bar plot of Age and Gender - with
+## Dodged Bar plot of Age and Gender
 Data  %>%
   mutate(Varta_categ = cut(Varsta, 
                            breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, 60, Inf), 
@@ -200,8 +252,25 @@ Data  %>%
     scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
     theme(legend.position = "right", legend.direction = "vertical", 
           legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
-
 ```
+
+
+```{r plot2, fig.width=6, fig.height=6, results='asis'}
+## Pie chart
+Data  %>%
+  mutate(Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  group_by(Gen) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) %>% 
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "Gen", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
 
 
 # Analyses
@@ -235,6 +304,12 @@ P_MAT <- COR$P
 corrplot::corrplot(M, method = "number", type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .9, tl.srt = 45)  
 ```
 
+
+```{r heat_cor1, fig.width=9, fig.height=9, results='asis'}
+heat_cor_plotly(dateplot1[,-1])
+```
+
+
 ## Correlations: Personality - Qualities of Memories (without P6, P7)
 
 ```{r cor2, fig.width=11, fig.height=11, results='asis'}
@@ -245,6 +320,11 @@ COR <- Hmisc::rcorr(as.matrix(dateplot2))
 M <- COR$r
 P_MAT <- COR$P
 corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+```
+
+
+```{r heat_cor2, fig.width=4, fig.height=12, results='asis'}
+heat_cor_plotly(dateplot2, x_vars = names(dateplot2)[1:3], y_vars = names(dateplot2)[-(1:3)])
 ```
 
 
@@ -259,6 +339,15 @@ M <- COR$r
 P_MAT <- COR$P
 corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
 ```
+
+
+```{r heat_cor3, fig.width=6, fig.height=12, results='asis'}
+heat_cor_plotly(dateplot3, x_vars = names(dateplot3)[1:9], y_vars = names(dateplot3)[-(1:9)])
+```
+
+
+
+
 
 
 <br>
