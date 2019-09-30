@@ -238,20 +238,20 @@ Data  %>%
   mutate(Varsta = as.factor(Varsta),
          Gen = as.factor(as.character(Gen))) %>%
   mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
-  dplyr::count(Varta_categ, Gen) %>%                        # Group by, then count number in each group
-  mutate(pct = prop.table(n)) %>%                     # Calculate percent within each var
-  ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
-    geom_col(position = 'dodge') + 
-    geom_text(position = position_dodge(width = .9),    # move to center of bars
-              vjust = -0.5,                             # nudge above top of bar
-              size = 3) + 
-    scale_y_continuous(labels = scales::percent) +
-    ggtitle("") +
-    xlab("Varsta") + ylab("Percentage %") + 
-    guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
-    scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
-    theme(legend.position = "right", legend.direction = "vertical", 
-          legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+  dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
 ```
 
 
@@ -344,6 +344,62 @@ corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "
 ```{r heat_cor3, fig.width=6, fig.height=12, results='asis'}
 heat_cor_plotly(dateplot3, x_vars = names(dateplot3)[1:9], y_vars = names(dateplot3)[-(1:9)])
 ```
+
+
+# Social
+
+```{r soc_1, results='asis', fig.height=7, fig.width=9, fig.align='center'}
+# names(Data[str_detect(colnames(Data), fixed("SocDih", ignore_case=TRUE))])
+Data_soc <-
+  Data %>%
+  dplyr::select("ID", "P", starts_with("SocDih")) %>%
+  haven::zap_formats(.) %>%                # to not get warning  
+  haven::zap_labels(.) %>%                 # "attributes are not identical across measure variables"
+  haven::zap_widths(.) %>%                 # on gather() because of SPSS
+  dplyr::rename_all(list(~stringr::str_replace(., "SocDih_", ""))) %>% 
+  gather(key = "Variable", value = "Value", -ID, -P) 
+  
+# Create a custom color scale for all ASCQ graphs
+library(RColorBrewer)
+myColors <- brewer.pal(10,"Set1")
+names(myColors) <- levels(Data_soc$Variable)
+colScale <- scale_colour_manual(name = "Variable", values = myColors)
+
+# Plot
+ggpubr::ggviolin(data = Data_soc, x = "Variable", y = "Value", fill = "Variable",
+      add = "boxplot", add.params = list(fill = "white"),
+      xlab = "", legend = "none") +
+  colScale +                                                   # color scale here keep consistency of color with factor level
+  stat_summary(fun.data = mean_se,  colour = "darkred") +         
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+```{r soc_2, results='asis', fig.height=28, fig.width=9, fig.align='center'}
+# Plot faceted by Protocol
+p <- 
+  ggpubr::ggviolin(data = Data_soc, x = "Variable", y = "Value", fill = "Variable",
+        add = "boxplot", add.params = list(fill = "white"),
+        xlab = "", legend = "none") +
+         
+    colScale +                                                   # color scale here keep consistency of color with factor level
+    stat_summary(fun.data = mean_se,  colour = "darkred") +         
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggpubr::facet(p, facet.by = "P", ncol = 1, scales = "free_x")
+```
+
+
+```{r soc_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+# PerformanceAnalytics::chart.Correlation(Data[, c(8, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140)])
+coplot(SocDih_Amici ~ DifStres | Media_s1, 
+       data = Data,
+       columns = 3,
+     panel = function(x, y, ...) {
+          panel.smooth(x, y, span = .8, iter = 5,...)
+          abline(lm(y ~ x), col = "blue") } )
+```
+
 
 
 

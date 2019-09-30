@@ -1,0 +1,313 @@
+---
+title: "<br> Rezidential" 
+subtitle: "Iasi "
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  cache = TRUE, 
+  warning = FALSE, message = FALSE   # WHEN NOTEBOOK IS FINISHED ... until then leave: warning = TRUE, message = TRUE        
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "knitr", "kableExtra", "papaja",  
+  "tidyverse",       
+  "psych",           
+  "broom", "summarytools", "tadaatoolbox", "PerformanceAnalytics",          
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "Hmisc", 
+  "GGally", "RColorBrewer"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+# Tables knitting to Word
+doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
+# if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+
+# Set wd for Notebook
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/Rezidential_Iasi"
+# knitr::opts_knit$set(root.dir = normalizePath(folder))
+```
+
+
+
+<!-- REPORT -->
+
+# Load data
+
+```{r rds_data, results = 'hide', cache.extra = file.info("Data_Rezidential.RDS")}
+## Read
+filename <- "Data_Rezidential.RDS"   
+
+Data <- readRDS(file.path(folder, filename))  
+```
+
+
+## Doar din Iasi
+
+```{r derived_data, dependson = "rds_data"}
+Data <-
+  Data %>%
+  filter(judet == "Iasi")
+```
+
+
+# Demografice
+
+```{r gen, fig.width=6, fig.height=6, results='asis'}
+## Pie chart
+Data  %>%
+  mutate(Gen = as.factor(as.character(gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "f", "masculin" = "m")) %>%
+  group_by(Gen) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) %>% 
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "Gen", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+
+```{r varste_gen, fig.width=8, fig.height=6, results='asis'}
+## Dodged Bar plot of Age and Gender
+Data  %>%
+  mutate(Varta_categ = cut(varsta, 
+                           breaks = c(-Inf, 6, 8, 10, 12, 14, 16, Inf), 
+                           labels=c("5-6", "6-8", "8-10", "10-12", "12-14", "14-16", "16-18"), 
+                           right = FALSE)) %>%  
+  mutate(Varta_categ = as.factor(Varta_categ),
+         Gen = as.factor(as.character(gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "f", "masculin" = "m")) %>%
+  dplyr::count(Varta_categ, Gen) %>%                    # Group by, then count number in each group
+  mutate(pct = prop.table(n)) %>%                       # Calculate percent within each var
+  ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+    geom_col(position = 'dodge') + 
+    geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,                             # nudge above top of bar
+              size = 3) + 
+    scale_y_continuous(labels = scales::percent) +
+    ggtitle("") +
+    xlab("Varsta") + ylab("Percentage %") + 
+    guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+    scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+    theme(legend.position = "right", legend.direction = "vertical", 
+          legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+
+
+# GCIC
+
+```{r gcic_1, results='asis', fig.height=10, fig.width=12, fig.align='center'}
+# Data[str_detect(colnames(Data), fixed("gci", ignore_case=TRUE))] # items
+Data_gci <- Data[, c(sprintf("gci_%d", 1:14), "OpenC", "CloseC", "centru")]
+
+labels_gci <- 
+  c("Foarte neadevărat",
+  "Neadevărat",
+  "Un pic neadevărat / Un pic adevărat",
+  "Adevărat",
+  "Foarte adevărat")
+
+itemtext_gci <-
+  c("1. Oamenii de la centru se poartă frumos cu mine.",
+  "2. Am încredere în oamenii din centru.",
+  "3. Oamenii de la centru mă înţeleg.",
+  "4. Atunci când mă plâng de ceva, oamenii din centru mă iau în serios.",
+  "5. Oamenii de la centru sunt corecți.",
+  "6. Simt că aici, la centru, lucrez la îndeplinirea scopurilor mele.",
+  "7. În acest centru sunt întotdeauna destui oameni care să mă ajute.",
+  "8. Oamenii din centru se țin de cuvânt.",
+  "9. Pot să cer ajutor de la oamenii din centru atunci când am nevoie.",
+  "10. În acest centru, copiii au încredere unii în alții.",
+  "11. Aici, poți să ai încredere în toată lumea.",
+  "12. Haosul și gălăgia din centru mă înnebunesc.",
+  "13. Sunt prea mulți copii aici.",
+  "14. Oamenii de la centru sunt adesea prea ocupați ca să mă ajute.")
+
+Data_gci <-
+  Data_gci %>%
+  mutate_at(vars(sprintf("gci_%d", 1:14)), ~as.factor(as.character(.))) %>%
+  rename_at(vars(sprintf("gci_%d", 1:14)), ~itemtext_gci) %>%
+  rename_at(vars("OpenC", "CloseC"), ~c("Climat deschis", "Climat închis")) %>%
+  dplyr::rename(Centru = centru)
+
+# Plots  # library(likert)
+Likertobj_gci <- likert::likert(Data_gci[, 1:14], nlevels = 5)   # here are percentages
+
+plot(Likertobj_gci, type = "bar", 
+     centered = TRUE, center = 3, include.center = TRUE,              # "3" is neutral
+     wrap = 30, low.color = 'burlywood', high.color = 'maroon',
+     group.order = names(Data_gci[, 1:14])) +
+  ylab("Procent") + 
+  guides(fill = guide_legend(nrow = 1, title = "Răspuns")) +
+  geom_vline(xintercept = 5.51)
+```
+
+
+```{r gcic_2, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_gci %>%
+  select("Climat deschis", "Climat închis") %>%
+  gather() %>%
+  rename_at(vars("key", "value"), ~c("Var", "Scor")) %>%
+    ggpubr::ggviolin("Var", "Scor", fill = "Var",
+      palette = c("#00AFBB", "#FC4E07"),
+      add = "boxplot", add.params = list(fill = "white"),
+      xlab = "", legend = "none") +
+  stat_summary(fun.data = mean_se,  colour = "darkred")
+```
+
+
+```{r gcic_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_gci %>%
+  select("Climat deschis", "Climat închis", "Centru") %>%
+  gather(key ="Var", value = "Scor", -Centru) %>%
+  mutate(Centru = as.factor(Centru)) %>%
+    ggpubr::ggviolin("Var", "Scor", fill = "Var",
+      palette = c("#00AFBB", "#FC4E07"),
+      add = "boxplot", add.params = list(fill = "white"),
+      xlab = "", legend = "none",
+      facet.by = "Centru") +
+  stat_summary(fun.data = mean_se,  colour = "darkred")
+
+cat("### Climat deschis")
+Data_gci %>%
+  select("Climat deschis", "Centru") %>% 
+  group_by(Centru) %>%  
+  dplyr::summarise(medie = mean(`Climat deschis`, na.rm = TRUE),
+                   sd = sd(`Climat deschis`, na.rm = TRUE))
+
+cat("### Climat închis")
+Data_gci %>%
+  select("Climat închis", "Centru") %>% 
+  group_by(Centru) %>%  
+  dplyr::summarise(medie = mean(`Climat închis`, na.rm = TRUE),
+                   sd = sd(`Climat închis`, na.rm = TRUE))
+```
+
+
+# ASCQ
+
+```{r ascq_1, results='asis', fig.height=7, fig.width=9, fig.align='center'}
+Data_ascq <-
+  Data %>%
+  dplyr::select(sprintf("asc_%d", 1:15), c("ASecur", "AAnxio", "AAvoid", "ASCQ_f", "centru")) %>%
+  dplyr::rename(Centru = centru) %>%
+  mutate(
+    ASCQ_f = forcats::fct_recode(ASCQ_f,
+                                      "Sec" = "Secur",
+                                      "Sec și Anx" = "Secur&Anxio",
+                                      "Anx" = "Anxio",
+                                      "Evit" = "Avoid",
+                                      "Sec și Evit" = "Secur&Avoid",
+                                      "Anx și Evit" = "Anxio&Avoid",
+                                      "Sec, Anx, Evit" = "Secur&Anxio&Avoid"),
+    ASCQ_f = fct_explicit_na(ASCQ_f, "lipsă"))
+
+# Create a custom color scale for all ASCQ graphs
+library(RColorBrewer)
+myColors <- brewer.pal(9,"Set1")
+names(myColors) <- levels(Data_ascq$ASCQ_f)
+colScale <- scale_colour_manual(name = "ASCQ_f", values = myColors)
+
+# Plot
+ggplot(Data_ascq, aes(x = forcats::fct_infreq(ASCQ_f), fill = ASCQ_f)) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  geom_text(aes(y = ((..count..)/sum(..count..)), 
+                label = scales::percent((..count..)/sum(..count..))), 
+            stat = "count", vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(title = "", y = "Procent", x = "Tip Atașament") +
+  guides(fill = FALSE) + colScale       # color scale here keep consistency of color with factor level
+```
+
+
+```{r ascq_2, results='asis', fig.height=14, fig.width=10, fig.align='center'}
+ggplot(Data_ascq, aes(x = forcats::fct_infreq(ASCQ_f), fill = ASCQ_f)) +
+  facet_wrap(~Centru, scales = "free", ncol = 2) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  geom_text(aes(y = ((..count..)/sum(..count..)), 
+                label = scales::percent((..count..)/sum(..count..))), 
+            stat = "count", vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(title = "", y = "Procent", x = "") +
+  guides(fill = FALSE) + colScale +                         # color scale here keep consistency of color with factor level
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+```
+
+
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
