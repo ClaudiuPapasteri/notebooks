@@ -287,6 +287,90 @@ ggplot(Data_ascq, aes(x = forcats::fct_infreq(ASCQ_f), fill = ASCQ_f)) +
 ```
 
 
+# ACE
+
+```{r descr_ace, fig.width = 12, fig.asp = 1.6}
+# Data$sec2_1    is redundant because all should be 1, even tough there are 403 NA and 872 of 1
+Ace_col_names <- c(sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))
+
+Ace_new_names <- c("divort", "incarcerare", "boala mintala", "amenintare", "umilire", 
+                   "abuz sexual", "lipsuri", "abuz fizic", "adictie", "nesiguranta", 
+                   "bullying", "deces", "emigrare", "boala", "violenta", 
+                   "rautate", "politie", "abuz partener")
+
+# Plot function and Data function
+ace_plot <- function(df){ 
+  ggplot(df, aes(x = variable, y = percent, fill = variable)) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = paste0(round(percent), "%")), vjust = -0.25) +
+     guides(fill=FALSE) + 
+     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+     ylab("Percentage") +  xlab("")  
+}
+
+ace_data <- function(df, ace_levels, filter_col, filter_level){
+  filter_col <- rlang::enquo(filter_col)
+  df %>% 
+    filter(!!filter_col %in% filter_level) %>% 
+    select(Ace_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    mutate(variable = stringr::str_replace(variable, Ace_col_names, Ace_new_names)) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, ace_levels)) 
+}  
+  
+# ACEs data & plots
+Data_ACE <- 
+  Data %>%    # barplot(colSums(Data[, Ace_col_names], na.rm = TRUE))
+    select(Ace_col_names) %>%
+    summarise_all(funs(sum(!is.na(.)) / length(.) * 100)) %>% 
+    gather(variable, percent) %>%
+    mutate(variable = stringr::str_replace(variable, Ace_col_names, Ace_new_names)) %>%
+    arrange(desc(percent)) %>%
+    mutate(variable = factor(variable, variable))     # this makes levels order match row order!
+ace_levels <- levels(Data_ACE$variable)  
+
+ace_plot1 <- 
+  Data_ACE %>%
+    ace_plot() +
+      ggtitle("ACE") 
+
+ace_plot2 <-  
+  ace_data(Data, ace_levels, gen, filter_level = "f") %>%
+    ace_plot() +
+      ggtitle("ACE - fete") 
+
+ace_plot3 <-
+  ace_data(Data, ace_levels, gen, filter_level = "m") %>%
+    ace_plot() +
+      ggtitle("ACE - băieți") 
+
+ace_plot4 <-
+  ace_data(Data, ace_levels, tip_chestionar, filter_level = c("5-8ani", "5-8intarziere")) %>%
+    ace_plot() +
+      ggtitle("ACE - 5-8 ani") 
+
+ace_plot5 <-
+  ace_data(Data, ace_levels, tip_chestionar, filter_level = "9-18ani") %>%
+    ace_plot() +
+      ggtitle("ACE - 9-18 ani")
+
+
+ggpubr::ggarrange(ace_plot1,                                                 
+          ggarrange(ace_plot2, ace_plot3, ncol = 2, labels = c("B", "C")), 
+          ggarrange(ace_plot4, ace_plot5, ncol = 2, labels = c("C", "D")),
+          nrow = 3, 
+          labels = "A")                                        
+```
+
+
+
+
+
+
+
+
 
 
 
