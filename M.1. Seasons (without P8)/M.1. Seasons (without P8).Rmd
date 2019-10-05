@@ -249,6 +249,20 @@ Data_Season %>%
 Data_Season_melt_nona <-
   Data_Season_melt %>%
   filter(!is.na(Ano))
+
+
+cat("### Wide Format for Ano ~ Valence")
+Data_Season_melt_nona %>%
+  dplyr::select(ID, Ano, Val) %>%
+  rownames_to_column() %>%
+  spread(key = Ano, value = Val) %>%
+  arrange(ID) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
 ```
 
 
