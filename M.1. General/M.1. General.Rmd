@@ -226,7 +226,7 @@ heat_cor_plotly <- function(df, x_vars = NULL, y_vars = NULL, low_color = "cyan"
 ```
 
 
-# Plot
+# Plot Age
 
 ```{r plot1, fig.width=8, fig.height=6, results='asis'}
 ## Dodged Bar plot of Age and Gender
@@ -241,6 +241,37 @@ Data  %>%
   dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
   mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
     ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+
+## By Protocol
+
+```{r plot1_2, fig.width=8, fig.height=28, results='asis'}
+## Dodged Bar plot of Age and Gender by Protocol
+Data  %>%
+  mutate(Varta_categ = cut(Varsta, 
+                           breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, 60, Inf), 
+                           labels=c("<25","25-29","30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60>"), 
+                           right = FALSE)) %>%  
+  mutate(Varsta = as.factor(Varsta),
+         Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  group_by(P) %>%
+  dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) +
+      facet_wrap(~P, scales = "free", ncol = 1) +
       geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
       geom_text(position = position_dodge(width = .9),      # move to center of bars
                 vjust = -0.5,                               # nudge above top of bar
@@ -390,15 +421,72 @@ ggpubr::facet(p, facet.by = "P", ncol = 1, scales = "free_x")
 ```
 
 
+## Social - this doesnt make sense 
+
 ```{r soc_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
 # PerformanceAnalytics::chart.Correlation(Data[, c(8, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140)])
-coplot(SocDih_Amici ~ DifStres | Media_s1, 
+
+# Example of Simpsons Paradox
+coplot(DifStres ~ SocDih_Amici | Media_s1,
        data = Data,
-       columns = 3,
+       rows = 1,
      panel = function(x, y, ...) {
           panel.smooth(x, y, span = .8, iter = 5,...)
-          abline(lm(y ~ x), col = "blue") } )
+          abline(lm(y ~ x), col = "blue")})
 ```
+
+
+# Varsta Amint - P1,P2,P3
+
+```{r difstres_varstaamint, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P1P2P3 <- 
+  Data %>%
+  filter(P %in% c("1", "2", "3")) %>%
+  mutate(Med_amintvarsta = as.numeric(as.character(Med_amintvarsta)),
+         Dif_Med_amintvarsta = Varsta - Med_amintvarsta)
+
+PerformanceAnalytics::chart.Correlation(Data_P1P2P3[, c(8, 85, 122, 148)])
+
+coplot(DifStres ~ Dif_Med_amintvarsta | Media_s1,
+       data = Data_P1P2P3,
+       rows = 1,
+     panel = function(x, y, ...) {
+          panel.smooth(x, y, span = .8, iter = 5,...)
+          abline(lm(y ~ x), col = "blue")})
+```
+
+
+# Protocol 3 - Social
+
+```{r p3_soc, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P3 <- 
+  Data %>%
+  filter(P == "3")
+
+PerformanceAnalytics::chart.Correlation(Data_P3[, c(8, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140)])
+
+# coplot(SocDih_Amici ~ DifStres | Media_s1, 
+#        data = Data,
+#        columns = 3,
+#      panel = function(x, y, ...) {
+#           panel.smooth(x, y, span = .8, iter = 5,...)
+#           abline(lm(y ~ x), col = "blue") } )
+```
+
+
+# Protocol 3 - Varsta Amint
+
+```{r p3_difstres_varstaamint, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P3 <- 
+  Data %>%
+  filter(P == "3") %>%
+  mutate(Med_amintvarsta = as.numeric(as.character(Med_amintvarsta)),
+         Dif_Med_amintvarsta = Varsta - Med_amintvarsta)
+
+PerformanceAnalytics::chart.Correlation(Data_P3[, c(8, 85, 122, 148)])
+```
+
+
 
 
 
