@@ -1,0 +1,810 @@
+---
+title: "<br> O.4 Frontiers OXT" 
+subtitle: "OXT and Psichological variables"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+          # self_contained: no
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+     # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plyr", 
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+<!-- Report -->
+
+
+# Read and Merge
+
+
+```{r read, results='asis', warning=FALSE, message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+wd <- "C:/Users/Mihai/Desktop/O.4 prealabil pt Frontiers/O.4 Date Psiho&OXT"
+setwd(wd)
+
+Data_OXT <- rio::import(file.path(wd, "\\OXT", "O.4 OXT Data.xlsx"))
+
+Data_psih <- rio::import(file.path(wd, "\\Psiho", "DATE O4Cl 16.11.2019 procesat.xlsx"), which = "26martie2019")
+Data_psih <- Data_psih[, c(1:6, 8:13)]
+
+Data_Neo <- rio::import(file.path(wd, "\\Psiho", "DATE O4Cl 16.11.2019 procesat.xlsx"), which = "Neo scored")
+Data_BDI <- rio::import(file.path(wd, "\\Psiho", "DATE O4Cl 16.11.2019 procesat.xlsx"), which = "BDI scored")
+Data_STAI <- rio::import(file.path(wd, "\\Psiho", "DATE O4Cl 16.11.2019 procesat.xlsx"), which = "STAI scored")
+
+```
+
+
+
+```{r clean, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Clean & Merge
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Data_STAI <- 
+  Data_STAI %>% 
+  dplyr::filter(!is.na(ID)) %>%                                                                # no ID, no data
+  dplyr::filter(rowSums(is.na(.)) < 2) %>%                                                     # filter out rows (no more than 1 NA on row)
+  mutate(ID = stringr::str_replace(ID, "\\s", "|")) %>%                                        # replace first whitespace with | and use it to separate
+  tidyr::separate(ID, into = c("ID", "Experim"), sep = "\\|") %>%                              # separate on only first whitespace that was replaced
+  dplyr::select(-Experim)
+
+Data_BDI <- 
+  Data_BDI %>% 
+  dplyr::filter(!is.na(ID)) %>%                                                                # no ID, no data
+  dplyr::filter(rowSums(is.na(.)) < 1) %>%                                                     # filter out rows (not 1 NA)
+  mutate(ID = stringr::str_replace(ID, "\\s", "|")) %>%                                        # replace first whitespace with | and use it to separate
+  tidyr::separate(ID, into = c("ID", "Experim"), sep = "\\|") %>%                              # separate on only first whitespace that was replaced
+  dplyr::select(-Experim)
+
+Data_Neo <- 
+  Data_Neo %>% 
+  dplyr::filter(!is.na(ID)) %>%                                                                # no ID, no data
+  dplyr::filter(rowSums(is.na(.)) < 6) %>%                                                     # filter out rows (no more than 5 NA on row)
+  mutate(ID = stringr::str_replace(ID, "\\s", "|")) %>%                                        # replace first whitespace with | and use it to separate
+  tidyr::separate(ID, into = c("ID", "Experim"), sep = "\\|") %>%                              # separate on only first whitespace that was replaced
+  dplyr::select(-Experim)
+
+Data_psih <- 
+  Data_psih %>% 
+  dplyr::filter(!is.na(ID)) %>%                                                                # no ID, no data
+  dplyr::filter(rowSums(is.na(.)) < 8) %>%                                                     # filter out rows (no more than 7 NA on row)
+  tidyr::separate(Conditia,  c("Nr_zi", "Conditia"), "\\s+") %>%                               # split on white space
+  mutate(ID = stringr::str_replace(ID, "\\s", "|")) %>%                                        # replace first whitespace with | and use it to separate
+  tidyr::separate(ID, into = c("ID", "Experim"), sep = "\\|") %>%                              # separate on only first whitespace that was replaced
+  dplyr::rename("Nume" = Nume_Prenume) %>% 
+  dplyr::select(-Experim)
+
+Data_OXT <-   
+  Data_OXT %>% 
+  tidyr::separate(ID,  c("ID", "Ziua", "Nr_zi", "Proba"), "\\s+") %>%                          # split on white space
+  select(ID, Nr_zi, Proba, OXT) %>%
+  tidyr::separate(ID, into = c("ID", "Experim"), sep = "\\/") %>%                              # separate on /
+  dplyr::select(-Experim) %>% 
+  dplyr::rename("PrePost" = Proba) %>% 
+  mutate(PrePost = forcats::fct_recode(PrePost, "Pre" = "A", "Post" = "B")) %>%                # Proba A = Pre, B = Post on same day
+  spread(key = PrePost, value = OXT) %>%
+  dplyr::rename_at(vars(Pre, Post), ~ c("OXT_Pre", "OXT_Post"))
+
+
+Data_merged <- dplyr::left_join(Data_psih, Data_OXT, by = c("ID", "Nr_zi"))                 # ID 40, 59 are incomplete in OXT -- dplyr::full_join
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Make Wide Dataframe of merged
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Check if ids have > 1 row of data (empty ID have only 1 row; thei have only 1 Condition) 
+# Careful! This function modfies the datasets in the global envinronment
+delete_empty_id <- function(df){
+  list_empty_id <- 
+    df %>%
+    dplyr::group_by(ID) %>%
+    dplyr::summarise(row_count = n()) %>%
+    dplyr::rename("empty_id" = ID) %>%
+    mutate(delete_id = if_else(row_count < 2, TRUE, FALSE)) %>%
+    filter(delete_id == TRUE)
+  
+  df_modif <- 
+    df %>%
+    filter(!ID %in% list_empty_id$empty_id)
+  
+  if(!identical(df, df_modif)){
+    df <- deparse(substitute(df))
+    cat("Deleting from ", print(as.name(df))); print(list_empty_id)                    # print out which ids are deleted from which dataset
+    assign(df, df_modif, envir = globalenv())                                          # assign modified df to original dataset from Global
+  }else cat("No empty datasets. Nothing to delete")
+}
+delete_empty_id(Data_merged) 
+
+# Dataframe for regular analyses
+Data_merged_wide <-
+  Data_merged %>%
+  select(-c(Varsta, Gen)) %>%            # exclude Gen, Varsta: merge after because it interferes with spread()
+  gather("variable", "value", c(Data, Nr_zi, Vas_Stres_Pre:OXT_Post), -c(1:2)) %>%       # Conditia needs to be outside
+  unite("united_var", c(variable, Conditia), sep = "_") %>%
+  spread(united_var, value) %>%
+  mutate_at(vars(5:22), list(~as.numeric(as.character(.))))
+
+# sum(is.na(Data_merged[, 6:15])) == sum(is.na(Data_merged_wide[, 5:22]))    # check if nr of NA is the same after melt
+
+
+# Full Wide Dataframe
+Data_merged_wide_all <- 
+  Data_merged[, c("ID", "Nume", "Varsta", "Gen")] %>%                        # need to add these back, but just the main unduplicated row
+  dplyr::distinct(ID, .keep_all = TRUE) %>%
+    dplyr::left_join(., Data_merged_wide, by = "ID") %>%
+    dplyr::rename("Nume" = Nume.x) %>%
+    dplyr::select(-Nume.y) %>% 
+    dplyr::left_join(., Data_BDI, by = "ID") %>%
+    dplyr::left_join(., Data_STAI, by = "ID") %>%
+    dplyr::left_join(., Data_Neo, by = "ID") %>%
+    mutate_at(vars(23:60), list(~as.numeric(as.character(.)))) %>%
+    dplyr::arrange(ID)
+
+
+# Full Long Dataframe
+# vars_Data_Nrzi <- grep("Data|Nr_zi", colnames(Data_merged_wide_all))
+# 
+# Data_merged_long_all <-
+#   Data_merged_wide_all %>%
+#   gather(variable, value, vars_Data_Nrzi, -c(ID)) %>%                                      # gather Data and Nr_zi as these are OglEcran level
+#   tidyr::separate(variable,  c("variable", "OglEcran"), "_(?=[^_]+$)") %>%                 # split only on last "_"
+#   spread(variable, value)                                                         # ????? drop this; move to PrePost level
+# 
+# vars_PrePost <- grep("Pre|Post", colnames(Data_merged_long_all))
+# 
+# Data_merged_long_all <-
+#   Data_merged_long_all %>%
+#   gather(variable, value, vars_PrePost, -c(Data, Nr_zi)) %>%
+#   mutate(variable = stringr::str_remove_all(.$"variable", c("_OGL|_ECRAN"))) %>%
+#   group_by_at(vars(-value)) %>%                     # group by everything other than the value column.
+#   mutate(row_id=1:n()) %>% ungroup() %>%            # build group index; all this to avoid spread() stupid index error
+#   spread(variable, value) %>%
+#   dplyr::arrange(ID, Data) 
+
+
+```
+
+
+```{r df_excel}
+# cat("## Dataset - Long Format")
+# Data_merged_long_all %>%
+#   dplyr::select(-Nume) %>%
+#     DT::datatable(
+#       extensions = 'Buttons',
+#       options = list(pageLength = 10,
+#                      scrollX='500px',
+#                      dom = 'Bfrtip',
+#                      buttons = c('excel', "csv")))
+
+cat("## Dataset - Wide Format") 
+Data_merged_wide_all %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
+
+# Define Functions 
+
+```{r def_func_subchunkplot, hide=TRUE}
+subchunkify <- function(g, fig_height=7, fig_width=5) {
+  g_deparsed <- paste0(deparse(
+    function() {g}
+  ), collapse = '')
+  
+  sub_chunk <- paste0("
+  `","``{r sub_chunk_", floor(runif(1) * 10000), ", fig.height=", fig_height, ", fig.width=", fig_width, ", echo=FALSE}",
+  "\n(", 
+    g_deparsed
+    , ")()",
+  "\n`","``
+  ")
+  
+  cat(knitr::knit(text = knitr::knit_expand(text = sub_chunk), quiet = TRUE))
+}
+```
+
+```{r def_func, hide=TRUE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Define Function for Pre-Post Plots, t Change and ANCOVA Post
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  df_modif <-
+    df %>%
+    select(ind, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), list(~as.factor(.))) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+
+
+func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, post_var_c2){
+  
+  diff_score_c1 <- paste0(post_var_c1, " - ", pre_var_c1)
+  diff_score_c2 <- paste0(post_var_c2, " - ", pre_var_c2)
+  
+  ## Plots and p-values for t tests
+  df_modif <-
+    df %>%
+    select(ind, pre_var_c1, post_var_c1, pre_var_c2, post_var_c2) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var_c1, post_var_c1, pre_var_c2, post_var_c2, key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), list(~as.factor(.))) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var_c1, post_var_c1, pre_var_c2, post_var_c2))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE, p.adjust.method = "holm")
+  
+  plot <-
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07", "#00AFBB", "#FC4E07"), legend = "none") +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", 
+                               label.y = c(max(df_modif$value) + 0.1*IQR(df_modif$value),
+                                           max(df_modif$value) + 0.1*IQR(df_modif$value),
+                                           seq(max(df_modif$value) + 0.3*IQR(df_modif$value), 
+                                               max(df_modif$value) + 0.9*IQR(df_modif$value), length.out = 4)),  
+                               comparisons = list(c(pre_var_c1, post_var_c1),
+                                                  c(pre_var_c2, post_var_c2),
+                                                  c(post_var_c1, pre_var_c2),
+                                                  c(pre_var_c1, pre_var_c2),
+                                                  c(post_var_c1, post_var_c2),
+                                                  c(pre_var_c1, post_var_c2)))
+  
+  ## For ttestChange or ANCOVAChange - we do ttestChange (Post-Pre) here, but it isnt very important
+  df_modif2 <-                                 
+    df %>%
+    select(ind, pre_var_c1, post_var_c1, pre_var_c2, post_var_c2) %>%
+    tidyr::drop_na() 
+  df_modif2[diff_score_c1] <- df_modif2[, post_var_c1] - df_modif2[, pre_var_c1]
+  df_modif2[diff_score_c2] <- df_modif2[, post_var_c2] - df_modif2[, pre_var_c2]
+  
+  tChange <- t.test(df_modif2[, diff_score_c1], df_modif2[, diff_score_c2], paired = TRUE)
+  
+  ## For descriptives by 2 factors (PrePost and OglEcran)
+  df_modif3 <-
+    df %>%
+    select(ind, pre_var_c1, post_var_c1, pre_var_c2, post_var_c2) %>%
+    tidyr::drop_na() %>%
+    gather(pre_var_c1, post_var_c1, pre_var_c2, post_var_c2, key = "Cond", value = "value") %>%
+    mutate(PrePost = case_when(stringr::str_detect(.$"Cond", "pre|Pre") ~ "Pre",
+                               stringr::str_detect(.$"Cond", "post|Post") ~ "Post",
+                               TRUE ~ NA_character_),
+           OglEcran = case_when(stringr::str_detect(.$"Cond", "ogl|OGL") ~ "OGL",
+                              stringr::str_detect(.$"Cond", "ecran|ECRAN") ~ "ECRAN",
+                              TRUE ~ NA_character_)) %>%
+    mutate(PrePost = as.factor(PrePost),
+           OglEcran = as.factor(OglEcran))
+  
+  ## For ANCOVAPost - this is what we use
+  df_modif4 <-
+    df_modif3 %>%
+    select(-"Cond") %>%
+    spread("PrePost", "value")
+  
+  ## Models (here we use ANCOVAPost)    # https://m-clark.github.io/docs/mixedModels/anovamixed.html#introduction
+  full_ancovaPost <-                                          # this is better than using lm() and glht()
+      jmv::ancova(
+        formula = Post ~ Pre + OglEcran,
+        data = df_modif4,
+        homo = TRUE,
+        ss = "3",                                                     
+        postHoc = ~ OglEcran,
+        postHocCorr = list("tukey"),
+        effectSize = list("eta", "partEta")
+      )
+  
+      # mod_ancovaPost <- lm(Post ~ Pre + OglEcran, data = df_modif4)            # this is a Covariate Second model
+      # mod_ancovaPost_ss3 <- car::Anova(mod_ancovaPost, type = "III")         # Type III sums of squares; see Andy Fields 2012
+      # postHocs <- multcomp::glht(mod_ancovaPost, linfct = multcomp::mcp(OglEcran = "Tukey"))  # differences between the adjusted means,
+      # sum_postHocs <- summary(postHocs)                                               # use Tukey or Dunnett?s post hoc tests
+      # conf_postHocs <- confint(postHocs)
+  scatter <-                                                             # Check for homogeneity of regression slopes
+    ggplot(df_modif4, aes(Pre, Post, colour = OglEcran)) +
+    geom_point(aes(shape = OglEcran), size = 3) +
+    geom_smooth(method = "lm", aes(fill = OglEcran), alpha = 0.1)
+    
+  
+  ## Other Models that work for this date
+  # mod_ancovaPost <- lm(post ~ pre + treat)      # exactly the same with aov(post ~ pre + treat)
+  # summary(mod_ancovaPost)
+  # 
+  # mod_anovaRM <- aov(score ~ treat*time + Error(id), dflong)
+  # summary(mod_anovaRM)
+  # 
+  # mod_lme <- lme4::lmer(score ~ treat*time + (1|id), data=dflong)
+  # anova(lmeModel)
+  
+  ## Output
+  print(plot)
+  cat(paste0("#### ", pre_var_c1, " ", post_var_c1, " ", pre_var_c2, " ", post_var_c2, "\n", "\n"))
+  
+  cat("#### Descriptives")
+  psych::describeBy(df_modif3[, "value"], list(df_modif3[, "PrePost"], df_modif3[, "OglEcran"]), mat = TRUE) %>% 
+    as.tibble() %>%
+    print()
+  cat("\n")
+  
+  print(stat_comp)
+  cat("\n")
+  
+  cat("#### t Change")
+  tidy(tChange) %>% print()
+  cat("\n")
+  
+  cat("#### ANCOVA Post")
+  cat("\n")
+  cat("##### Homogeneity test")
+  print(tibble::as.tibble(full_ancovaPost$assump$homo))
+  cat("##### ANCOVA output")
+  print(tibble::as.tibble(full_ancovaPost$main))
+  # tidy(mod_ancovaPost) %>% 
+  #   mutate(p.signif = sapply(p.value, function(x) stars_signif(x))) %>% 
+  #   print()
+  # cat("\n")
+  cat("##### Post Hoc")
+  print(tibble::as.tibble(full_ancovaPost$postHoc[[1]]))
+  # tidy(sum_postHocs) %>% 
+  #   mutate(p.signif = sapply(p.value, function(x) stars_signif(x))) %>% 
+  #   print()
+  cat("\n")
+  cat("##### Homogeneity of regression slopes")
+  subchunkify(plot(scatter), 5, 5)
+}
+```
+
+
+
+
+
+
+
+
+
+# Analyses
+
+## Simple before-after analyses with t test
+
+```{r t_test, fig.width=5, fig.height=7, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Simple before-after analyses with t test
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## OXT has 2 outliers: 19, 43
+# func_t_box(Data_merged_wide, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")          # outlier  
+# func_t_box(Data_merged_wide, "ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")      # ns
+
+Data_merged_wide %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
+Data_merged_wide %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
+
+func_t_box(Data_merged_wide, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # sig  
+func_t_box(Data_merged_wide, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # sig la limita
+
+func_t_box(Data_merged_wide, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL")           # ns  
+func_t_box(Data_merged_wide, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       # ns
+
+func_t_box(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
+func_t_box(Data_merged_wide, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
+
+```
+
+
+## tChance and ANCOVAPost
+
+```{r t_Change_ANCOVA_Posts, fig.width=11, fig.height=12, results='asis'}
+## tChance and ANCOVAPost 
+
+Data_merged_wide %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_ancova_multibox("ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")                                            # ns
+
+func_ancova_multibox(Data_merged_wide, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")    # ns
+
+func_ancova_multibox(Data_merged_wide, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")        # ns
+
+func_ancova_multibox(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                            # sig
+
+```
+
+
+
+<!--
+
+## Anxiety ???
+
+```{r soc_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+# Coplot Anx 
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+    coplot(OXT_Post_OGL ~ OXT_Pre_OGL | StaiTbrut,
+           data = .,
+           rows = 1,
+           panel = function(x, y, ...) {
+           panel.smooth(x, y, span = .8, iter = 5,...)
+           abline(lm(y ~ x), col = "blue")})
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+    coplot(OXT_Post_ECRAN ~ OXT_Pre_ECRAN | StaiTbrut,
+           data = .,
+           rows = 1,
+           panel = function(x, y, ...) {
+           panel.smooth(x, y, span = .8, iter = 5,...)
+           abline(lm(y ~ x), col = "blue")})
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+    coplot(OXT_Post_OGL ~ OXT_Pre_OGL | StaiSbrut,
+           data = .,
+           rows = 1,
+           panel = function(x, y, ...) {
+           panel.smooth(x, y, span = .8, iter = 5,...)
+           abline(lm(y ~ x), col = "blue")})
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+    coplot(OXT_Post_ECRAN ~ OXT_Pre_ECRAN | StaiSbrut,
+           data = .,
+           rows = 1,
+           panel = function(x, y, ...) {
+           panel.smooth(x, y, span = .8, iter = 5,...)
+           abline(lm(y ~ x), col = "blue")})
+
+```
+
+
+
+# Moderation Analysis
+
+```{r siple_mod, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
+## Define Function
+func_moderation <- function(Data, dep, mod, pred){
+  moderation <- 
+    Data %>%
+      medmod::mod(., dep = dep, mod = mod, pred = pred,
+                  ci = TRUE, estMethod = 'standard', test = TRUE, simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+  
+  cat(paste("<b> Moderation: ", "Dep = ", dep, "Pred = ", pred, "Mod = ", mod, "</b>"))
+  moderation$mod %>% 
+    knitr::kable(caption = "Moderation", digits = 3) %>%
+    print()
+  moderation$simpleSlope$plot %>%
+    print()
+}
+
+## Apply Function
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_moderation(Data = ., dep = "OXT_Post_OGL", mod = "StaiTbrut", pred = "OXT_Pre_OGL")
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_moderation(Data = ., dep = "OXT_Post_ECRAN", mod = "StaiTbrut", pred = "OXT_Pre_ECRAN")
+
+
+
+
+
+# bla <-
+#   Data_merged %>%
+#   mutate(Conditie = as.numeric(as.factor(Conditie)))
+# 
+# psych::mediate(data = bla, Oxitocina_post ~ Oxitocina_pre + Conditie + Vas_rel_global)   # moderation with covariate and diagram
+```
+
+
+
+
+
+## Mixed Design ANOVA
+
+```{r mixed_anova, fig.width=11, fig.height=12, results='asis'}
+## Data
+  
+
+
+
+# Mixed Design Anova
+aov_mixed1 <- aov(value ~ group*time + Error(ID/time), data = data_long_format)   # http://www.cookbook-r.com/Statistical_analysis/ANOVA/
+summary(aov_mixed1)
+model.tables(aov_mixed1, "means")   # is data balanced?
+
+
+
+bla <- sjmisc::dicho(Data_mixedanova$StaiTbrut, dich.by = "median", as.num = FALSE, val.labels = c("lower", "higher"), append = FALSE)     
+ # similar to Hmisc::cut2, but uses median
+
+
+
+library(jtools)
+mod1 <- lm(OXT_Post_OGL ~ OXT_Pre_OGL * StaiTbrut, data = Data_mixedanova)
+jtools::summ(mod1)
+jtools::interact_plot(mod1, pred = OXT_Pre_OG, modx = StaiTbrut)
+
+library(interactions)
+```
+
+
+-->
+
+
+
+
+
+
+
+
+<!-- 
+
+## Correlations with Oxy
+
+```{r cor_Ox, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with Oxy
+df_OxyAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+    dplyr::as_tibble() %>%
+    dplyr::filter_all(any_vars(grepl("Ox", .)))                           # only Oxy, but both Pre and Post Oxy
+
+df_OxyAll_cor %>%              
+    print(n = Inf)                                     
+df_OxyAll_cor %>%
+  func_dotplot_cor()
+ 
+# Correlations only on Pre measures with Oxy -- nothing
+df_OxyPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+    dplyr::filter_all(any_vars(grepl("Ox", .))) 
+
+df_OxyPre_cor %>%
+  print(n = Inf)
+
+# Correlations only on Post measures with Oxy
+df_OxyPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+    dplyr::filter_all(any_vars(grepl("Ox", .))) 
+
+df_OxyPost_cor %>%
+    print(n = Inf)
+df_OxyPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with Stess
+
+```{r cor_VasS, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with VasS
+df_VasSAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+    dplyr::as_tibble() %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .)))                           # only VasS, but both Pre and Post VasS
+
+df_VasSAll_cor %>%              
+    print(n = Inf)                                     
+
+# Correlations only on Pre measures with VasS
+df_VasSPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .))) 
+
+df_VasSPre_cor %>%
+  print(n = Inf)
+df_VasSPre_cor %>% 
+  func_dotplot_cor()
+
+# Correlations only on Post measures with VasS
+df_VasSPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+    dplyr::as_tibble() %>%
+    filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+    dplyr::filter_all(any_vars(grepl("VasS", .))) 
+
+df_VasSPost_cor %>%
+    print(n = Inf)
+df_VasSPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with Well Being
+
+```{r cor_VasB, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with VasB
+df_VasBAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+  dplyr::as_tibble() %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .)))                           # only VasB, but both Pre and Post VasB
+
+df_VasBAll_cor %>%              
+  print(n = Inf)                                     
+
+# Correlations only on Pre measures with VasB
+df_VasBPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .))) 
+
+df_VasBPre_cor %>%
+  print(n = Inf)
+df_VasBPre_cor %>%
+  func_dotplot_cor()
+
+# Correlations only on Post measures with VasB
+df_VasBPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+  dplyr::filter_all(any_vars(grepl("VasB", .))) 
+
+df_VasBPost_cor %>%
+  print(n = Inf)
+df_VasBPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+## Correlations with IOS 
+
+```{r cor_IOS, fig.width=8, fig.height=7, results='asis'}
+## Mining Correlations with IOS
+df_IOSAll_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) %>%
+  dplyr::as_tibble() %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .)))                           # only IOS, but both Pre and Post IOS
+
+df_IOSAll_cor %>%              
+  print(n = Inf)                                     
+
+# Correlations only on Pre measures with IOS
+df_IOSPre_cor <- 
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("pre|Pre", .))) %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .))) 
+
+df_IOSPre_cor %>%
+  print(n = Inf)
+df_IOSPre_cor %>%
+  func_dotplot_cor()
+
+# Correlations only on Post measures with IOS
+df_IOSPost_cor <-
+  Get_Top_Relationships(Data[,-c(1:7)], correlation_abs_threshold = 0.2, pvalue_threshold = 0.1) %>%
+  dplyr::as_tibble() %>%
+  filter_at(vars(feature_1, feature_2), all_vars(grepl("post|Post", .))) %>%
+  dplyr::filter_all(any_vars(grepl("IOS", .))) 
+
+df_IOSPost_cor %>%
+  print(n = Inf)
+df_IOSPost_cor %>% 
+  func_dotplot_cor()
+```
+
+
+
+-->
+
+
+
+
+
+
+<br>
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
