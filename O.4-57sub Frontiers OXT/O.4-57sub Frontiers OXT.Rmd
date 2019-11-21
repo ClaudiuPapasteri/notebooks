@@ -205,41 +205,43 @@ Data_merged_wide_all <-
 
 
 # Full Long Dataframe
-# vars_Data_Nrzi <- grep("Data|Nr_zi", colnames(Data_merged_wide_all))
-# 
-# Data_merged_long_all <-
-#   Data_merged_wide_all %>%
-#   gather(variable, value, vars_Data_Nrzi, -c(ID)) %>%                                      # gather Data and Nr_zi as these are OglEcran level
-#   tidyr::separate(variable,  c("variable", "OglEcran"), "_(?=[^_]+$)") %>%                 # split only on last "_"
-#   spread(variable, value)                                                         # ????? drop this; move to PrePost level
-# 
-# vars_PrePost <- grep("Pre|Post", colnames(Data_merged_long_all))
-# 
-# Data_merged_long_all <-
-#   Data_merged_long_all %>%
-#   gather(variable, value, vars_PrePost, -c(Data, Nr_zi)) %>%
-#   mutate(variable = stringr::str_remove_all(.$"variable", c("_OGL|_ECRAN"))) %>%
-#   group_by_at(vars(-value)) %>%                     # group by everything other than the value column.
-#   mutate(row_id=1:n()) %>% ungroup() %>%            # build group index; all this to avoid spread() stupid index error
-#   spread(variable, value) %>%
-#   dplyr::arrange(ID, Data) 
+vars_OglEcran <- grep("OGL|ECRAN", colnames(Data_merged_wide_all))
 
+Data_merged_long_all <-
+  Data_merged_wide_all %>%
+  gather(variable, value, vars_OglEcran, -c(ID)) %>%                                      # gather Data and Nr_zi as these are OglEcran level
+  tidyr::separate(variable,  c("variable", "OglEcran"), "_(?=[^_]+$)") %>%                # split only on last "_"
+  spread(variable, value) %>% 
+  rename_at(vars(vars_OglEcran), list(~stringr::str_remove_all(., c("_OGL|_ECRAN")))) %>%          
+  arrange(ID)
+
+vars_PrePost <- grep("Pre|Post", colnames(Data_merged_long_all))
+
+Data_merged_long_all <-
+  Data_merged_long_all %>%
+  pivot_longer(vars_PrePost, names_to = c(".value","PrePost"), names_pattern = "(.*)_(.*)") %>%     # magic     
+  arrange(ID)
 
 ```
 
 
-```{r df_excel}
-# cat("## Dataset - Long Format")
-# Data_merged_long_all %>%
-#   dplyr::select(-Nume) %>%
-#     DT::datatable(
-#       extensions = 'Buttons',
-#       options = list(pageLength = 10,
-#                      scrollX='500px',
-#                      dom = 'Bfrtip',
-#                      buttons = c('excel', "csv")))
+## Dataset - Long Format
 
-cat("## Dataset - Wide Format") 
+```{r df_excel_long}
+Data_merged_long_all %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
+
+## Dataset - Wide Format
+
+```{r df_excel_wide}
 Data_merged_wide_all %>%
   dplyr::select(-Nume) %>%
     DT::datatable(
@@ -586,39 +588,43 @@ Data_merged_wide_all %>%
 ```
 
 
-
+-->
 
 
 ## Mixed Design ANOVA
 
 ```{r mixed_anova, fig.width=11, fig.height=12, results='asis'}
-## Data
-  
+# Data
+Data_mixedanova <-
+  Data_merged_long_all %>%
+  mutate(PrePost = case_when(stringr::str_detect(.$"PrePost", "Pre") ~ as.integer(0),
+                             stringr::str_detect(.$"PrePost", "Post") ~ as.integer(1),
+                             TRUE ~ NA_integer_)) %>%
+  mutate(StaiTbrut_dih = sjmisc::dicho(.$"StaiTbrut", 
+                                       dich.by = "median", as.num = FALSE,                                # similar to Hmisc::cut2, but uses median
+                                       val.labels = c("lower", "higher"), append = FALSE)) %>%
+  select(ID, OglEcran, PrePost, OXT, StaiTbrut_dih) %>%
+  drop_na()
+           
+    
+# Mixed Design Anova  # http://www.cookbook-r.com/Statistical_analysis/ANOVA/
+aov_mixed1 <- aov(OXT ~ OglEcran * PrePost * StaiTbrut_dih + Error(ID/PrePost), data = Data_mixedanova) 
+broom::tidy(aov_mixed1)
+# summary(aov_mixed1)   
+# model.tables(aov_mixed1, "means")   # is data balanced?
 
 
 
-# Mixed Design Anova
-aov_mixed1 <- aov(value ~ group*time + Error(ID/time), data = data_long_format)   # http://www.cookbook-r.com/Statistical_analysis/ANOVA/
-summary(aov_mixed1)
-model.tables(aov_mixed1, "means")   # is data balanced?
-
-
-
-bla <- sjmisc::dicho(Data_mixedanova$StaiTbrut, dich.by = "median", as.num = FALSE, val.labels = c("lower", "higher"), append = FALSE)     
- # similar to Hmisc::cut2, but uses median
-
-
-
-library(jtools)
-mod1 <- lm(OXT_Post_OGL ~ OXT_Pre_OGL * StaiTbrut, data = Data_mixedanova)
-jtools::summ(mod1)
-jtools::interact_plot(mod1, pred = OXT_Pre_OG, modx = StaiTbrut)
-
-library(interactions)
+# library(jtools)
+# mod1 <- lm(OXT_Post_OGL ~ OXT_Pre_OGL * StaiTbrut, data = Data_mixedanova)
+# jtools::summ(mod1)
+# jtools::interact_plot(mod1, pred = OXT_Pre_OG, modx = StaiTbrut)
+# 
+# library(interactions)
 ```
 
 
--->
+
 
 
 
