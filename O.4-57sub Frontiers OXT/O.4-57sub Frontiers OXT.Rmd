@@ -61,7 +61,8 @@ packages <- c(
   "DT",             # nice searchable and downloadable tables
   "summarytools",
   "plyr", 
-  "rio"
+  "rio",
+  "GGally"
   # , ...
 )
 if (!require("pacman")) install.packages("pacman")
@@ -220,8 +221,8 @@ vars_PrePost <- grep("Pre|Post", colnames(Data_merged_long_all))
 Data_merged_long_all <-
   Data_merged_long_all %>%
   pivot_longer(vars_PrePost, names_to = c(".value","PrePost"), names_pattern = "(.*)_(.*)") %>%     # magic     
+  mutate_at(vars(48:50), list(~as.numeric(as.character(.)))) %>%
   arrange(ID)
-
 ```
 
 
@@ -251,6 +252,85 @@ Data_merged_wide_all %>%
                      dom = 'Bfrtip',
                      buttons = c('excel', "csv")))
 ```
+
+
+# Descriptives
+## Plots
+
+```{r plot_gen, fig.width=6, fig.height=6, results='asis'}
+## Pie chart
+Data_merged_wide_all  %>%
+  mutate(Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "f", "masculin" = "m")) %>%
+  group_by(Gen) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) %>% 
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "Gen", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+
+```{r plot_varsta_gen, fig.width=8, fig.height=6, results='asis', warning=FALSE}
+## Dodged Bar plot of Age and Gender
+Data_merged_wide_all %>%
+  mutate(Varsta = as.numeric(as.character(Varsta))) %>%
+  mutate(Varta_categ = cut(Varsta, 
+                           breaks=c(-Inf, 25, 30, 35, 40, Inf), 
+                           labels=c("20-25","25-29","30-34", "35-39", "40-42"), 
+                           right = FALSE)) %>%  
+  mutate(Varsta = as.factor(Varsta),
+         Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "f", "masculin" = "m")) %>%
+  dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity") +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+## t test Varsta by Gen
+
+```{r ttest_varsta_gen, warning=FALSE}
+# Gen
+Data_merged_wide_all  %>%
+  mutate(Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "f", "masculin" = "m")) %>%
+  group_by(Gen) %>%
+  dplyr::summarise(counts = n())
+
+# varsta
+Data_merged_wide_all %>%
+  mutate(Gen = as.factor(as.character(Gen))) %>%
+  mutate(Varsta = as.numeric(as.character(Varsta))) %>%
+  tidystats::describe_data(Varsta, na.rm = TRUE)
+
+# varsta by Gen
+Data_merged_wide_all %>%
+  mutate(Varsta = as.numeric(as.character(Varsta))) %>%
+  dplyr::group_by(Gen) %>%
+  tidystats::describe_data(Varsta, na.rm = TRUE) %>%
+  knitr::kable(caption = "Varsta by Gen", format = "pandoc", digits = 2)
+
+# t test varsta by Gen
+Data_merged_wide_all %>%
+  mutate(Varsta = as.numeric(as.character(Varsta))) %>%
+  t.test(Varsta ~ Gen, data = .) %>% 
+  tidy()
+```
+
 
 
 # Define Functions 
@@ -480,7 +560,6 @@ func_t_box(Data_merged_wide, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN") 
 
 func_t_box(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
 func_t_box(Data_merged_wide, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
-
 ```
 
 
@@ -502,56 +581,291 @@ func_ancova_multibox(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS
 ```
 
 
+## Same analyses by Gender
 
-<!--
+```{r t_test_gen, fig.width=5, fig.height=7, results='asis'}
+# Females
+cat("### Fem")
+Data_fem <- 
+  Data_merged_wide_all %>%
+  filter(Gen != "m")
 
-## Anxiety ???
+Data_fem %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
+Data_fem %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
 
-```{r soc_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+func_t_box(Data_fem, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # ns 
+func_t_box(Data_fem, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # sig
+
+func_t_box(Data_fem, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL")           # ns  
+func_t_box(Data_fem, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       # ns
+
+func_t_box(Data_fem, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
+func_t_box(Data_fem, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
+
+# Males
+cat("### Masc")
+Data_masc <- 
+  Data_merged_wide_all %>%
+  filter(Gen != "f")
+
+Data_masc %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
+Data_masc %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
+
+func_t_box(Data_masc, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # ns  
+func_t_box(Data_masc, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # ns
+
+func_t_box(Data_masc, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL")           # ns  
+func_t_box(Data_masc, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       # ns
+
+func_t_box(Data_masc, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
+func_t_box(Data_masc, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
+```
+
+
+## Not considering Cond (OglEcran) - Overall Pre-Post
+
+```{r t_test_PrePost, fig.width=5, fig.height=7, results='asis'}
+# Data
+vars_OglEcran <- grep("OGL|ECRAN", colnames(Data_merged_wide_all))
+
+Data_notOglEcran <-
+  Data_merged_wide_all %>%
+  gather(variable, value, vars_OglEcran, -c(ID)) %>%                                      # gather Data and Nr_zi as these are OglEcran level
+  tidyr::separate(variable,  c("variable", "OglEcran"), "_(?=[^_]+$)") %>%                # split only on last "_"
+  spread(variable, value) %>% 
+  rename_at(vars(vars_OglEcran), list(~stringr::str_remove_all(., c("_OGL|_ECRAN")))) %>%   
+  mutate_at(vars(c(45:46, 48:53)), list(~as.numeric(as.character(.)))) %>%
+  mutate(Diff_OXT = OXT_Post - OXT_Pre,
+         Diff_Vas_Stres = Vas_Stres_Post - Vas_Stres_Pre,
+         Diff_Vas_Bine = Vas_Bine_Post - Vas_Bine_Pre
+  ) %>%
+  arrange(ID)
+  
+
+# Simple before-after analyses with t test Not considering Cond (OglEcran)
+Data_notOglEcran %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_t_box("ID", "OXT_Pre", "OXT_Post")    # ns
+
+func_t_box(Data_notOglEcran, "ID", "Vas_Stres_Pre", "Vas_Stres_Post")         # sig  
+
+func_t_box(Data_notOglEcran, "ID", "Vas_Bine_Pre", "Vas_Bine_Post")           # sig  
+
+func_t_box(Data_notOglEcran, "ID", "IOS_Pre", "IOS_Post")                     # sig  
+
+
+
+# GGpairs
+fn_ggpair_reg <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) + 
+    geom_point() + 
+    geom_smooth(method=loess, fill="red", color="red", ...) +
+    geom_smooth(method=lm, fill="blue", color="blue", ...)
+  p
+}
+
+GGally::ggpairs(data = Data_notOglEcran %>% filter(!ID %in% c(19, 43)),
+                columns = 54:56, 
+                lower = list(continuous = fn_ggpair_reg))
+```
+
+
+## Difference scores conditioned on Anxiety ?
+
+```{r plot_cor_anx, results='asis', fig.height=14, fig.width=14, fig.align='center'}
+Data_difscores <-
+  Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  mutate(Diff_OXT_OGL = OXT_Post_OGL - OXT_Pre_OGL,
+         Diff_OXT_ECRAN = OXT_Post_ECRAN - OXT_Pre_ECRAN,
+         Diff_Vas_Stres_OGL = Vas_Stres_Post_OGL - Vas_Stres_Pre_OGL,
+         Diff_Vas_Stres_ECRAN = Vas_Stres_Post_ECRAN - Vas_Stres_Pre_ECRAN, 
+         Diff_Vas_Bine_OGL = Vas_Bine_Post_OGL - Vas_Bine_Pre_OGL,
+         Diff_Vas_Bine_ECRAN = Vas_Bine_Post_ECRAN - Vas_Bine_Pre_ECRAN
+  ) 
+  
+
+plot_columns <- match( c("StaiSbrut", "StaiTbrut",
+                         "Diff_OXT_OGL", "Diff_OXT_ECRAN",
+                         "Diff_Vas_Stres_OGL", "Diff_Vas_Stres_ECRAN",
+                         "Diff_Vas_Bine_OGL", "Diff_Vas_Bine_ECRAN"), 
+                          names(Data_difscores))
+
+# GGpairs
+fn_ggpair_reg <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) + 
+    geom_point() + 
+    geom_smooth(method=loess, fill="red", color="red", ...) +
+    geom_smooth(method=lm, fill="blue", color="blue", ...)
+  p
+}
+
+GGally::ggpairs(data = Data_difscores,
+                columns = plot_columns, 
+                lower = list(continuous = fn_ggpair_reg))
+
+# GGpairs By Gen
+GGally::ggpairs(data = Data_difscores,
+                columns = plot_columns, 
+                title = "correlation matrix",               
+                mapping = aes(colour = Gen), 
+                lower = list(
+                continuous = "smooth",
+                combo = "facetdensity",
+                mapping = aes(color = Gen)),
+                upper = list(continuous = wrap("cor", size = 3, hjust=0.8)))
+
+```
+
+```{r plot_cond_anx, results='asis', fig.height=8, fig.width=8, fig.align='center'}
 # Coplot Anx 
-Data_merged_wide_all %>%
+Data_difscores %>%
   filter(!ID %in% c(19, 43)) %>%
-    coplot(OXT_Post_OGL ~ OXT_Pre_OGL | StaiTbrut,
+    coplot(Diff_OXT_OGL ~ Diff_Vas_Stres_OGL | StaiTbrut,
            data = .,
            rows = 1,
            panel = function(x, y, ...) {
            panel.smooth(x, y, span = .8, iter = 5,...)
            abline(lm(y ~ x), col = "blue")})
 
-Data_merged_wide_all %>%
+Data_difscores %>%
   filter(!ID %in% c(19, 43)) %>%
-    coplot(OXT_Post_ECRAN ~ OXT_Pre_ECRAN | StaiTbrut,
+    coplot(Diff_OXT_ECRAN ~ Diff_Vas_Stres_ECRAN | StaiTbrut,
            data = .,
            rows = 1,
            panel = function(x, y, ...) {
            panel.smooth(x, y, span = .8, iter = 5,...)
            abline(lm(y ~ x), col = "blue")})
 
-Data_merged_wide_all %>%
+
+Data_difscores %>%
   filter(!ID %in% c(19, 43)) %>%
-    coplot(OXT_Post_OGL ~ OXT_Pre_OGL | StaiSbrut,
-           data = .,
-           rows = 1,
-           panel = function(x, y, ...) {
+  coplot(Diff_OXT_OGL ~ Diff_Vas_Stres_OGL | StaiSbrut,
+         data = .,
+         rows = 1,
+         panel = function(x, y, ...) {
            panel.smooth(x, y, span = .8, iter = 5,...)
            abline(lm(y ~ x), col = "blue")})
 
-Data_merged_wide_all %>%
+Data_difscores %>%
   filter(!ID %in% c(19, 43)) %>%
-    coplot(OXT_Post_ECRAN ~ OXT_Pre_ECRAN | StaiSbrut,
-           data = .,
-           rows = 1,
-           panel = function(x, y, ...) {
+  coplot(Diff_OXT_ECRAN ~ Diff_Vas_Stres_ECRAN | StaiSbrut,
+         data = .,
+         rows = 1,
+         panel = function(x, y, ...) {
            panel.smooth(x, y, span = .8, iter = 5,...)
            abline(lm(y ~ x), col = "blue")})
+```
 
+
+## Difference scores conditioned on Extraversion ?
+
+```{r plot_cor_e, results='asis', fig.height=14, fig.width=14, fig.align='center'}
+Data_difscores <-
+  Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  mutate(Diff_OXT_OGL = OXT_Post_OGL - OXT_Pre_OGL,
+         Diff_OXT_ECRAN = OXT_Post_ECRAN - OXT_Pre_ECRAN,
+         Diff_Vas_Stres_OGL = Vas_Stres_Post_OGL - Vas_Stres_Pre_OGL,
+         Diff_Vas_Stres_ECRAN = Vas_Stres_Post_ECRAN - Vas_Stres_Pre_ECRAN, 
+         Diff_Vas_Bine_OGL = Vas_Bine_Post_OGL - Vas_Bine_Pre_OGL,
+         Diff_Vas_Bine_ECRAN = Vas_Bine_Post_ECRAN - Vas_Bine_Pre_ECRAN
+  ) 
+
+
+plot_columns <- match(c("E",
+                        "Diff_OXT_OGL", "Diff_OXT_ECRAN",
+                        "Diff_Vas_Stres_OGL", "Diff_Vas_Stres_ECRAN",
+                        "Diff_Vas_Bine_OGL", "Diff_Vas_Bine_ECRAN"), 
+                        names(Data_difscores))
+
+# GGpairs
+fn_ggpair_reg <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) + 
+    geom_point() + 
+    geom_smooth(method=loess, fill="red", color="red", ...) +
+    geom_smooth(method=lm, fill="blue", color="blue", ...)
+  p
+}
+
+GGally::ggpairs(data = Data_difscores,
+                columns = plot_columns, 
+                lower = list(continuous = fn_ggpair_reg))
 ```
 
 
 
-# Moderation Analysis
 
-```{r siple_mod, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
+
+## Moderation Analysis ()
+
+```{r simple_mod_e, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
+## Define Function
+func_moderation <- function(Data, dep, mod, pred){
+  moderation <- 
+    Data %>%
+    medmod::mod(., dep = dep, mod = mod, pred = pred,
+                ci = TRUE, estMethod = 'standard', test = TRUE, simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+  
+  cat(paste("<b> Moderation: ", "Dep = ", dep, "Pred = ", pred, "Mod = ", mod, "</b>"))
+  moderation$mod %>% 
+    knitr::kable(caption = "Moderation", digits = 3) %>%
+    print()
+  moderation$simpleSlope$plot %>%
+    print()
+}
+
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_moderation(Data = ., dep = "OXT_Post_OGL", mod = "E", pred = "OXT_Pre_OGL")
+
+Data_merged_wide_all %>%
+  filter(!ID %in% c(19, 43)) %>%
+  func_moderation(Data = ., dep = "OXT_Post_ECRAN", mod = "E", pred = "OXT_Pre_ECRAN")
+
+
+cat("### ANCOVA - Extraversion")
+df_ancova_e <-
+  Data_merged_wide_all %>%
+  select("ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN", "E") %>%
+  tidyr::drop_na() %>%
+  gather("OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN", key = "Cond", value = "value") %>%
+  mutate(PrePost = case_when(stringr::str_detect(.$"Cond", "Pre") ~ "Pre",
+                             stringr::str_detect(.$"Cond", "Post") ~ "Post",
+                             TRUE ~ NA_character_),
+         OglEcran = case_when(stringr::str_detect(.$"Cond", "OGL") ~ "OGL",
+                              stringr::str_detect(.$"Cond", "ECRAN") ~ "ECRAN",
+                              TRUE ~ NA_character_)) %>%
+  mutate(PrePost = as.factor(PrePost),
+         OglEcran = as.factor(OglEcran)) %>%
+  select(-"Cond") %>%
+  spread("PrePost", "value")
+
+
+jmv::ancova(
+    formula = Post ~ Pre + OglEcran + E,
+    data = df_ancova_e,
+    homo = TRUE,
+    ss = "3",
+    postHoc = ~ OglEcran,
+    postHocCorr = list("tukey"),
+    effectSize = list("eta", "partEta")
+  )
+```
+
+
+<!--
+
+```{r simple_mod_anx, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
 ## Define Function
 func_moderation <- function(Data, dep, mod, pred){
   moderation <- 
@@ -600,6 +914,9 @@ Data_mixedanova <-
   mutate(PrePost = case_when(stringr::str_detect(.$"PrePost", "Pre") ~ as.integer(0),
                              stringr::str_detect(.$"PrePost", "Post") ~ as.integer(1),
                              TRUE ~ NA_integer_)) %>%
+  mutate(OglEcran = case_when(stringr::str_detect(.$"OglEcran", "ECRAN") ~ as.integer(0),
+                           stringr::str_detect(.$"OglEcran", "OGL") ~ as.integer(1),
+                           TRUE ~ NA_integer_)) %>%
   mutate(StaiTbrut_dih = sjmisc::dicho(.$"StaiTbrut", 
                                        dich.by = "median", as.num = FALSE,                                # similar to Hmisc::cut2, but uses median
                                        val.labels = c("lower", "higher"), append = FALSE)) %>%
@@ -612,6 +929,7 @@ aov_mixed1 <- aov(OXT ~ OglEcran * PrePost * StaiTbrut_dih + Error(ID/PrePost), 
 broom::tidy(aov_mixed1)
 # summary(aov_mixed1)   
 # model.tables(aov_mixed1, "means")   # is data balanced?
+
 
 
 
