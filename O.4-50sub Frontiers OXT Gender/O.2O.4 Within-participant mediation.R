@@ -1,3 +1,27 @@
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plyr", 
+  "rio",
+  "GGally"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Read and Merge
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -300,6 +324,61 @@ Data_dif_masc_O4O2 <-
   select(ID, starts_with("Dif"))
 
 PerformanceAnalytics::chart.Correlation(Data_dif_masc_O4O2[, -1])  # ns masc (31)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Define Function for Pre-Post Plots, t Change and ANCOVA Post
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  df_modif <-
+    df %>%
+    select(ind, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), list(~as.factor(.))) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+func_t_box(Data_fem_O4O2, "ID", "OXT_Pre", "OXT_Post")    # sig
+
 
 
 
