@@ -42,8 +42,11 @@ output:
 knitr::opts_chunk$set(
   comment = "#",
   collapse = TRUE,
+  error = FALSE,                                                  # this needs to be supressed when runing tests               
   echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
 )
+
+# knitr::opts_knit$set(root.dir = normalizePath("C:/Users/Mihai/Desktop/R Notebooks/notebooks/O.4-50sub Frontiers OXT Gender"))
 
 # General R options and info
 set.seed(111)               # in case we use randomized procedures       
@@ -227,6 +230,28 @@ Data_merged_long_all <-
   pivot_longer(vars_PrePost, names_to = c(".value","PrePost"), names_pattern = "(.*)_(.*)") %>%     # magic     
   mutate_at(vars(48:50), list(~as.numeric(as.character(.)))) %>%
   arrange(ID)
+
+
+# Females and Males Dataframes
+Data_fem <- 
+  Data_merged_wide_all %>%
+  filter(Gen == "f")
+Data_masc <- 
+  Data_merged_wide_all %>%
+  filter(Gen == "m")
+
+# Difference Scores Dataframe
+Data_difscores <-
+  Data_merged_wide_all %>%
+  mutate(Diff_OXT_OGL = OXT_Post_OGL - OXT_Pre_OGL,
+         Diff_OXT_ECRAN = OXT_Post_ECRAN - OXT_Pre_ECRAN,
+         Diff_Vas_Stres_OGL = Vas_Stres_Post_OGL - Vas_Stres_Pre_OGL,
+         Diff_Vas_Stres_ECRAN = Vas_Stres_Post_ECRAN - Vas_Stres_Pre_ECRAN, 
+         Diff_Vas_Bine_OGL = Vas_Bine_Post_OGL - Vas_Bine_Pre_OGL,
+         Diff_Vas_Bine_ECRAN = Vas_Bine_Post_ECRAN - Vas_Bine_Pre_ECRAN,
+         Diff_IOS_OGL = IOS_Post_OGL - IOS_Pre_OGL,
+         Diff_IOS_ECRAN = IOS_Post_ECRAN - IOS_Pre_ECRAN
+  ) 
 ```
 
 
@@ -259,6 +284,23 @@ Data_merged_wide_all %>%
 
 
 # Descriptives
+
+## Descriptives - Gen Varsta
+
+```{r desc_gen_varsta}
+describe(Data_merged_wide_all$Varsta)
+prop.table(table(Data_merged_wide_all$Gen))
+
+t.test(Data_merged_wide_all$Varsta ~ Data_merged_wide_all$Gen) %>%
+  tidy()
+
+wilcox.test(Data_merged_wide_all$Varsta ~ Data_merged_wide_all$Gen) %>%
+  tidy()
+
+psych::describeBy(Data_merged_wide_all$Varsta, group = Data_merged_wide_all$Gen)
+```
+
+
 ## Plots
 
 ```{r plot_gen, fig.width=6, fig.height=6, results='asis'}
@@ -340,7 +382,7 @@ Data_merged_wide_all %>%
 # Define Functions 
 
 ```{r def_func_subchunkplot, hide=TRUE}
-subchunkify <- function(g, fig_height=7, fig_width=5) {
+subchunkify <- function(g, fig_height=7, fig_width=5) {        # THIS FUNC CRASHES PANDOC CONVERSION WITH ERROR 99 - DONT USE HERE
   g_deparsed <- paste0(deparse(
     function() {g}
   ), collapse = '')
@@ -640,7 +682,7 @@ func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, p
   #   print()
   cat("\n")
   cat("##### Homogeneity of regression slopes")
-  subchunkify(plot(scatter), 5, 5)
+  # subchunkify(plot(scatter), 5, 5)                       # THIS FUNC CRASHES PANDOC CONVERSION WITH ERROR 99 - DONT USE HERE
 }
 ```
 
@@ -655,24 +697,20 @@ func_ancova_multibox <- function(df, ind, pre_var_c1, post_var_c1, pre_var_c2, p
 # Simple before-after analyses with t test
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## OXT has 2 outliers: 19, 43
-# func_t_box(Data_merged_wide, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")          # outlier  
+# func_t_box(Data_merged_wide, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")          # outlier in 57 sub  
 # func_t_box(Data_merged_wide, "ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")      # ns
 
-Data_merged_wide %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
-Data_merged_wide %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
+func_t_box(Data_merged_wide_all, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
+func_t_box(Data_merged_wide_all, "ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
 
-func_t_box(Data_merged_wide, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # sig  
-func_t_box(Data_merged_wide, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # sig la limita
+func_t_box(Data_merged_wide_all, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # sig  
+func_t_box(Data_merged_wide_all, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # ns
 
-func_t_box(Data_merged_wide, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL")           # ns  
-func_t_box(Data_merged_wide, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       # ns
+func_t_box(Data_merged_wide_all, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL")           # ns  
+func_t_box(Data_merged_wide_all, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       # sig
 
-func_t_box(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
-func_t_box(Data_merged_wide, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
+func_t_box(Data_merged_wide_all, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
+func_t_box(Data_merged_wide_all, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
 ```
 
 
@@ -681,34 +719,24 @@ func_t_box(Data_merged_wide, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")           
 ```{r t_Change_ANCOVA_Posts, fig.width=11, fig.height=12, results='asis'}
 ## tChance and ANCOVAPost 
 
-Data_merged_wide %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_ancova_multibox("ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")                                            # ns
+func_ancova_multibox(Data_merged_wide_all, "ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")              # ns
 
-func_ancova_multibox(Data_merged_wide, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")    # ns
+func_ancova_multibox(Data_merged_wide_all,  "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")    # ns
 
-func_ancova_multibox(Data_merged_wide, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")        # ns
+func_ancova_multibox(Data_merged_wide_all,  "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")        # ns
 
-func_ancova_multibox(Data_merged_wide, "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                            # sig
+func_ancova_multibox(Data_merged_wide_all,  "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                            # sig
 
 ```
 
 
-## Same analyses by Gender
+## Simple before-after analyses with t test by Gender
 
 ```{r t_test_gen, fig.width=5, fig.height=7, results='asis'}
 # Females
 cat("### Fem")
-Data_fem <- 
-  Data_merged_wide_all %>%
-  filter(Gen == "f")
-
-Data_fem %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # sig
-Data_fem %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
+func_t_box(Data_fem, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # sig
+func_t_box(Data_fem, "ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
 
 func_t_box(Data_fem, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # sig 
 func_t_box(Data_fem, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # sig
@@ -721,16 +749,8 @@ func_t_box(Data_fem, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # 
 
 # Males
 cat("### Masc")
-Data_masc <- 
-  Data_merged_wide_all %>%
-  filter(Gen == "m")
-
-Data_masc %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
-Data_masc %>%
-  filter(!ID %in% c(19, 43)) %>%
-  func_t_box("ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
+func_t_box(Data_masc, "ID", "OXT_Pre_OGL", "OXT_Post_OGL")    # ns
+func_t_box(Data_masc, "ID", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")   # ns
 
 func_t_box(Data_masc, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL")         # ns  
 func_t_box(Data_masc, "ID", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")     # ns
@@ -741,6 +761,34 @@ func_t_box(Data_masc, "ID", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")       #
 func_t_box(Data_masc, "ID", "IOS_Pre_OGL", "IOS_Post_OGL")                     # sig  
 func_t_box(Data_masc, "ID", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                 # ns
 ```
+
+
+## tChance and ANCOVAPost by Gender
+
+```{r t_Change_ANCOVA_Posts_gen, fig.width=11, fig.height=12, results='asis'}
+# Females
+cat("### Fem")
+Data_fem %>%
+  func_ancova_multibox("ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")                                    # ns (PROBLEM)
+
+func_ancova_multibox(Data_fem, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")    # ns
+
+func_ancova_multibox(Data_fem, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")        # ns
+
+func_ancova_multibox(Data_fem, "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                            # sig
+
+# Males
+cat("### Masc")
+Data_masc %>%
+  func_ancova_multibox("ID", "OXT_Pre_OGL", "OXT_Post_OGL", "OXT_Pre_ECRAN", "OXT_Post_ECRAN")                                     # ns
+
+func_ancova_multibox(Data_masc, "ID", "Vas_Stres_Pre_OGL", "Vas_Stres_Post_OGL", "Vas_Stres_Pre_ECRAN", "Vas_Stres_Post_ECRAN")    # ns
+
+func_ancova_multibox(Data_masc, "ID", "Vas_Bine_Pre_OGL", "Vas_Bine_Post_OGL", "Vas_Bine_Pre_ECRAN", "Vas_Bine_Post_ECRAN")        # ns
+
+func_ancova_multibox(Data_masc, "ID", "IOS_Pre_OGL", "IOS_Post_OGL", "IOS_Pre_ECRAN", "IOS_Post_ECRAN")                            # sig
+```
+
 
 
 ## Not considering Cond (OglEcran) - Overall Pre-Post
@@ -794,18 +842,6 @@ GGally::ggpairs(data = Data_notOglEcran %>% filter(!ID %in% c(19, 43)),
 ## Difference scores conditioned on Anxiety ?
 
 ```{r plot_cor_anx, results='asis', fig.height=14, fig.width=14, fig.align='center'}
-Data_difscores <-
-  Data_merged_wide_all %>%
-  filter(!ID %in% c(19, 43)) %>%
-  mutate(Diff_OXT_OGL = OXT_Post_OGL - OXT_Pre_OGL,
-         Diff_OXT_ECRAN = OXT_Post_ECRAN - OXT_Pre_ECRAN,
-         Diff_Vas_Stres_OGL = Vas_Stres_Post_OGL - Vas_Stres_Pre_OGL,
-         Diff_Vas_Stres_ECRAN = Vas_Stres_Post_ECRAN - Vas_Stres_Pre_ECRAN, 
-         Diff_Vas_Bine_OGL = Vas_Bine_Post_OGL - Vas_Bine_Pre_OGL,
-         Diff_Vas_Bine_ECRAN = Vas_Bine_Post_ECRAN - Vas_Bine_Pre_ECRAN
-  ) 
-  
-
 plot_columns <- match( c("StaiSbrut", "StaiTbrut",
                          "Diff_OXT_OGL", "Diff_OXT_ECRAN",
                          "Diff_Vas_Stres_OGL", "Diff_Vas_Stres_ECRAN",
@@ -881,18 +917,6 @@ Data_difscores %>%
 ## Difference scores conditioned on Extraversion ?
 
 ```{r plot_cor_e, results='asis', fig.height=14, fig.width=14, fig.align='center'}
-Data_difscores <-
-  Data_merged_wide_all %>%
-  filter(!ID %in% c(19, 43)) %>%
-  mutate(Diff_OXT_OGL = OXT_Post_OGL - OXT_Pre_OGL,
-         Diff_OXT_ECRAN = OXT_Post_ECRAN - OXT_Pre_ECRAN,
-         Diff_Vas_Stres_OGL = Vas_Stres_Post_OGL - Vas_Stres_Pre_OGL,
-         Diff_Vas_Stres_ECRAN = Vas_Stres_Post_ECRAN - Vas_Stres_Pre_ECRAN, 
-         Diff_Vas_Bine_OGL = Vas_Bine_Post_OGL - Vas_Bine_Pre_OGL,
-         Diff_Vas_Bine_ECRAN = Vas_Bine_Post_ECRAN - Vas_Bine_Pre_ECRAN
-  ) 
-
-
 plot_columns <- match(c("E",
                         "Diff_OXT_OGL", "Diff_OXT_ECRAN",
                         "Diff_Vas_Stres_OGL", "Diff_Vas_Stres_ECRAN",
@@ -915,7 +939,7 @@ GGally::ggpairs(data = Data_difscores,
 
 
 
-
+<!--
 
 ## Moderation Analysis ()
 
@@ -975,7 +999,7 @@ jmv::ancova(
 ```
 
 
-<!--
+
 
 ```{r simple_mod_anx, fig.width=7, fig.height=6, results='asis', warning=FALSE, message=FALSE}
 ## Define Function
@@ -1014,7 +1038,7 @@ Data_merged_wide_all %>%
 ```
 
 
--->
+
 
 
 ## Mixed Design ANOVA
@@ -1053,12 +1077,132 @@ broom::tidy(aov_mixed1)
 # library(interactions)
 ```
 
-## Correlations between Diff_OXT_OGL with other variables (Nothing)
+
+-->
+
+## Correlations between Diff_OXT_OGL with other variables
 
 ```{r D_cor_other, results='asis', warning=FALSE}
 ## Correlations between Diffrence Scores with other variables
-Correlations_With_One(Data_difscores[,-c(1:2, 5:24)], variable = "Diff_OXT_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)  # nothing
+Data_difscores[,-c(1:2, 5:24)] %>%
+  Correlations_With_One(., variable = "Diff_OXT_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)   # nothing
+
+
+####
+Data_difscores[,-c(1:2, 5:24)] %>%
+   Correlations_With_One(., variable = "Diff_Vas_Stres_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # C,C5
+
+###
+Data_difscores[,-c(1:2, 5:24)] %>%
+   Correlations_With_One(., variable = "Diff_Vas_Bine_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)  # BDI
+Data_difscores[,-c(1:2, 5:24)] %>%
+   Correlations_With_One(., variable = "Diff_Vas_Bine_ECRAN", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # O2,O3, StaiT
+
 ```
+
+
+```{r lm_var, results='asis', warning=FALSE}
+lm(Vas_Stres_Post_OGL ~ Vas_Stres_Pre_OGL + StaiTbrut, data = Data_merged_wide_all) %>% summary()      # sig
+lm(Vas_Stres_Post_ECRAN ~ Vas_Stres_Pre_ECRAN + StaiTbrut, data = Data_merged_wide_all) %>% summary()  # ns
+
+
+lm(Vas_Bine_Post_OGL ~ Vas_Bine_Pre_OGL + ScorBDI, data = Data_merged_wide_all) %>% summary()        # sig
+lm(Vas_Bine_Post_ECRAN ~ Vas_Bine_Pre_ECRAN + ScorBDI, data = Data_merged_wide_all) %>% summary()    # ns
+
+
+
+
+```
+
+
+## Correlations between Diff_OXT_OGL with other variables - by Gender
+
+```{r D_cor_other_gen, results='asis', warning=FALSE}
+## Correlations between Diffrence Scores with other variables - Females
+cat("### Females")
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "f") %>%
+  Correlations_With_One(., variable = "Diff_OXT_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)   # nothing
+
+####
+Data_difscores[,-c(1:2, 5:24)]%>%
+  filter(Gen == "f") %>%
+   Correlations_With_One(., variable = "Diff_Vas_Stres_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # A1
+
+###
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "f") %>%
+  Correlations_With_One(., variable = "Diff_Vas_Bine_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)  # BDI, N2
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "f") %>%
+  Correlations_With_One(., variable = "Diff_Vas_Bine_ECRAN", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # StaiT
+
+
+
+
+## Correlations between Diffrence Scores with other variables - Males
+cat("### Males")
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "m") %>%
+  Correlations_With_One(., variable = "Diff_OXT_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)   # O6,A6
+
+####
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "m") %>%
+  Correlations_With_One(., variable = "Diff_Vas_Stres_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # C2-Ordine!!!
+
+###
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "m") %>%
+  Correlations_With_One(., variable = "Diff_Vas_Bine_OGL", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05)  # nothing
+Data_difscores[,-c(1:2, 5:24)] %>%
+  filter(Gen == "m") %>%
+  Correlations_With_One(., variable = "Diff_Vas_Bine_ECRAN", correlation_abs_threshold = 0.2, pvalue_threshold = 0.05) # C2-Ordine,O2
+
+```
+
+
+
+# within-participant mediation
+
+```{r wmed, results='asis'}
+library(JSmediation)
+
+df_cordif_fem <- 
+  Data_difscores %>%
+  filter(Gen == "f")
+
+cor.test(df_cordif_fem$Diff_OXT_OGL, df_cordif_fem$Diff_Vas_Stres_OGL)  # ns
+
+summary(lm(Diff_OXT_OGL ~ Diff_Vas_Stres_OGL, data = df_cordif_fem))   # ns
+
+withinmed_OGL <- 
+  mdt_within_wide(data = Data_fem, 
+                  DV_A = Vas_Stres_Pre_OGL, DV_B = Vas_Stres_Post_OGL, 
+                  M_A = OXT_Pre_OGL, M_B = OXT_Post_OGL)
+add_index(withinmed_OGL)
+
+withinmed_ECRAN <- 
+  mdt_within_wide(data = Data_fem, 
+                  DV_A = Vas_Stres_Pre_ECRAN, DV_B = Vas_Stres_Post_ECRAN, 
+                  M_A = OXT_Pre_ECRAN, M_B = OXT_Post_ECRAN)
+add_index(withinmed_ECRAN)
+
+
+
+
+# mdt_within_wide(data = Data_fem,                                             # ns
+#                 DV_A = Vas_Bine_Pre_OGL, DV_B = Vas_Bine_Post_OGL,
+#                 M_A = OXT_Pre_OGL, M_B = OXT_Post_OGL)
+
+# mdt_within_wide(data = Data_fem,                                             # ns
+#                 DV_A = IOS_Pre_OGL, DV_B = IOS_Post_OGL,
+#                 M_A = OXT_Pre_OGL, M_B = OXT_Post_OGL)
+```
+
+
+
+
 
 
 ## Correlations with OxT
