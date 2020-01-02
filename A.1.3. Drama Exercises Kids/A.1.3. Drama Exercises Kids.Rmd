@@ -1,0 +1,313 @@
+---
+title: "<br> Drama Exercises Kids" 
+subtitle: "Report for Children and Adolescents"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/A.1.3. Drama Exercises Kids"
+file <- "A13 Tabel date copii.xlsx"
+
+setwd(folder)
+Data <- rio::import(file.path(folder, file),
+                           skip = 1)
+
+
+## Tidy up data
+# Function coalesce rows: colapse when NA, unite with "_" when not NA
+coalesce2 <- function(...) {
+  Reduce(function(x, y) {
+    i <- which(is.na(x))
+    j <- which(!is.na(x) & !is.na(y))
+    x[i] <- y[i]
+    x[j] <- paste(x[j], y[j], sep = "_")
+    x},
+    list(...))
+}
+
+colnames(Data) <- coalesce2(Data[2,], Data[3,])
+Data <- Data[-c(1:3),]
+
+
+
+## Solve duplicate names due to excel double header
+# Function to paste a string before column name if it doesnt already start with that string
+paste_tocolnames <- function(vec_colnames, string_paste){
+  ind <- grep(pattern = string_paste, vec_colnames)                   # ignore column that already has string patterm
+  vec_colnames[-ind] <- paste0(string_paste, vec_colnames[-ind])      # paste pattern to the rest of them
+  return(vec_colnames)
+}
+
+# PANAS pre 7:26, post 37:56
+colnames(Data)[7:26] <- paste_tocolnames(colnames(Data)[7:26], "PANAS pre_")
+colnames(Data)[37:56] <- paste_tocolnames(colnames(Data)[37:56], "PANAS post_")
+
+colnames(Data) <- enc2native(colnames(Data))      # fix encoding
+
+
+## Recode known missing values
+# str(Data_psiho, list.len = ncol(Data_psiho))
+# str(Data_psiho, list.len = ncol(Data_psiho))
+Data <-
+  Data %>%
+  replace(. == "/", NA) %>%                                     # missing values are coded "/"
+  replace(. == "-", NA) %>%                                     # missing values are coded "-"
+  replace(. == "NA", NA)                                        # missing values are coded "NA"
+
+
+# Exclude some extra rows and columns & some IDs
+Data <- Data[, -c(57:86)]
+rownames(Data) <- seq(length=nrow(Data))  # 83 trebuie sa fie
+Data <- 
+  Data %>%
+  mutate (`Nr crt` = as.numeric(.$`Nr crt`)) %>%
+  filter(!`Nr crt` %in% c(36, 38:39, 41:43, 50:51, 53:55, 75, 84:97)) %>%
+  filter(`Nr crt` < 84)
+
+## Check for non-numeric elements in data sets
+check_numeric1 <- as.data.frame(sapply(Data, varhandle::check.numeric)) 
+# sapply(check_numeric1, function(x) length(which(!x)))     # look at columns with non-numeric and count of non-numeric values
+
+nonnumeric1 <- sapply(check_numeric1, function(x) which(!x, arr.ind = TRUE))    # find row numbers for non-numeric values
+nonnumeric1[lapply(nonnumeric1, length) > 0]                                   # return only columns and rown numbers were non-numeric
+
+## Recode to numeric
+Data[, 7:56] <- sapply(Data[, 7:56], as.numeric)     # mutate_at fails due to encoding
+
+## Rename columns
+Data <- 
+  Data %>% 
+ dplyr::rename(ID = `Indica tiv subiect`) %>% 
+ dplyr::rename(Zi = `(Etapa III), zi`)
+names(Data) <- gsub(" ", "_", names(Data))
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Scoring Questionnaire and Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## Define function that calculates RowSums but only for rows with less than 10% NAs; and return NA if all row values are NA 
+SpecialRowSums <- function(df, napercent = .1) {
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.
+Data$PA_pre_Total <- SpecialRowSums(Data[ ,6 + c(1,3,5,9,10,12,14,16,17,19)], napercent = .11) # not more than 1 NAs for 10 items
+Data$NA_pre_Total <- SpecialRowSums(Data[ ,6 + c(2,4,6,7,8,11,13,15,18,20)], napercent = .11)
+
+
+Data$PA_post_Total <- SpecialRowSums(Data[ ,36 + c(1,3,5,9,10,12,14,16,17,19)], napercent = .11) 
+Data$NA_post_Total <- SpecialRowSums(Data[ ,36 + c(2,4,6,7,8,11,13,15,18,20)], napercent = .11)
+```
+
+
+# Sample descriptives
+
+```{r sample_desc}
+cat("## Number of subjects")
+Data %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+```
+
+
+# Define Function
+
+```{r def_func, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  df_modif <-
+    df %>%
+    select(ind, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+
+# PANAS 
+
+```{r t_test_panas, fig.width=5, fig.height=7, results='asis'}
+cat("### Positeive - Zi 1")
+Data %>%
+  filter(Zi == 1) %>%
+  func_t_box("ID", "PA_pre_Total", "PA_post_Total")
+
+cat("### Positeive -  Zi 2")
+Data %>%
+  filter(Zi == 2) %>%
+  func_t_box("ID", "PA_pre_Total", "PA_post_Total")
+
+
+cat("### Negative - Zi 1")
+Data %>%
+  filter(Zi == 1) %>%
+  func_t_box("ID", "NA_pre_Total", "NA_post_Total")
+
+cat("### Negative -  Zi 2")
+Data %>%
+  filter(Zi == 2) %>%
+  func_t_box("ID", "NA_pre_Total", "NA_post_Total")
+```
+
+
+# VAS 
+
+```{r t_test_vas, fig.width=5, fig.height=7, results='asis'}
+cat("### Stress - Zi 1")
+Data %>%
+  filter(Zi == 1) %>%
+  func_t_box("ID", "VAS_stres_pre", "VAS_stres_post_ex1")
+
+cat("### Stress -  Zi 2")
+Data %>%
+  filter(Zi == 2) %>%
+  func_t_box("ID", "VAS_stres_pre", "VAS_stres_post_ex1")
+
+
+cat("### Well being - Zi 1")
+Data %>%
+  filter(Zi == 1) %>%
+  func_t_box("ID", "VAS_stare_de_bine_pre", "VAS_stare_de_bine_post_ex1")
+
+cat("### Well being -  Zi 2")
+Data %>%
+  filter(Zi == 2) %>%
+  func_t_box("ID", "VAS_stare_de_bine_pre", "VAS_stare_de_bine_post_ex1")
+```
+
+
+# IOS
+
+```{r t_test_ios, fig.width=5, fig.height=7, results='asis'}
+cat("### IOS - Zi 1")
+Data %>%
+  filter(Zi == 1) %>%
+  func_t_box("ID", "IOS_pre", "IOS_post")
+
+cat("### IOS -  Zi 2")
+Data %>%
+  filter(Zi == 2) %>%
+  func_t_box("ID", "IOS_pre", "IOS_post")
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
