@@ -425,7 +425,7 @@ plot_panas_zi <- function(df, pre_var, post_var){
     tidyr::drop_na() %>%                          # need to remove NAs so factor level of condition can be droped as well         
     rstatix::t_test(value ~ Zi) %>%                # automatically does pairwise, but has problems were factor levels of grouping with NA
     # rstatix::adjust_pvalue() %>%                          
-    rstatix::add_significance() %>%                                                       
+    rstatix::add_significance("p") %>%                                                       
     filter(p.signif != "ns") 
   
   p<-
@@ -492,7 +492,7 @@ plot_prepost_zi2 <- function(df, pre_var, post_var){
     # group_by(`Indicativ subiect`) %>%
     rstatix::t_test(value ~ condition) %>%
     # rstatix::adjust_pvalue() %>%
-    rstatix::add_significance() %>%
+    rstatix::add_significance("p") %>%
     filter(p.signif != "ns") 
   
   p <- 
@@ -553,7 +553,7 @@ plot_prepost_etapa <- function(df, pre_var, post_var){
       group_by(Etapa) %>%
       rstatix::t_test(value ~ Zi) %>%
       # rstatix::adjust_pvalue() %>%
-      rstatix::add_significance() %>%
+      rstatix::add_significance("p") %>%
       filter(p.signif != "ns")
   
   p <- 
@@ -592,7 +592,7 @@ plot_preexpost_zi <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_var
     group_by(Zi) %>%
     tidyr::drop_na(value) %>%                                     # filter so grouping factor levels get droped and we can compare with unevel levels
     rstatix::t_test(value ~ variable) %>%                # pairwise
-    rstatix::add_significance() %>%                                    
+    rstatix::add_significance("p") %>%                                    
     filter(p.signif != "ns") 
   
   p<-
@@ -656,7 +656,7 @@ plot_preexpost_etapa <- function(df, pre_var, post_x1_var, post_x2_var, post_x3_
     group_by(Etapa) %>%
     tidyr::drop_na(value) %>%                                     # filter so grouping factor levels get droped and we can compare with unevel levels
     rstatix::t_test(value ~ variable) %>%                # pairwise
-    rstatix::add_significance() %>%
+    rstatix::add_significance("p") %>%
     filter(p.signif != "ns")
 
   p<-
@@ -780,12 +780,12 @@ find_mod(df = mod_prepost, dfp = dfp, num_only = FALSE)
 
 
 
-Data_United %>% 
-  filter(Etapa == "I") %>%
-  medmod::mod(data = ., 
-            dep = "PPS post_Total", mod = "IOS post", pred = "PPS pre_Total", 
-            estMethod = "standard", test = TRUE, 
-            simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+# Data_United %>% 
+#   filter(Etapa == "I") %>%
+#   medmod::mod(data = ., 
+#             dep = "PPS post_Total", mod = "IOS post", pred = "PPS pre_Total", 
+#             estMethod = "standard", test = TRUE, 
+#             simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
 ```
 
 
