@@ -256,37 +256,37 @@ Data_psiho$`NA post_Total` <- SpecialRowSums(Data_psiho[ ,79 + c(2,4,6,7,8,11,13
 # Define other grouping varibles
 Data_teatru <- 
   Data_teatru %>%
-    mutate(Etapa = case_when(`Etapã, zi` %in% c("I.1", "I.2") ~ "I",
-                             `Etapã, zi` %in% c("II.1",  "II.2") ~ "II",
-                             `Etapã, zi` %in% c("III.1", "III.2") ~ "III",
-                             `Etapã, zi` %in% c("IV.1", "IV.2") ~ "IV",
+    mutate(Etapa = case_when(`EtapÄƒ, zi` %in% c("I.1", "I.2") ~ "I",
+                             `EtapÄƒ, zi` %in% c("II.1",  "II.2") ~ "II",
+                             `EtapÄƒ, zi` %in% c("III.1", "III.2") ~ "III",
+                             `EtapÄƒ, zi` %in% c("IV.1", "IV.2") ~ "IV",
                              TRUE ~ NA_character_),
-           Zi = case_when(`Etapã, zi` == "I.1" ~ "zi1", 
-                          `Etapã, zi` == "I.2" ~ "zi2",  
-                          `Etapã, zi` == "II.1" ~ "zi3", 
-                          `Etapã, zi` == "II.2" ~ "zi4",
-                          `Etapã, zi` == "III.1" ~ "zi5", 
-                          `Etapã, zi` == "III.2" ~ "zi6", 
-                          `Etapã, zi` == "IV.1" ~ "zi7", 
-                          `Etapã, zi` == "IV.2" ~ "zi8", 
+           Zi = case_when(`EtapÄƒ, zi` == "I.1" ~ "zi1", 
+                          `EtapÄƒ, zi` == "I.2" ~ "zi2",  
+                          `EtapÄƒ, zi` == "II.1" ~ "zi3", 
+                          `EtapÄƒ, zi` == "II.2" ~ "zi4",
+                          `EtapÄƒ, zi` == "III.1" ~ "zi5", 
+                          `EtapÄƒ, zi` == "III.2" ~ "zi6", 
+                          `EtapÄƒ, zi` == "IV.1" ~ "zi7", 
+                          `EtapÄƒ, zi` == "IV.2" ~ "zi8", 
                           TRUE ~ NA_character_)) %>%
   unite(col = "Etapa_Zi", Etapa, Zi, remove = FALSE)
 
 Data_psiho <- 
   Data_psiho %>%
-  mutate(Etapa = case_when(`Etapã, zi` %in% c("I.1", "I.2") ~ "I",
-                           `Etapã, zi` %in% c("II.1",  "II.2") ~ "II",
-                           `Etapã, zi` %in% c("III.1", "III.2") ~ "III",
-                           `Etapã, zi` %in% c("IV.1", "IV.2") ~ "IV",
+  mutate(Etapa = case_when(`EtapÄƒ, zi` %in% c("I.1", "I.2") ~ "I",
+                           `EtapÄƒ, zi` %in% c("II.1",  "II.2") ~ "II",
+                           `EtapÄƒ, zi` %in% c("III.1", "III.2") ~ "III",
+                           `EtapÄƒ, zi` %in% c("IV.1", "IV.2") ~ "IV",
                            TRUE ~ NA_character_),
-         Zi = case_when(`Etapã, zi` == "I.1" ~ "zi1", 
-                        `Etapã, zi` == "I.2" ~ "zi2",  
-                        `Etapã, zi` == "II.1" ~ "zi3", 
-                        `Etapã, zi` == "II.2" ~ "zi4",
-                        `Etapã, zi` == "III.1" ~ "zi5", 
-                        `Etapã, zi` == "III.2" ~ "zi6", 
-                        `Etapã, zi` == "IV.1" ~ "zi7", 
-                        `Etapã, zi` == "IV.2" ~ "zi8", 
+         Zi = case_when(`EtapÄƒ, zi` == "I.1" ~ "zi1", 
+                        `EtapÄƒ, zi` == "I.2" ~ "zi2",  
+                        `EtapÄƒ, zi` == "II.1" ~ "zi3", 
+                        `EtapÄƒ, zi` == "II.2" ~ "zi4",
+                        `EtapÄƒ, zi` == "III.1" ~ "zi5", 
+                        `EtapÄƒ, zi` == "III.2" ~ "zi6", 
+                        `EtapÄƒ, zi` == "IV.1" ~ "zi7", 
+                        `EtapÄƒ, zi` == "IV.2" ~ "zi8", 
                         TRUE ~ NA_character_)) %>%
   unite(col = "Etapa_Zi", Etapa, Zi, remove = FALSE)
 
@@ -321,7 +321,7 @@ Data_United %>%
 func_prepost_tot <- function(df){
   
   Data_melt <-
-    df[, c("Indicativ subiect", "Grupa", "Nume Prenume", "Etapã, zi", 
+    df[, c("Indicativ subiect", "Grupa", "Nume Prenume", "EtapÄƒ, zi", 
            "APS pre_Total", "APS post_Total", 
            "PPS pre_Total", "PPS post_Total")] %>% 
     gather("APS pre_Total":"PPS post_Total", key = "variable", value = "value")  %>% 
@@ -348,13 +348,13 @@ func_prepost_tot <- function(df){
   aps_plot <-   
     Data_melt %>%
     filter(variable %in% c("APS pre_Total", "APS post_Total")) %>%
-    #group_by(`Etapã, zi`) %>%
+    #group_by(`EtapÄƒ, zi`) %>%
     ggplot(aes(x = variable, y = value)) +
     geom_boxplot() +
     stat_summary(fun.data = mean_se,  colour = "darkred") +
     xlab("") +
     ggtitle(deparse(substitute(df))) +
-    #facet_wrap(~`Etapã, zi`) +
+    #facet_wrap(~`EtapÄƒ, zi`) +
     ggpubr::stat_compare_means(method = "t.test", 
                                label = "p.signif",                                         # to avoid scientific notation of very small p-values
                                #paired = TRUE, 
@@ -380,13 +380,13 @@ func_prepost_tot <- function(df){
   pps_plot <-
     Data_melt %>%
     filter(variable %in% c("PPS pre_Total", "PPS post_Total")) %>%
-    #group_by(`Etapã, zi`) %>%
+    #group_by(`EtapÄƒ, zi`) %>%
     ggplot(aes(x = variable, y = value)) +
     geom_boxplot() +
     stat_summary(fun.data = mean_se,  colour = "darkred") +
     xlab("") +
     ggtitle(deparse(substitute(df))) +
-    #facet_wrap(~`Etapã, zi`) +
+    #facet_wrap(~`EtapÄƒ, zi`) +
     ggpubr::stat_compare_means(method = "t.test", 
                                label = "p.signif",                                         # to avoid scientific notation of very small p-values
                                #paired = TRUE, 
@@ -683,8 +683,110 @@ plot_preexpost_etapa(Data_United, "VAS corp pre", "VAS corp post ex1", "VAS corp
 ```
 
 
+# Define function Moderation
+
+```{r def_fun_find_mod}
+find_mod <- function(df, dfp = NULL, num_only = TRUE, verbose = TRUE) {
+  count = 0
+  moderation_model_list <<- list()
+
+  if(num_only == TRUE){
+  numeric_cols <- unlist(lapply(df, is.numeric))                                      # get only numeric columns
+  df <- df[, numeric_cols]
+  }
+  
+  # restricted permutations for Moderation - Check: choose(len_names, 3)*3
+  names <- colnames(df)
+  len_names = length(names)
+  
+  if(is.null(dfp)){
+    dfp <- lapply(1:len_names, function(i){
+      tmp <- lapply(1:(len_names-1), function(j){
+        tmp <- lapply((j+1):len_names, function(k){
+          if(j != i & k != i) c(names[i], names[j], names[k])
+        })
+        do.call(rbind, tmp)
+      })
+      do.call(rbind, tmp)
+    })
+    dfp <- do.call(rbind.data.frame, dfp)
+    names(dfp) <- paste("var", 1:3, sep = "_")
+    dfp[, ] <- lapply(dfp[, ], as.character)    
+  } else {
+    dfp <- dfp
+  }
+  
+  for (row in 1:nrow(dfp)) {                
+    
+    results <- medmod::mod(data = df,                                                   # mod does centering automatically
+                          dep = dfp[row, 1], mod = dfp[row, 2], pred = dfp[row, 3], 
+                          estMethod = "standard", test = TRUE, 
+                          simpleSlopeEst = FALSE, simpleSlopePlot = FALSE)             # when testing use estMethod = 'bootstrap', bootstrap = 500 
+    
+    pmod <- as.data.frame(results$mod)[3,5]
+
+    if(pmod < 0.05 && !is.na(pmod)) {
+      count <- count + 1
+        if(verbose == TRUE) {
+        cat("Dependent Variable:", dfp[row, 1])
+        print(results$mod) 
+        }
+      moderation_model_list[["Model"]][[paste("model", count, sep = "_")]] <<- as.data.frame(results$mod)   # return as list of dataframes
+      moderation_model_list[["Syntax"]][[paste("model", count, sep = "_")]] <<- results$modelSyntax
+      
+    }
+  }
+  cat("\n","Report: ", count, "significant moderations out of", row, "total tries.")
+}
+
+## ex dfp
+# dfp <- data.frame(
+#   var1 = colnames(Data_med_melt)[grep("_post", colnames(Data_med_melt))],
+#   var2 = rep("Condition", 13),
+#   var3 = colnames(Data_med_melt)[grep("_pre", colnames(Data_med_melt))],
+#   stringsAsFactors = FALSE
+# )
+# find_med(df = Data_med_melt, dfp = dfp, num_only = FALSE) 
+
+```
+
+# Moderation on PrePost (APS, PSS)
+
+```{r mod_srs, results='asis'}
+# Make dataframe of vars and mods
+mods <- c("IOS post", "SRS post_Rela<U+021B>ia", "SRS post_Global")  # define moderators
+pres <- c("PPS pre_Total", "APS pre_Total")
+posts <- c("PPS post_Total", "APS post_Total")   
+dfp <- merge(mods, cbind(pres, posts), by = NULL)  # by = NULL causes merge to do simple combinatorial data replication
+dfp <- dfp[, c("posts", "x", "pres")]     # reorder columns for find_mod
+dfp <- data.frame(lapply(dfp, as.character), stringsAsFactors = FALSE)
+
+# Data - Summarizing gives means for repeated moderators while prepost outcomes are still same values
+mod_prepost <- 
+  Data_United %>%
+  select("Indicativ subiect", "Etapa", "Zi", mods,  pres, posts) %>%
+  group_by(`Indicativ subiect`) %>%
+  summarise_if(is.numeric, mean, na.rm = TRUE)
+  
+# For PrePost Outcome (not measured for Etape)
+find_mod(df = mod_prepost, dfp = dfp, num_only = FALSE)
 
 
+###############################################################################
+
+## idea not used here
+  # filter(Zi %in% c("zi1", "zi8")) %>% 
+  # pivot_longer(cols = matches("pre|post"), names_to = "variable", values_to = "value")
+
+
+
+Data_United %>% 
+  filter(Etapa == "I") %>%
+  medmod::mod(data = ., 
+            dep = "PPS post_Total", mod = "IOS post", pred = "PPS pre_Total", 
+            estMethod = "standard", test = TRUE, 
+            simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+```
 
 
 
