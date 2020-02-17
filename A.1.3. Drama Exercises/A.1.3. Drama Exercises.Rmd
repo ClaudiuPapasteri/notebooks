@@ -752,7 +752,7 @@ find_mod <- function(df, dfp = NULL, num_only = TRUE, verbose = TRUE) {
 
 # Moderation on PrePost (APS, PSS)
 
-```{r mod_srs, results='asis'}
+```{r mod_find, results='asis', echo=FALSE}
 # Make dataframe of vars and mods
 mods <- c("IOS post", "SRS post_Rela<U+021B>ia", "SRS post_Global")  # define moderators
 pres <- c("PPS pre_Total", "APS pre_Total")
@@ -766,12 +766,31 @@ mod_prepost <-
   Data_United %>%
   select("Indicativ subiect", "Etapa", "Zi", mods,  pres, posts) %>%
   group_by(`Indicativ subiect`) %>%
-  summarise_if(is.numeric, mean, na.rm = TRUE)
+  summarise_if(is.numeric, mean, na.rm = TRUE) %>%     # this creates NaNs were there were NAs
+  mutate_all(~ifelse(is.nan(.), NA, .))    
   
 # For PrePost Outcome (not measured for Etape)
-find_mod(df = mod_prepost, dfp = dfp, num_only = FALSE)
+find_mod(df = mod_prepost, dfp = dfp, num_only = FALSE)    # found 1 moderation
 
 
+```
+
+
+```{r mod1srs, results='asis'}
+mod1 <- 
+  medmod::mod(data = mod_prepost,
+              dep = "PPS post_Total", mod = "SRS post_Rela<U+021B>ia", pred = "PPS pre_Total",
+              estMethod = 'bootstrap', bootstrap = 500, 
+              test = TRUE, ci = TRUE,
+              simpleSlopeEst = TRUE, simpleSlopePlot = TRUE)
+
+mod1$mod %>% 
+  knitr::kable(digits = 2) 
+
+mod1$simpleSlope$estimates %>% 
+  knitr::kable(digits = 2)	
+
+mod1$simpleSlope$plot
 ###############################################################################
 
 ## idea not used here
@@ -786,7 +805,9 @@ find_mod(df = mod_prepost, dfp = dfp, num_only = FALSE)
 #             dep = "PPS post_Total", mod = "IOS post", pred = "PPS pre_Total", 
 #             estMethod = "standard", test = TRUE, 
 #             simpleSlopeEst = FALSE, simpleSlopePlot = TRUE)
+
 ```
+
 
 
 
