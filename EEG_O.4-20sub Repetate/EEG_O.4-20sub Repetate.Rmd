@@ -152,7 +152,7 @@ for (i in 1:length(folders)) {
 }
 
 setwd(wd)
-# detach("package:plyr", unload=TRUE)                                                   # detach plyr because of conflicts with dplyr
+detach("package:plyr", unload=TRUE)                                                   # detach plyr because of conflicts with dplyr
 ```
 
 
@@ -168,7 +168,7 @@ delete_empty_id <- function(df){
     dplyr::group_by(.id) %>%
     dplyr::summarise(row_count = n()) %>%
     dplyr::rename("empty_id" = .id) %>%
-    mutate(delete_id = if_else(row_count < 3, TRUE, FALSE)) %>%
+    dplyr::mutate(delete_id = if_else(row_count < 3, TRUE, FALSE)) %>%
     filter(delete_id == TRUE)
   
   df_modif <- 
@@ -200,7 +200,7 @@ remove_outliers <- function(df) {
   df_modif <-
     df %>%
     dplyr::group_by(.id, `Stimulus type`) %>%                  # we could have done before:  dplyr::rename("Stim_type" = `Stimulus type`) 
-    mutate(SAM_Resp = if_else(abs(SAM_RT - mean(SAM_RT, na.rm=TRUE)) > 2*sd(SAM_RT, na.rm=TRUE), as.numeric(NA), SAM_Resp))
+    dplyr::mutate(SAM_Resp = if_else(abs(SAM_RT - mean(SAM_RT, na.rm=TRUE)) > 2*sd(SAM_RT, na.rm=TRUE), as.numeric(NA), SAM_Resp))
   
   if(!identical(df, df_modif)){
     df <- deparse(substitute(df))
@@ -348,7 +348,7 @@ prepaire_merged_func <- function(Stim_type){
            SAM_Resp, SAM_RT) %>%
     dplyr::rename(Cond = .id) %>% 
     filter(Stimulus.type == Stim_type) %>%                                 # dont forget to pick stymulus type
-    mutate(Cond = as.factor(Cond))                                         # tunr to factor for aov family functions
+    dplyr::mutate(Cond = as.factor(Cond))                                         # tunr to factor for aov family functions
 }
 
 Repetat_merged_Neg <- prepaire_merged_func("negativ")
@@ -418,7 +418,7 @@ ggplot(Repetat_merged, aes(x = .id, y = SAM_Resp)) +
 
 # drop to CTRL vs OGL - by Stimulus type
 Repetat_merged %>%
-  mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo") ~ "Repetat_CTRL",
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo") ~ "Repetat_CTRL",
                          .id %in% c("Repetat_OGL_Instr", "Repetat_OGL_Solo") ~ "Repetat_OGL",
                          TRUE ~ as.character(.id))) %>%
   ggplot(aes(x = .id, y = SAM_Resp)) +
@@ -434,7 +434,7 @@ Repetat_merged %>%
 
 # drop to Instr vs Solo - by Stimulus type
 Repetat_merged %>%
-  mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_OGL_Instr") ~ "Repetat_Instr",
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_OGL_Instr") ~ "Repetat_Instr",
                          .id %in% c("Repetat_CTRL_Solo", "Repetat_OGL_Solo") ~ "Repetat_Solo",
                          TRUE ~ as.character(.id))) %>%
   ggplot(aes(x = .id, y = SAM_Resp)) +
@@ -448,6 +448,215 @@ Repetat_merged %>%
                              #paired = TRUE, 
                              comparisons = list(c("Repetat_Instr", "Repetat_Solo"))) 
 ```
+
+
+# Analyses by Gender
+
+## Data frames by Gender
+
+```{r gender_repetat_data}
+id_names_fem <- 
+  Repetat_merged %>%
+  filter(Gender == "F") %>%
+  select(ID) %>%
+  purrr::flatten_chr()       # 40 unique ids
+  
+id_names_masc <- 
+  Repetat_merged %>%
+  filter(Gender == "M") %>%
+  select(ID) %>%
+  purrr::flatten_chr()       # 40 unique ids
+
+Repetat_merged_fem <-
+  Repetat_merged %>%
+  filter(ID %in% id_names_fem)
+
+Repetat_merged_masc <-
+  Repetat_merged %>%
+  filter(ID %in% id_names_masc)
+
+# Some IDs have 180 and some 240 repetitions
+# Repetat_merged_fem %>%
+#   dplyr::count(ID)
+
+Repetat_merged_gender <-
+  Repetat_merged %>%
+  group_by(ID) %>%
+  dplyr::mutate(Gender = dplyr::first(Gender)) %>%
+  ungroup() %>%
+  dplyr::mutate(Gender = as.factor(Gender)) %>%
+  dplyr::mutate(ID = as.factor(ID)) %>%
+  tidyr::unite("Cond_Gender", c(".id", "Gender"), remove = FALSE)
+```
+
+
+## Plots with p values - Females
+
+```{r plot_repetate_fem, fig.height=7}
+## Plots
+options(scipen = 999)                                 # positive values bias towards fixed and negative towards scientific notation
+theme_set(papaja::theme_apa())                        # theme for plots          
+# by dataset
+ggplot(Repetat_merged_fem, aes(x = Stimulus.type, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  facet_wrap(~.id) +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("negativ", "neutru"),
+                                                c("neutru", "pozitiv"),
+                                                c("negativ", "pozitiv")))  
+
+# by Stimulus type
+ggplot(Repetat_merged_fem, aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo"),
+                                                c("Repetat_CTRL_Instr", "Repetat_OGL_Instr"),
+                                                c("Repetat_CTRL_Solo", "Repetat_OGL_Instr"),
+                                                c("Repetat_CTRL_Solo", "Repetat_OGL_Solo"),
+                                                c("Repetat_OGL_Instr", "Repetat_OGL_Solo"),
+                                                c("Repetat_CTRL_Instr", "Repetat_OGL_Solo"))) 
+
+
+# drop to CTRL vs OGL - by Stimulus type
+Repetat_merged_fem %>%
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo") ~ "Repetat_CTRL",
+                         .id %in% c("Repetat_OGL_Instr", "Repetat_OGL_Solo") ~ "Repetat_OGL",
+                         TRUE ~ as.character(.id))) %>%
+  ggplot(aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_CTRL", "Repetat_OGL")))          
+
+# drop to Instr vs Solo - by Stimulus type
+Repetat_merged_fem %>%
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_OGL_Instr") ~ "Repetat_Instr",
+                         .id %in% c("Repetat_CTRL_Solo", "Repetat_OGL_Solo") ~ "Repetat_Solo",
+                         TRUE ~ as.character(.id))) %>%
+  ggplot(aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_Instr", "Repetat_Solo"))) 
+
+
+
+```
+
+
+## Plots with p values - Males
+
+```{r plot_repetate_masc, fig.height=7}
+## Plots
+options(scipen = 999)                                 # positive values bias towards fixed and negative towards scientific notation
+theme_set(papaja::theme_apa())                        # theme for plots          
+# by dataset
+ggplot(Repetat_merged_masc, aes(x = Stimulus.type, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  facet_wrap(~.id) +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("negativ", "neutru"),
+                                                c("neutru", "pozitiv"),
+                                                c("negativ", "pozitiv")))  
+
+# by Stimulus type
+ggplot(Repetat_merged_masc, aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo"),
+                                                c("Repetat_CTRL_Instr", "Repetat_OGL_Instr"),
+                                                c("Repetat_CTRL_Solo", "Repetat_OGL_Instr"),
+                                                c("Repetat_CTRL_Solo", "Repetat_OGL_Solo"),
+                                                c("Repetat_OGL_Instr", "Repetat_OGL_Solo"),
+                                                c("Repetat_CTRL_Instr", "Repetat_OGL_Solo"))) 
+
+
+# drop to CTRL vs OGL - by Stimulus type
+Repetat_merged_masc %>%
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_CTRL_Solo") ~ "Repetat_CTRL",
+                         .id %in% c("Repetat_OGL_Instr", "Repetat_OGL_Solo") ~ "Repetat_OGL",
+                         TRUE ~ as.character(.id))) %>%
+  ggplot(aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_CTRL", "Repetat_OGL")))          
+
+# drop to Instr vs Solo - by Stimulus type
+Repetat_merged_masc %>%
+  dplyr::mutate(.id = case_when(.id %in% c("Repetat_CTRL_Instr", "Repetat_OGL_Instr") ~ "Repetat_Instr",
+                         .id %in% c("Repetat_CTRL_Solo", "Repetat_OGL_Solo") ~ "Repetat_Solo",
+                         TRUE ~ as.character(.id))) %>%
+  ggplot(aes(x = .id, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             #paired = TRUE, 
+                             comparisons = list(c("Repetat_Instr", "Repetat_Solo"))) 
+```
+
+
+## Comparisons between Genders
+
+```{r comp_gender, fig.height=10}
+
+comparisons_gender <- gtools::combinations(v = unique(Repetat_merged_gender$Cond_Gender), r=2, n = length(unique(Repetat_merged_gender$Cond_Gender)))
+comparisons_gender <- as.list(as.data.frame(t(comparisons_gender), stringsAsFactors = FALSE))
+
+# by Stimulus type
+ggplot(Repetat_merged_gender, aes(x = Cond_Gender, y = SAM_Resp)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~Stimulus.type) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.signif",                                        
+                             hide.ns = TRUE,
+                             #paired = TRUE, 
+                             comparisons = comparisons_gender) 
+```
+
+
 
 
 
