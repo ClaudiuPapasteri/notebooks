@@ -358,6 +358,7 @@ Repetat_merged_Poz <- prepaire_merged_func("pozitiv")
 ## Anova and Post-Hoc
 # Normality 
 Repetat_merged_Neg %>%
+  dplyr::sample_n(5000) %>%                                                # randomly sample 5000 rows because shapiro.test with with max 5000
   select(SAM_Resp) %>%                                                     # must select variables outside function 
   tadaatoolbox::tadaa_normtest(method = "shapiro")                         # , print = "markdown"  for Notebook
 
@@ -558,9 +559,6 @@ Repetat_merged_fem %>%
                              label = "p.format",                                         # formated p-values
                              #paired = TRUE, 
                              comparisons = list(c("Repetat_Instr", "Repetat_Solo"))) 
-
-
-
 ```
 
 
@@ -636,6 +634,7 @@ Repetat_merged_masc %>%
 
 
 ## Comparisons between Genders
+### unadjusted p-values
 
 ```{r comp_gender, fig.height=10}
 
@@ -656,9 +655,35 @@ ggplot(Repetat_merged_gender, aes(x = Cond_Gender, y = SAM_Resp)) +
                              comparisons = comparisons_gender) 
 ```
 
+### adjusted p-values
 
+```{r comp_gender2, fig.height=14}
+stat.test <-
+  Repetat_merged_gender %>%
+  group_by(Stimulus.type) %>%
+  rstatix::t_test(SAM_Resp ~ Cond_Gender, p.adjust.method = "none") %>%              
+  rstatix::add_significance("p") %>%                                                       
+  filter(p.adj.signif != "ns") 
 
+p<-
+  ggplot(Repetat_merged_gender, aes(x = Cond_Gender, y = SAM_Resp)) +
+    geom_boxplot() +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    xlab("") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    facet_wrap(~Stimulus.type)
 
+if(nrow(stat.test) > 0){
+  p <- 
+    p + stat_pvalue_manual(stat.test, label = "p.adj.signif", 
+                          vjust = 0.9, tip.length = 0.01,
+                           y.position = seq(max(Repetat_merged_gender$SAM_Resp, na.rm = TRUE)*1.01, max(Repetat_merged_gender$SAM_Resp, na.rm = TRUE)*7, 
+                                        length.out = nrow(stat.test)))                             # very hacky
+}
+
+print(p)
+return(stat.test) %>% print(n = Inf)
+```
 
 
 
