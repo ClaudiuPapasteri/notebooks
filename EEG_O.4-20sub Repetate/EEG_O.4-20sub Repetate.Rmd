@@ -661,7 +661,7 @@ ggplot(Repetat_merged_gender, aes(x = Cond_Gender, y = SAM_Resp)) +
 stat.test <-
   Repetat_merged_gender %>%
   group_by(Stimulus.type) %>%
-  rstatix::t_test(SAM_Resp ~ Cond_Gender, p.adjust.method = "none") %>%              
+  rstatix::t_test(SAM_Resp ~ Cond_Gender, p.adjust.method = "holm") %>%              
   rstatix::add_significance("p") %>%                                                       
   filter(p.adj.signif != "ns") 
 
