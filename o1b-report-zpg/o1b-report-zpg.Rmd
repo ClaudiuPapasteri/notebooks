@@ -1,0 +1,240 @@
+---
+title: "<br> O1B Report - ZPG" 
+subtitle: "ZPG Analyses"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    pdf_document: 
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "plotly",
+  "gridExtra",
+  "grid",
+  "plyr"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+# if needed
+wd <- "E:/Cinetic idei noi/Date ZPG si EA/ZPG date corectate Alexandra"
+# setwd(wd)
+# knitr::opts_knit$set(root.dir = wd)   # new way of setwd for mardown
+```
+
+
+<!-- Report -->
+
+
+# Load data
+
+```{r raw_data, results = 'hide', cache.extra = file.info("diamonds.csv")}
+# Read
+file_names <- dir(path = wd, pattern = "\\.txt")
+file_names <- file.path(wd, file_names)
+names(file_names) <- file_names
+Data <- plyr::ldply(.data = file_names, .fun = read.table, colClasses = "character", sep = ";", fill = TRUE, header = FALSE, .id = "FileName")
+
+## Same with data.table for test
+# list_of_files <- list.files(path = wd, recursive = FALSE,
+#                             pattern = "\\.txt$",
+#                             full.names = TRUE)
+# Data_test <- data.table::rbindlist(sapply(list_of_files, data.table::fread, simplify = FALSE),  
+#                                      use.names = TRUE, idcol = "FileName")
+```
+
+
+## Clean data
+
+```{r clean_data, echo=FALSE, warning=FALSE}
+# 1. SubjectID
+# 2. Trialnumber                      = V2
+# 3. Trialtype                        = V3
+# 4. Gatesequence                     = V4
+# 5. Distress (1 = yes, 0 = no)       = V5
+# 6. Helping (1 = yes, 0 = no)        = V6
+# 7. Timetohelp                       = V7
+# 8. DiewithKey (888)  seldomly pacman is killed in front of a gate although subject still has the key (if opponent’s pacman already reached the next trigger point)  this variable notes these instances so that this trial should be taken out of the analysis
+# 9. TreasureReached (1 = yes, 0 = no)
+# 10. TimetoReachTreasure
+# 11. Starappeared (1 = yes, 0 = no)
+# 12. Startaken (-1 = other player, 0 = no one, 1 = self)
+# 13. TimetotakeStar
+# 14. CompetitionStar (1 = yes, 0 = no)  star is competition star if opportunity to help and opportunity to take star occur at the same time  so far this occurs in 50% of the reciprocity unfair trials
+# 15. Trialtime  calculated as average of practice trials plus 5 seconds
+
+Data <-
+  Data %>%
+  dplyr::select(-V1) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(FileName, paste0(wd,"/"))) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(Name, ".txt")) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(Name, "zi1")) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(Name, "zi2")) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(Name, "zi3")) %>%
+  dplyr::mutate(Name = stringr::str_remove_all(Name, "pre")) %>%
+  tidyr::separate(Name, into = c("ID", "Cond"), "(?<=[0-9])(?=[a-zA-Z])") %>%
+  dplyr::mutate(Cond = ifelse(is.na(Cond), "CTRL", Cond)) %>%
+  dplyr::mutate(Cond = ifelse(Cond == "JRAd", "JRAD", Cond)) %>%
+  dplyr::mutate(Cond = as.factor(Cond)) %>%
+  dplyr::mutate_at(vars(-FileName, -ID, -Cond, -V4), as.numeric) %>%
+  dplyr::select(FileName, ID, Cond, dplyr::everything()) %>%
+  dplyr::rename(Helping = V5, Distress = V6, Timetohelp = V7, DiewithKey = V8) 
+  
+
+Data %>%
+  dplyr::count(FileName) %>%           # 7zi3JRAD.txt has 33, 10zi2JRAD.txt has 22
+  print(n = Inf)
+
+# structure pf ZPG trials
+#     trail             n
+# 1 " 1X3O1X1O3O1O"     2
+# 2 " 1X3O1X1O3O4O"     2
+# 3 " 1X3X1O3O3O4O"     1
+# 4 " 1X4O1X3O4O3O"     1
+# 5 " 2O1X4X3O1O3O"     1
+# 6 " 3O1O2X4X3O1O"     1
+# 7 " 3O2X2O4O1X3O"     1
+# 8 " 3X1O4X1O3O2O"     1
+# 9 " 4O2O1X3O1X3O"     1
+
+Data <-
+  Data %>%
+   group_by(FileName) %>% 
+   slice(tail(row_number(), 11))  %>%     # keep only last 11 rows for each subject
+   ungroup()
+  
+Data %>%
+  dplyr::count(FileName) %>%           
+  print(n = Inf)
+
+# Create dichotmous HelpingScore (Helping var in data is related to trial not behavior)
+Data_zpg <- 
+  Data %>%
+  dplyr::filter(DiewithKey != 888) %>% 
+  dplyr::mutate(HelpingScore = ifelse(Timetohelp >= 0, 1, 0))
+
+
+# table(Data$Helping, Data$V4)
+
+# psych::describeBy(Data$Helping, group = Data$Cond)  # exactly the same by Cond
+# aggregate(Helping ~ ID, data = Data, FUN = mean)     # exactly the same by ID
+# 
+# psych::describeBy(Data$Timetohelp, group = Data$Cond)  # Not exactly the same by Cond
+# aggregate(Timetohelp ~ ID, data = Data, FUN = mean)     # Not exactly the same by ID
+```
+
+```{r t_test}
+
+ggpubr::compare_means(HelpingScore ~ Cond, data = Data_zpg, method = "t.test", paired = FALSE)
+
+# simple
+ggplot(Data_zpg, aes(x = Cond, y = HelpingScore)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             # paired = TRUE, 
+                             comparisons = list(c("CTRL", "ES"),
+                                                c("ES", "JRAD"),
+                                                c("CTRL", "JRAD"))) 
+
+
+```
+
+
+```{r t_test2, fig.height=11, fig.width=9}
+# by trial type
+ggplot(Data_zpg, aes(x = Cond, y = HelpingScore)) +
+  facet_wrap(~V4) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggpubr::stat_compare_means(method = "t.test",
+                             label = "p.format",                                         # formated p-values
+                             # paired = TRUE, 
+                             comparisons = list(c("CTRL", "ES"),
+                                                c("ES", "JRAD"),
+                                                c("CTRL", "JRAD")))
+```
+
+
+
+
+<br>
+<br>
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
