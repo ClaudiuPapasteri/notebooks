@@ -76,7 +76,7 @@ theme_set(theme_apa())
 
 # Read, Clean, Recode, Merge
 
-```{r red_clean_recode_merge, results='hide'}
+```{r red_clean_recode_merge, warning=FALSE, message=FALSE, results='hide',}
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Read, Clean, Recode, Unite
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -88,13 +88,17 @@ folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior"
 file <- "DATE o1b A.xlsx"
 setwd(folder)
 
+suppressMessages({                                   # some columns are renamed and the warning breaks pandoc
 df_zi2 <- rio::import(file.path(folder, file),
                            which = "zi2",
                            skip = 1)
+})
 
+suppressMessages({                                  # some columns are renamed and the warning breaks pandoc
 df_zi3 <- rio::import(file.path(folder, file),
                            which = "zi3",
                            skip = 0)
+})
 
 ## Check similarity with Pilot Data from xlsx
 # folder_pilot <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-Pilot 11 sub"
@@ -168,32 +172,41 @@ df_zi3 <-
 # Na c(2,4,6,7,8,11,13,15,18,20)
 
 ## IRI
+# --- in xlsx responses are A,B,C,D,E
 # Scales with reversed c(3,4,7,12,13,14,15,18,19)         min = 0; max = 4
 # IRI_EC c(1,5,7,12,16,23,26)
 # IRI_PT c(3,8,11,15,21,25,28)
 # IRI_F c(2,4,9,14,18,20,22)
 # IRI_PD c(6,10,13,17,19,24,27) 
 
+## Rosenberg
+# --- in xlsx responses are registerd correctly (0-3)
+# Simple sum with reversed c(2,5,6,8,9)       min = 0; max = 3
 
-## df_zi2
+
+## df_zi2  (attention: all relevenat data is col < 257; part of zi3 is doubled in the sheet for zi2)
 # pre PANAS 4:23
 # pre APS 24:39
 # pre STAIS 40:59
 # pre IRI 62:89
+# pre Rosenberg 101:110
 # post PANAS 134:153
 # post APS 154:169
 # post STAIS 170:189
 # post IRI 208:235
+# post Rosenberg 236:245
 
 ## df_zi3
 # pre PANAS 4:23
 # pre APS 24:39
 # pre STAIS 40:59
 # pre IRI 62:89
+# pre Rosenberg 101:110
 # post PANAS 125:144
 # post APS 145:160
 # post STAIS 161:180
 # post IRI 199:226
+# post Rosenberg 227:236
 
 names(df_zi2)[3] <- "Conditie"
 names(df_zi3)[3] <- "Conditie"
@@ -204,8 +217,16 @@ df_zi3[13, 126] <- 1
 df_zi3[14, 126] <- 1
 df_zi3[15, 126] <- 1
 
-
-
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
 
 ## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
 ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
@@ -238,7 +259,42 @@ ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NUL
 }
 
 
-## Scoare some scales
+# Recode responses for IRI (both datasets + recode)
+indexitemIRI_df_zi2_pre <- 62:89
+indexitemIRI_df_zi2_post <- 208:235
+indexitemIRI_df_zi2 <- c(62:89, 208:235)                    # pre & post
+df_zi2[ ,indexitemIRI_df_zi2] [with(df_zi2[ ,indexitemIRI_df_zi2], df_zi2[ ,indexitemIRI_df_zi2] == "a" | 
+                                        df_zi2[ ,indexitemIRI_df_zi2] == "A")] <- 0
+df_zi2[ ,indexitemIRI_df_zi2] [with(df_zi2[ ,indexitemIRI_df_zi2], df_zi2[ ,indexitemIRI_df_zi2] == "b" | 
+                                        df_zi2[ ,indexitemIRI_df_zi2] == "B")] <- 1
+df_zi2[ ,indexitemIRI_df_zi2] [with(df_zi2[ ,indexitemIRI_df_zi2], df_zi2[ ,indexitemIRI_df_zi2] == "c" | 
+                                        df_zi2[ ,indexitemIRI_df_zi2] == "C")] <- 2
+df_zi2[ ,indexitemIRI_df_zi2] [with(df_zi2[ ,indexitemIRI_df_zi2], df_zi2[ ,indexitemIRI_df_zi2] == "d" | 
+                                        df_zi2[ ,indexitemIRI_df_zi2] == "D")] <- 3
+df_zi2[ ,indexitemIRI_df_zi2] [with(df_zi2[ ,indexitemIRI_df_zi2], df_zi2[ ,indexitemIRI_df_zi2] == "e" | 
+                                        df_zi2[ ,indexitemIRI_df_zi2] == "E")] <- 4
+df_zi2[, indexitemIRI_df_zi2_pre][c(3,4,7,12,13,14,15,18,19)] <- 4 - colstonumeric(df_zi2[, indexitemIRI_df_zi2_pre][c(3,4,7,12,13,14,15,18,19)])   # reverse code
+df_zi2[, indexitemIRI_df_zi2_post][c(3,4,7,12,13,14,15,18,19)] <- 4 - colstonumeric(df_zi2[, indexitemIRI_df_zi2_post][c(3,4,7,12,13,14,15,18,19)])
+
+indexitemIRI_df_zi3_pre <- 62:89
+indexitemIRI_df_zi3_post <- 199:226
+indexitemIRI_df_zi3 <- c(62:89, 199:226)                    # pre & post
+df_zi3[ ,indexitemIRI_df_zi3] [with(df_zi3[ ,indexitemIRI_df_zi3], df_zi3[ ,indexitemIRI_df_zi3] == "a" | 
+                                      df_zi3[ ,indexitemIRI_df_zi3] == "A")] <- 0
+df_zi3[ ,indexitemIRI_df_zi3] [with(df_zi3[ ,indexitemIRI_df_zi3], df_zi3[ ,indexitemIRI_df_zi3] == "b" | 
+                                      df_zi3[ ,indexitemIRI_df_zi3] == "B")] <- 1
+df_zi3[ ,indexitemIRI_df_zi3] [with(df_zi3[ ,indexitemIRI_df_zi3], df_zi3[ ,indexitemIRI_df_zi3] == "c" | 
+                                      df_zi3[ ,indexitemIRI_df_zi3] == "C")] <- 2
+df_zi3[ ,indexitemIRI_df_zi3] [with(df_zi3[ ,indexitemIRI_df_zi3], df_zi3[ ,indexitemIRI_df_zi3] == "d" | 
+                                      df_zi3[ ,indexitemIRI_df_zi3] == "D")] <- 3
+df_zi3[ ,indexitemIRI_df_zi3] [with(df_zi3[ ,indexitemIRI_df_zi3], df_zi3[ ,indexitemIRI_df_zi3] == "e" | 
+                                      df_zi3[ ,indexitemIRI_df_zi3] == "E")] <- 4
+df_zi3[, indexitemIRI_df_zi3_pre][c(3,4,7,12,13,14,15,18,19)] <- 4 - colstonumeric(df_zi3[, indexitemIRI_df_zi3_pre][c(3,4,7,12,13,14,15,18,19)])   # reverse code
+df_zi3[, indexitemIRI_df_zi3_post][c(3,4,7,12,13,14,15,18,19)] <- 4 - colstonumeric(df_zi3[, indexitemIRI_df_zi3_post][c(3,4,7,12,13,14,15,18,19)])
+
+
+
+## Scoring scales
 # Zi 2
 df_zi2$StaiS_pre <- ScoreLikert(df_zi2[, 40:59], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
 df_zi2$StaiS_post <- ScoreLikert(df_zi2[, 181:200], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
@@ -248,8 +304,22 @@ df_zi2$NA_pre <- ScoreLikert(df_zi2[, 4:23][c(2,4,6,7,8,11,13,15,18,20)], tonume
 df_zi2$PA_post <- ScoreLikert(df_zi2[, 134:153][c(1,3,5,9,10,12,14,16,17,19)], tonumeric = TRUE,)
 df_zi2$NA_post <- ScoreLikert(df_zi2[, 134:153][c(2,4,6,7,8,11,13,15,18,20)], tonumeric = TRUE,) 
 
-df_zi2$APS_pre <- ScoreLikert(df_zi2[, 24:39], tonumeric = TRUE,)
+df_zi2$APS_pre <- ScoreLikert(df_zi2[, 24:39], tonumeric = TRUE)
 df_zi2$APS_post <- ScoreLikert(df_zi2[, 154:169], tonumeric = TRUE)
+
+df_zi2$Rosenberg_pre <- ScoreLikert(df_zi2[, 101:110], reversecols = c(2,5,6,8,9), napercent = .5, tonumeric = TRUE, min = 0, max = 3)
+df_zi2$Rosenberg_post <- ScoreLikert(df_zi2[, 236:245], reversecols = c(2,5,6,8,9), napercent = .5, tonumeric = TRUE, min = 0, max = 3)
+
+df_zi2$IRI_EC_pre <- ScoreLikert(df_zi2[, 62:89][c(1,5,7,12,16,23,26)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_PT_pre <- ScoreLikert(df_zi2[, 62:89][c(3,8,11,15,21,25,28)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_F_pre <- ScoreLikert(df_zi2[, 62:89][c(2,4,9,14,18,20,22)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_PD_pre <- ScoreLikert(df_zi2[, 62:89][c(6,10,13,17,19,24,27)], napercent = .5, tonumeric = TRUE)
+
+df_zi2$IRI_EC_post <- ScoreLikert(df_zi2[, 208:235][c(1,5,7,12,16,23,26)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_PT_post <- ScoreLikert(df_zi2[, 208:235][c(3,8,11,15,21,25,28)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_F_post <- ScoreLikert(df_zi2[, 208:235][c(2,4,9,14,18,20,22)], napercent = .5, tonumeric = TRUE)
+df_zi2$IRI_PD_post<- ScoreLikert(df_zi2[, 208:235][c(6,10,13,17,19,24,27)], napercent = .5, tonumeric = TRUE)
+
 
 # Zi 3
 df_zi3$StaiS_pre <- ScoreLikert(df_zi3[, 40:59], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
@@ -260,8 +330,22 @@ df_zi3$NA_pre <- ScoreLikert(df_zi3[, 4:23][c(2,4,6,7,8,11,13,15,18,20)], tonume
 df_zi3$PA_post <- ScoreLikert(df_zi3[, 125:144][c(1,3,5,9,10,12,14,16,17,19)], tonumeric = TRUE,)
 df_zi3$NA_post <- ScoreLikert(df_zi3[, 125:144][c(2,4,6,7,8,11,13,15,18,20)], tonumeric = TRUE,) 
 
-df_zi3$APS_pre <- ScoreLikert(df_zi3[, 24:39], tonumeric = TRUE,)
-df_zi3$APS_post <- ScoreLikert(df_zi3[, 145:160], tonumeric = TRUE,)
+df_zi3$APS_pre <- ScoreLikert(df_zi3[, 24:39], tonumeric = TRUE)
+df_zi3$APS_post <- ScoreLikert(df_zi3[, 145:160], tonumeric = TRUE)
+
+df_zi3$Rosenberg_pre <- ScoreLikert(df_zi3[, 101:110], reversecols = c(2,5,6,8,9), napercent = .5, tonumeric = TRUE, min = 0, max = 3)
+df_zi3$Rosenberg_post <- ScoreLikert(df_zi3[, 227:236], reversecols = c(2,5,6,8,9), napercent = .5, tonumeric = TRUE, min = 0, max = 3)
+
+df_zi3$IRI_EC_pre <- ScoreLikert(df_zi3[, 62:89][c(1,5,7,12,16,23,26)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_PT_pre <- ScoreLikert(df_zi3[, 62:89][c(3,8,11,15,21,25,28)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_F_pre <- ScoreLikert(df_zi3[, 62:89][c(2,4,9,14,18,20,22)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_PD_pre <- ScoreLikert(df_zi3[, 62:89][c(6,10,13,17,19,24,27)], napercent = .5, tonumeric = TRUE)
+
+df_zi3$IRI_EC_post <- ScoreLikert(df_zi3[, 199:226][c(1,5,7,12,16,23,26)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_PT_post <- ScoreLikert(df_zi3[, 199:226][c(3,8,11,15,21,25,28)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_F_post <- ScoreLikert(df_zi3[, 199:226][c(2,4,9,14,18,20,22)], napercent = .5, tonumeric = TRUE)
+df_zi3$IRI_PD_post<- ScoreLikert(df_zi3[, 199:226][c(6,10,13,17,19,24,27)], napercent = .5, tonumeric = TRUE)
+
 ```
 
 
@@ -270,21 +354,49 @@ df_zi3$APS_post <- ScoreLikert(df_zi3[, 145:160], tonumeric = TRUE,)
 ```{r cond, results='hide'}
 jrad_zi2 <-
   df_zi2 %>%
-  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), APS_pre, APS_post) %>%
+  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), 
+         APS_pre, APS_post,
+         Rosenberg_pre, Rosenberg_post,
+         IRI_EC_pre, IRI_EC_post,
+         IRI_PT_pre, IRI_PT_post,
+         IRI_F_pre, IRI_F_post,
+         IRI_PD_pre, IRI_PD_post,
+         ) %>%
   filter(Conditie == "JRAD")
 jrad_zi3 <-
   df_zi3 %>%
-  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), APS_pre, APS_post) %>%
+  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), 
+         APS_pre, APS_post,
+         Rosenberg_pre, Rosenberg_post,
+         IRI_EC_pre, IRI_EC_post,
+         IRI_PT_pre, IRI_PT_post,
+         IRI_F_pre, IRI_F_post,
+         IRI_PD_pre, IRI_PD_post,
+         ) %>%
   filter(Conditie == "JRAD")
 jrad_df <- rbind(jrad_zi2, jrad_zi3)
 
 es_zi2 <-
   df_zi2 %>%
-  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), APS_pre, APS_post) %>%
+   select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), 
+         APS_pre, APS_post,
+         Rosenberg_pre, Rosenberg_post,
+         IRI_EC_pre, IRI_EC_post,
+         IRI_PT_pre, IRI_PT_post,
+         IRI_F_pre, IRI_F_post,
+         IRI_PD_pre, IRI_PD_post,
+         ) %>%
   filter(Conditie == "ES")
 es_zi3 <-
   df_zi3 %>%
-  select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), APS_pre, APS_post) %>%
+   select(ID, Conditie, starts_with("StaiS_"), starts_with("PA_"), starts_with("NA_"), 
+         APS_pre, APS_post,
+         Rosenberg_pre, Rosenberg_post,
+         IRI_EC_pre, IRI_EC_post,
+         IRI_PT_pre, IRI_PT_post,
+         IRI_F_pre, IRI_F_post,
+         IRI_PD_pre, IRI_PD_post,
+         ) %>%
   filter(Conditie == "ES")
 es_df <- rbind(es_zi2, es_zi3)
 ```
@@ -300,7 +412,7 @@ func_t_box <- function(df, ind, pre_var, post_var){
     df %>%
     dplyr::select(tidyselect::all_of(vars)) %>% 
     tidyr::drop_na() %>%
-    gather(pre_var, post_var, key = "Cond", value = "value") %>% 
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
     mutate_at(vars(c(1, 2)), as.factor) %>% 
     mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
   
@@ -340,6 +452,14 @@ func_t_box(jrad_df, "ID", "NA_pre", "NA_post")
 
 func_t_box(jrad_df, "ID", "APS_pre", "APS_post")
 
+func_t_box(jrad_df, "ID", "Rosenberg_pre", "Rosenberg_post")
+
+func_t_box(jrad_df, "ID", "IRI_EC_pre", "IRI_EC_post")
+func_t_box(jrad_df, "ID", "IRI_PT_pre", "IRI_PT_post")
+func_t_box(jrad_df, "ID", "IRI_F_pre", "IRI_F_post")
+func_t_box(jrad_df, "ID", "IRI_PD_pre", "IRI_PD_post")
+         
+
 cat("### ES")
 func_t_box(es_df, "ID", "StaiS_pre", "StaiS_post")
 
@@ -347,6 +467,13 @@ func_t_box(es_df, "ID", "PA_pre", "PA_post")
 func_t_box(es_df, "ID", "NA_pre", "NA_post")
 
 func_t_box(es_df, "ID", "APS_pre", "APS_post")
+
+func_t_box(es_df, "ID", "Rosenberg_pre", "Rosenberg_post")
+
+func_t_box(es_df, "ID", "IRI_EC_pre", "IRI_EC_post")
+func_t_box(es_df, "ID", "IRI_PT_pre", "IRI_PT_post")
+func_t_box(es_df, "ID", "IRI_F_pre", "IRI_F_post")
+func_t_box(es_df, "ID", "IRI_PD_pre", "IRI_PD_post")
 ```
 
 
