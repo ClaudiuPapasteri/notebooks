@@ -1,0 +1,365 @@
+---
+title: "<br> M2" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r def_func_ttest, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  vars <- c(ind, pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), as.factor) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M2-report"
+file <- "DateM2 final.xlsx"
+
+setwd(folder)
+Data_pre <- rio::import(file.path(folder, file),
+                           skip = 3, which = "M2 PRE")
+
+Data_post <- rio::import(file.path(folder, file),
+                           skip = 3, which = "M2 POST")
+
+
+
+# PRE = colnames(Data_pre); POST = colnames(Data_post) 
+# cbind(PRE, POST)                                             # "s1.7" var is missing form POST -- missmatch row 12
+#                                                              # also missing "s2.7" and others
+
+
+# index from "DateM2.xlsx"
+# index_ryff_pre <- 94:135
+# index_pss_pre <- 136:149
+# index_ryff_post <- 94:135 - 5
+# index_pss_post <- 136:149 - 5
+
+index_ryff_pre <- 83:124
+index_pss_pre <- 125:138
+index_ryff_post <- 81:122
+index_pss_post <- 123:136
+
+
+colnames(Data_pre)[1] <- "ID"
+colnames(Data_pre)[index_ryff_pre] <- sprintf("ryff_%01d", seq(1, 42))
+colnames(Data_pre)[index_pss_pre] <- sprintf("pss_%01d", seq(1, 14))
+Data_pre <-
+  Data_pre %>%
+  drop_na(ID) %>%
+  dplyr::mutate_if(is.character, list(~dplyr::na_if(., "na"))) 
+Data_pre[index_ryff_pre] <- colstonumeric(Data_pre[index_ryff_pre])
+Data_pre$pss_8[Data_pre$pss_8 == "++++++"] <- NA                           # typo
+Data_pre[index_pss_pre] <- colstonumeric(Data_pre[index_pss_pre])
+
+colnames(Data_post)[1] <- "ID"
+colnames(Data_post)[index_ryff_post] <- sprintf("ryff_%01d", seq(1, 42))
+colnames(Data_post)[index_pss_post] <- sprintf("pss_%01d", seq(1, 14))
+Data_post <-
+  Data_post %>%
+  dplyr::mutate_if(is.character, list(~dplyr::na_if(., "na"))) 
+Data_post[index_ryff_post] <- colstonumeric(Data_post[index_ryff_post])
+Data_post[index_pss_post] <- colstonumeric(Data_post[index_pss_post])
+
+# typos
+# check_numeric <- as.data.frame(sapply(Data_pre[index_pss_pre], varhandle::check.numeric)) 
+# sapply(check_numeric, function(x) length(which(!x)))
+
+colnames(Data_pre)[colnames(Data_pre) == "s1.1."] <- "s1.1"
+colnames(Data_post)[colnames(Data_post) == "s1.1."] <- "s1.1"
+
+Data_post$s2.10[which(Data_post$s2.10 == ".")] <- NA
+Data_post$s2.10 <- as.numeric(Data_post$s2.10)
+Data_post$s3.16[which(Data_post$s3.16 == "kq")] <- NA
+Data_post$s3.16 <- as.numeric(Data_post$s3.16)
+
+```
+
+
+
+```{r scoring, results='hide'}
+## PSS-SF 14 (likert 0-4)
+# Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+
+indexitem_revPSS <- c(4, 5, 6, 7, 9, 10, 13)
+
+Data_pre[, index_pss_pre][indexitem_revPSS] <- ReverseCode(Data_pre[, index_pss_pre][indexitem_revPSS], tonumeric = FALSE, min = 0, max = 4)
+Data_post[, index_pss_post][indexitem_revPSS] <- ReverseCode(Data_post[, index_pss_post][indexitem_revPSS], tonumeric = FALSE, min = 0, max = 4)
+
+Data_pre$PSS <- ScoreLikert(Data_pre[, index_pss_pre], napercent = .4)
+Data_post$PSS <- ScoreLikert(Data_post[, index_pss_post], napercent = .4)
+  
+
+## Ryff (likert 1-6)
+# Recode negative phrased items:  3,5,10,13,14,15,16,17,18,19,23,26,27,30,31,32,34,36,39,41.
+# Autonomy: 1,7,13,19,25,31,37
+# Environmental mastery: 2,8,14,20,26,32,38
+# Personal Growth: 3,9,15,21,27,33,39
+# Positive Relations: 4,10,16,22,28,34,40
+# Purpose in life: 5,11,17,23,29,35,41
+# Self-acceptance: 6,12,18,24,30,36,42
+
+indexitem_revRYFF <- c(3,5,10,13,14,15,16,17,18,19,23,26,27,30,31,32,34,36,39,41)
+
+Data_pre[, index_ryff_pre][indexitem_revRYFF] <- ReverseCode(Data_pre[, index_ryff_pre][indexitem_revRYFF], tonumeric = FALSE, min = 1, max = 6)
+Data_post[, index_ryff_post][indexitem_revRYFF] <- ReverseCode(Data_post[, index_ryff_post][indexitem_revRYFF], tonumeric = FALSE, min = 1, max = 6)
+
+indexitem_Auto <- c(1,7,13,19,25,31,37)
+indexitem_EnvM <- c(2,8,14,20,26,32,38)
+indexitem_PersG <- c(3,9,15,21,27,33,39)
+indexitem_PosRel <- c(4,10,16,22,28,34,40)
+indexitem_PurLif <- c(5,11,17,23,29,35,41)
+indexitem_SelfAc <- c(6,12,18,24,30,36,42)
+
+
+Data_pre$Auto <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_Auto], napercent = .4)
+Data_pre$EnvM <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_EnvM], napercent = .4)
+Data_pre$PersG <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_PersG], napercent = .4)
+Data_pre$PosRel <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_PosRel], napercent = .4)
+Data_pre$PurLif <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_PurLif], napercent = .4)
+Data_pre$SelfAc <- ScoreLikert(Data_pre[, index_ryff_pre][indexitem_SelfAc], napercent = .4)
+
+Data_post$Auto <- ScoreLikert(Data_post[, index_ryff_post][indexitem_Auto], napercent = .4)
+Data_post$EnvM <- ScoreLikert(Data_post[, index_ryff_post][indexitem_EnvM], napercent = .4)
+Data_post$PersG <- ScoreLikert(Data_post[, index_ryff_post][indexitem_PersG], napercent = .4)
+Data_post$PosRel <- ScoreLikert(Data_post[, index_ryff_post][indexitem_PosRel], napercent = .4)
+Data_post$PurLif <- ScoreLikert(Data_post[, index_ryff_post][indexitem_PurLif], napercent = .4)
+Data_post$SelfAc <- ScoreLikert(Data_post[, index_ryff_post][indexitem_SelfAc], napercent = .4)
+
+## Save Scores
+# rio::export(Data_pre[, c(1, 150:156)])
+# rio::export(Data_post[, c(1, 149:155)])
+# nlastcol <- 7
+# rio::export(list(PRE = Data_pre[, c(1, (ncol(Data_pre)-nlastcol+1):ncol(Data_pre))], POST = Data_post[, c(1, (ncol(Data_post)-nlastcol+1):ncol(Data_post))]), 
+#             "M2 PSS Ryff final.xlsx")
+
+Data_pre$S1_Mean <- rowMeans(Data_pre[, sprintf("s1.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_pre[, grep("s1.", colnames(Data_pre))]
+Data_pre$S2_Mean <- rowMeans(Data_pre[, sprintf("s2.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_pre[, grep("s2.", colnames(Data_pre))]
+Data_pre$S3_Mean <- rowMeans(Data_pre[, sprintf("s3.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_pre[, grep("s3.", colnames(Data_pre))]
+
+Data_post$S1_Mean <- rowMeans(Data_post[, sprintf("s1.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_post[, grep("s1.", colnames(Data_post))]
+Data_post$S2_Mean <- rowMeans(Data_post[, sprintf("s2.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_post[, grep("s2.", colnames(Data_post))]
+Data_post$S3_Mean <- rowMeans(Data_post[, sprintf("s3.%d", c(1:6, 8:16))], na.rm = TRUE)  # Data_post[, grep("s3.", colnames(Data_post))]
+```
+
+
+# Unite data frames
+
+```{r unite_df}
+cat("## Number of subjects in pre")
+Data_pre %>% 
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+cat("## Number of subjects in post")
+Data_post %>%
+ dplyr::summarise(count = dplyr::n_distinct(ID))
+
+Data_pre$Cond <- rep("Pre", nrow(Data_pre))
+Data_post$Cond <- rep("Post", nrow(Data_post))
+
+Data_pre_scales <- Data_pre[, c("ID", "PSS", "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", "Cond")]
+Data_post_scales <- Data_post[, c("ID", "PSS", "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", "Cond")]
+
+Data_unif <- rbind(Data_pre_scales, Data_post_scales)
+Data_unif_wide <-
+  Data_unif %>%
+  tidyr::pivot_wider(names_from = Cond, values_from = c(PSS, Auto, EnvM, PersG, PosRel, PurLif,  SelfAc, S1_Mean, S2_Mean, S3_Mean))
+```
+
+
+```{r t_test, fig.width=5, fig.height=7, results='asis', warning=FALSE}
+cat("### PSS")
+func_t_box(Data_unif_wide, "ID", "PSS_Pre", "PSS_Post")
+
+cat("### Ryff")
+func_t_box(Data_unif_wide, "ID", "Auto_Pre", "Auto_Post")
+func_t_box(Data_unif_wide, "ID", "EnvM_Pre", "EnvM_Post")
+func_t_box(Data_unif_wide, "ID", "PersG_Pre", "PersG_Post")
+func_t_box(Data_unif_wide, "ID", "PosRel_Pre", "PosRel_Post")
+func_t_box(Data_unif_wide, "ID", "PurLif_Pre", "PurLif_Post")
+func_t_box(Data_unif_wide, "ID", "SelfAc_Pre", "SelfAc_Post")
+
+
+cat("### Memory Scales")
+func_t_box(Data_unif_wide, "ID", "S1_Mean_Pre", "S1_Mean_Post")
+func_t_box(Data_unif_wide, "ID", "S2_Mean_Pre", "S2_Mean_Post")
+func_t_box(Data_unif_wide, "ID", "S3_Mean_Pre", "S3_Mean_Post")
+```
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
