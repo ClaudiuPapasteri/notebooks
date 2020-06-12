@@ -341,6 +341,15 @@ tw_rmANOVA_func <-
   
   #- Procedure for a significant two-way interaction -
   if(posthoc_sig_interac){
+    cat("\n Effect of treatment at each time point \n")
+    one_way <- 
+      data %>%
+      group_by(!!time_var_enq) %>%
+      anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!cond_var_enq) %>%
+      get_anova_table() %>%
+      adjust_pvalue(method = "bonferroni")
+    one_way %>% print()
+    
     cat("\n Pairwise comparisons between treatment groups \n")
     pwc <-
       data %>%
