@@ -567,7 +567,42 @@ Data_masc %>%
 ```
 
 
-# Wilcoxon paired on Order of Conditions
+# rmANOVA Bine
+
+```{r rmANOVA_bine, fig.height=8, fig.width=10}
+cat("## All subjects")
+Data_merged_long_all %>%
+  select(ID, Vas_Bine, OglEcran, PrePost) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = OglEcran, time_var = PrePost, value_var = Vas_Bine, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Females")
+Data_fem %>%
+  select(ID, Vas_Bine, OglEcran, PrePost) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = OglEcran, time_var = PrePost, value_var = Vas_Bine, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Males")
+Data_masc %>%
+  select(ID, Vas_Bine, OglEcran, PrePost) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = OglEcran, time_var = PrePost, value_var = Vas_Bine, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+
+
+# Wilcoxon paired on Order of Conditions - OXT
 
 ```{r willcoxon_oxt_order, fig.height=6, fig.width=8}
 cat("## Whole Sample - OGL first, ECRAN second")
@@ -611,8 +646,105 @@ Data_fem %>%
   filter(n() > 3) %>%
   ungroup() %>%
   wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = OXT, assum_check = TRUE)
-
 ```
+
+
+# Wilcoxon paired on Order of Conditions - Stres
+
+```{r willcoxon_stres_order, fig.height=6, fig.width=8}
+cat("## Whole Sample - OGL first, ECRAN second")
+Data_merged_long_all %>%
+  select(ID, Vas_Stres, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "OGL" & Nr_zi == "1") | (OglEcran == "ECRAN" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Stres, assum_check = TRUE)
+
+cat("## Whole Sample - ECRAN first, OGL second")
+Data_merged_long_all %>%
+  select(ID, Vas_Stres, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "ECRAN" & Nr_zi == "1") | (OglEcran == "OGL" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Stres, assum_check = TRUE)
+
+
+
+cat("## Females - OGL first, ECRAN second")
+Data_fem %>%
+  select(ID, Vas_Stres, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "OGL" & Nr_zi == "1") | (OglEcran == "ECRAN" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Stres, assum_check = TRUE)
+
+cat("## Females - ECRAN first, OGL second")
+Data_fem %>%
+  select(ID, Vas_Stres, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "ECRAN" & Nr_zi == "1") | (OglEcran == "OGL" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Stres, assum_check = TRUE)
+```
+
+
+# Wilcoxon paired on Order of Conditions - WB
+
+```{r willcoxon_wb_order, fig.height=6, fig.width=8}
+cat("## Whole Sample - OGL first, ECRAN second")
+Data_merged_long_all %>%
+  select(ID, Vas_Bine, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "OGL" & Nr_zi == "1") | (OglEcran == "ECRAN" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Bine, assum_check = TRUE)
+
+cat("## Whole Sample - ECRAN first, OGL second")
+Data_merged_long_all %>%
+  select(ID, Vas_Bine, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "ECRAN" & Nr_zi == "1") | (OglEcran == "OGL" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Bine, assum_check = TRUE)
+
+
+
+cat("## Females - OGL first, ECRAN second")
+Data_fem %>%
+  select(ID, Vas_Bine, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "OGL" & Nr_zi == "1") | (OglEcran == "ECRAN" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Bine, assum_check = TRUE)
+
+cat("## Females - ECRAN first, OGL second")
+Data_fem %>%
+  select(ID, Vas_Bine, OglEcran, PrePost, Nr_zi) %>%
+  filter((OglEcran == "ECRAN" & Nr_zi == "1") | (OglEcran == "OGL" & Nr_zi == "2")) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = Vas_Bine, assum_check = TRUE)
+```
+
+
+
+
 
 
 

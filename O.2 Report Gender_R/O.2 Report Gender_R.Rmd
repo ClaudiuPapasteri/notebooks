@@ -1,0 +1,708 @@
+---
+title: "<br> O.2 Report - Gender" 
+subtitle: "Focus on OXT by Gender"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+          # self_contained: no
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+     # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "tidyverse",      # best thing that happend to me
+  "psych",          # general purpose toolbox for personality, psychometric theory and experimental psychology
+  "papaja",         # for APA style
+  "broom",          # for tidy modelling
+  "ggplot2",        # best plots
+  "ggpubr",         # ggplot2 to publication quality
+  "DT",             # nice searchable and downloadable tables
+  "summarytools",
+  "rio",
+  "ggpubr",
+  "rstatix",
+  "rlang"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+<!-- Report -->
+
+
+# Read and Merge
+
+
+```{r read_merge, results='asis'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read and Merge
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+wd <- "E:/Cinetic idei noi/EXPERIMENTE OGL Frontiers (O.2 & O.0.3 & O.0.2)"
+setwd(wd)
+
+DataTrust <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 Date PrelucrareSPSS cu NEO si STAI", "O.2 Date pt Trust BUN cu NEO si STAIY.xlsx"))
+DataDG <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 Date PrelucrareSPSS cu NEO si STAI", "O.2 Date pt DG BUN cu NEO si STAIY.xlsx"))
+DataVAS <- rio::import(file.path(wd, "O.2 REZULTATE\\O.2 VAS,IOS", "O.2 Date PrelucrareSPSS.xlsx"))
+DataBIO <- rio::import(file.path(wd, "O.2 BIO", "O.2 Ox si Cortizol.xlsx"))
+  
+Data_merge1 <- merge(DataVAS, DataTrust)  
+Data_merge2 <- merge(Data_merge1, DataDG) 
+Data_merge3 <- merge(Data_merge2, DataBIO)
+
+Data <- Data_merge3
+
+test_names <- unique(unlist(lapply(list(DataTrust, DataDG, DataVAS, DataBIO), names)))
+merge_names <- names(Data)
+
+if(identical(merge_names[order(merge_names)], test_names[order(test_names)])){    # the order matters in identical()
+  cat("**Merge was succesful**")
+  rm("Data_merge1", "Data_merge2", "Data_merge3", "DataBIO", "DataDG", "DataTrust", "DataVAS", "test_names", "merge_names")
+}else cat("**Merge unsuccesful**") 
+
+
+# Gender Dataframe
+Data_Gen <- rio::import(file.path(wd, "Gen varsta O03 O02 O2.xlsx"), which = "O.2")
+
+Data_Gen_merged <- 
+  Data %>%
+  tidyr::separate(Indicativ,  c("ID_tag", "ID", "study_tag"), "\\s+") %>%                               # split on white space
+  select(-c("ID_tag", "study_tag")) %>%
+  mutate(ID = as.numeric(as.character(ID))) %>%
+  dplyr::left_join(., Data_Gen, by = c("ID")) %>%
+  select(1:7, Gen, Varsta, everything())
+
+Data_Gen_merged_long <-
+  Data_Gen_merged %>%
+  dplyr::select(ID, Exercitiul, Gen, starts_with("Vas"), starts_with("Ox")) %>%
+  dplyr::rename(VasS_pre_Poz = VasS_prePoz,
+                VasB_pre_Poz = VasB_prePoz,
+                VasS_post_Poz = VasS_postPoz,
+                VasB_post_Poz = VasB_postPoz,
+                VasS_pre_Neg = VasS_preNeg,
+                VasB_pre_Neg = VasB_preNeg,
+                VasS_post_Neg = VasS_postNeg,
+                VasB_post_Neg = VasB_postNeg) %>%
+  pivot_longer(-c(ID, Exercitiul, Gen), names_sep = "_", names_to = c("Vars", "PrePost", "Cond"), values_to = "Vals") %>%
+  rstatix::convert_as_factor(ID, Exercitiul, Gen, Vars, PrePost, Cond)
+
+
+
+Data_fem <- 
+  Data_Gen_merged_long %>%
+  filter(Gen == "F")
+
+Data_masc <- 
+  Data_Gen_merged_long %>%
+  filter(Gen == "M")
+```
+
+<!--
+# Derive new variables
+
+```{r derive_var, hide=TRUE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Derive new variables
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Data$D_VasS_Poz <- Data[, "VasS_postPoz"] - Data[, "VasS_prePoz"] 
+Data$D_VasS_Neg <- Data[, "VasS_postNeg"] - Data[, "VasS_preNeg"]
+Data$D_VasB_Poz <- Data[, "VasB_postPoz"] - Data[, "VasB_prePoz"] 
+Data$D_VasB_Neg <- Data[, "VasB_postNeg"] - Data[, "VasB_preNeg"]
+Data$D_IOS_Poz <- Data[, "IOS_postPoz"] - Data[, "IOS_prePoz"] 
+Data$D_IOS_Neg <- Data[, "IOS_postNeg"] - Data[, "IOS_preNeg"]
+
+Data$D_Sam1_Poz <- Data[, "Sam1_postPoz"] - Data[, "Sam1_prePoz"] 
+Data$D_Sam1_Neg <- Data[, "Sam1_postNeg"] - Data[, "Sam1_preNeg"]
+Data$D_Sam2_Poz <- Data[, "Sam2_postPoz"] - Data[, "Sam2_prePoz"] 
+Data$D_Sam2_Neg <- Data[, "Sam2_postNeg"] - Data[, "Sam2_preNeg"]
+Data$D_Sam3_Poz <- Data[, "Sam3_postPoz"] - Data[, "Sam3_prePoz"] 
+Data$D_Sam3_Neg <- Data[, "Sam3_postNeg"] - Data[, "Sam3_preNeg"]
+
+Data$D_DG_Poz <- Data[, "DG_postPozTot"] - Data[, "DG_prePozTot"] 
+Data$D_DG_Neg <- Data[, "DG_postNegTot"] - Data[, "DG_preNegTot"]
+
+Data$D_TrustMin_Poz <- Data[, "TrustMinPozPost"] - Data[, "TrustMinPozPre"] 
+Data$D_TrustMin_Neg <- Data[, "TrustMinNegPost"] - Data[, "TrustMinNegPre"]
+Data$D_TrustTot_Poz <- Data[, "TrustTotPozPost"] - Data[, "TrustTotPozPre"] 
+Data$D_TrustTot_Neg <- Data[, "TrustTotNegPost"] - Data[, "TrustTotNegPre"]
+
+Data$D_Cort_Poz <- Data[, "Cort_post_Poz"] - Data[, "Cort_pre_Poz"] 
+Data$D_Cort_Neg <- Data[, "Cort_post_Neg"] - Data[, "Cort_pre_Neg"]
+Data$D_Ox_Poz <- Data[, "Ox_post_Poz"] - Data[, "Ox_pre_Poz"] 
+Data$D_Ox_Neg <- Data[, "Ox_post_Neg"] - Data[, "Ox_pre_Neg"]
+```
+
+-->
+
+# Define functions
+
+```{r def_func_rmANOVA}
+# Define Function for Two-way rmANOVA
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(rlang)
+
+tw_rmANOVA_func <- 
+  function(data, id_var, cond_var, time_var, value_var, 
+           assum_check = TRUE, posthoc_sig_interac = FALSE, posthoc_ns_interac = FALSE,
+           p_adjust_method = "bonferroni"){
+  
+  # input dataframe needs to have columns names diffrent from "variable" and "value" because it collides with rstatix::shapiro_test
+    
+  id_var_enq <- rlang::enquo(id_var)  
+  cond_var_enq <- rlang::enquo(cond_var)
+  cond_var_name <- rlang::as_name(cond_var_enq)
+  time_var_enq <- rlang::enquo(time_var)
+  time_var_name <- rlang::as_name(time_var_enq)
+  value_var_enq <- rlang::enquo(value_var)
+  value_var_name <- rlang::as_name(value_var_enq)
+    
+  # Assumptions
+  if(assum_check){
+    cat("\n Outliers \n")
+    data %>%
+      dplyr::group_by(!!cond_var_enq, !!time_var_enq) %>%
+      rstatix::identify_outliers(!!value_var_enq) %>%                                  # outliers (needs to be 0)
+      print()
+    
+    cat("\n Normality assumption (p>.05) \n")
+    data %>%
+      dplyr::group_by(!!cond_var_enq, !!time_var_enq) %>%
+      rstatix::shapiro_test(!!value_var_enq) %>%                                        # normality assumption (p>.05)
+      print()
+    
+    qq_plot <- 
+      ggpubr::ggqqplot(data = data, value_var_name, ggtheme = theme_bw(), title = "QQ Plot") +
+        ggplot2::facet_grid(vars(!!time_var_enq), vars(!!cond_var_enq), labeller = "label_both")    # QQ plot
+  }
+  
+  # Two-way rmANOVA - check for interaction (ex. F(2, 22) = 30.4, p < 0.0001)
+  cat("\n Two-way rmANOVA \n")
+  res_aov <- anova_test(                         # automatically does sphericity Mauchly’s test
+    data = data, dv = !!value_var_enq, wid = !!id_var_enq,                             
+    within = c(!!cond_var_enq, !!time_var_enq)
+  )
+  get_anova_table(res_aov) %>%  # ges: Greenhouse-Geisser sphericity correction is automatically applied to factors violating the sphericity assumption  
+  print()
+  
+  #- Procedure for a significant two-way interaction -
+  if(posthoc_sig_interac){
+    cat("\n Effect of treatment at each time point \n")
+    one_way <- 
+      data %>%
+      group_by(!!time_var_enq) %>%
+      anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!cond_var_enq) %>%
+      get_anova_table() %>%
+      adjust_pvalue(method = "bonferroni")
+    one_way %>% print()
+    
+    cat("\n Pairwise comparisons between treatment groups \n")
+    pwc <-
+      data %>%
+      group_by(!!time_var_enq) %>%
+      pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", cond_var_name)),
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc %>% print()
+
+    cat("\n Effect of time at each level of treatment - One-way ANOVA \n")
+    one_way2 <-
+      data %>%
+      group_by(!!cond_var_enq) %>%
+      anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!time_var_enq) %>%
+      get_anova_table() %>%
+      adjust_pvalue(method = p_adjust_method)
+    one_way2  %>% print()
+    cat("\n Pairwise comparisons between time points \n")
+    pwc2 <-
+      data %>%
+      group_by(!!cond_var_enq) %>%
+      pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc2  %>% print()
+  }
+  
+  #- Procedure for non-significant two-way interaction- 
+  # If the interaction is not significant, you need to interpret the main effects for each of the two variables: treatment and time.
+  if(posthoc_ns_interac){
+    cat("\n Comparisons for treatment variable \n")
+    pwc_cond <-
+      data %>%
+      pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", cond_var_name)),     # paste formula, not quosure             
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc_cond %>% print()
+    cat("\n Comparisons for time variable \n")
+    pwc_time <-
+      data %>% 
+      pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc_time %>% print()
+  }
+  
+  # Visualization
+  bx_plot <- 
+    ggboxplot(data, x = time_var_name, y = value_var_name,
+    color = cond_var_name, palette = "jco")
+  pwc <- 
+    pwc %>% 
+    add_xy_position(x = time_var_name)
+  bx_plot <- 
+    bx_plot + 
+    stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+    labs(
+      subtitle = get_test_label(res_aov, detailed = TRUE),
+      caption = get_pwc_label(pwc)
+    )
+  
+  if(assum_check){ 
+    list(qq_plot, bx_plot)
+  }else{
+    bx_plot
+  } 
+  
+}
+
+# ex. - run on long format
+# tw_rmANOVA_func(data = selfesteem2, id_var = id, cond_var = treatment, time_var = time, value_var = scores, 
+#                 posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+```
+
+```{r def_func_Wilcoxonpaired}
+## Wilcoxon signed rank test on paired samples
+
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(rlang)
+
+wilcoxon_paired_func <- function(data, id_var, time_var, value_var, 
+                                 assum_check = TRUE){
+  
+  id_var_enq <- rlang::enquo(id_var)  
+  id_var_name <- rlang::as_name(id_var_enq)
+  time_var_enq <- rlang::enquo(time_var)
+  time_var_name <- rlang::as_name(time_var_enq)
+  value_var_enq <- rlang::enquo(value_var)
+  value_var_name <- rlang::as_name(value_var_enq)
+  
+  cat("\n Summary statistics \n")
+  data %>%
+    group_by(!!time_var_enq) %>%
+    get_summary_stats(!!value_var_enq, type = c("common")) %>%
+    print() 
+  
+  if(assum_check){  # The test assumes that differences between paired samples should be distributed symmetrically around the median.
+  data2 <- 
+    data %>% 
+    group_by(!!id_var_enq) %>% 
+    mutate(differences = !!value_var_enq - lag(!!value_var_enq))
+
+  hist_dif_plot <- gghistogram(data2, x = "differences", y = "..density..", 
+                               fill = "steelblue", add_density = TRUE)
+  }
+  
+  cat("\n Wilcoxon signed rank test on paired samples \n")
+  stat_test <- 
+    data  %>%
+    wilcox_test(as.formula(paste0(value_var_name, " ~ ", time_var_name)), 
+                paired = TRUE) %>%
+    add_significance()
+  stat_test %>% print()
+  
+  cat("\n Effect size \n")
+  ef_size <-
+    data %>%
+    wilcox_effsize(as.formula(paste0(value_var_name, " ~ ", time_var_name)), 
+                   paired = TRUE)
+  ef_size %>% print()
+  
+  # Visualization
+  bx_plot <- ggpaired(data, x = time_var_name, y = value_var_name, id = id_var_name,
+                      ylab = value_var_name, xlab = time_var_name)
+  
+  stat_test <- 
+    stat_test %>% 
+    add_xy_position(x = time_var_name)
+  
+  bx_plot <-
+    bx_plot + 
+      stat_pvalue_manual(stat_test, tip.length = 0) +
+      labs(subtitle = get_test_label(stat_test, detailed = TRUE))
+  
+  if(assum_check){ 
+    list(hist_dif_plot, bx_plot)
+  }else{
+    bx_plot
+  }  
+  
+}
+```
+
+
+# rmANOVA OXT
+
+```{r rmANOVA_oxt, fig.height=8, fig.width=10}
+cat("## All subjects")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = OXT, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Females")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = OXT, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Males")
+Data_masc %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = OXT, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+
+# rmANOVA Stres
+
+```{r rmANOVA_stres, fig.height=8, fig.width=10}
+cat("## All subjects")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasS, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Females")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasS, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Males")
+Data_masc %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasS, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+
+# rmANOVA WB
+
+```{r rmANOVA_wb, fig.height=8, fig.width=10}
+cat("## All subjects")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasB, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Females")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasB, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Males")
+Data_masc %>%
+  select(ID, Vars, PrePost, Cond, Vals) %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%                     # for complete cases
+  ungroup() %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = VasB, 
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+
+
+
+# Wilcoxon paired on Order of Conditions - OXT
+
+```{r willcoxon_oxt_order, fig.height=6, fig.width=8}
+cat("## Whole Sample - Poz first, Neg second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = OXT, assum_check = TRUE)
+
+cat("## Whole Sample - Neg first, Poz second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = OXT, assum_check = TRUE)
+
+
+
+cat("## Females - Poz first, Neg second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = OXT, assum_check = TRUE)
+
+cat("## Females - Neg first, Poz second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "Ox") %>%
+  dplyr::rename(OXT = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = OXT, assum_check = TRUE)
+
+```
+
+# Wilcoxon paired on Order of Conditions - Stres
+
+```{r willcoxon_stres_order, fig.height=6, fig.width=8}
+cat("## Whole Sample - Poz first, Neg second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasS, assum_check = TRUE)
+
+cat("## Whole Sample - Neg first, Poz second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasS, assum_check = TRUE)
+
+
+
+cat("## Females - Poz first, Neg second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasS, assum_check = TRUE)
+
+cat("## Females - Neg first, Poz second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "VasS") %>%
+  dplyr::rename(VasS = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasS, assum_check = TRUE)
+```
+
+
+# Wilcoxon paired on Order of Conditions - WB
+
+```{r willcoxon_wb_order, fig.height=6, fig.width=8}
+cat("## Whole Sample - Poz first, Neg second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasB, assum_check = TRUE)
+
+cat("## Whole Sample - Neg first, Poz second")
+Data_Gen_merged_long %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasB, assum_check = TRUE)
+
+
+
+cat("## Females - Poz first, Neg second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Pozitiv - Negativ") %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasB, assum_check = TRUE)
+
+cat("## Females - Neg first, Poz second")
+Data_fem %>%
+  select(ID, Vars, PrePost, Cond, Vals, Exercitiul) %>%
+  filter(Exercitiul == "Negativ - Pozitiv") %>%
+  filter(Vars == "VasB") %>%
+  dplyr::rename(VasB = Vals) %>%
+  drop_na() %>%
+  group_by(ID) %>% 
+  filter(n() > 3) %>%
+  ungroup() %>%
+  wilcoxon_paired_func(id_var = ID, time_var = PrePost, value_var = VasB, assum_check = TRUE)
+```
+
+
+
+<br>
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
