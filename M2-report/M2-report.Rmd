@@ -41,7 +41,8 @@ output:
 knitr::opts_chunk$set(
   comment = "#",
   collapse = TRUE,
-  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
 )
 
 # General R options and info
@@ -52,12 +53,13 @@ options(scipen = 999)       # positive values bias towards fixed and negative to
 if (!require("pacman")) install.packages("pacman")
 packages <- c(
   "papaja",
-  "tidyverse", "plyr",      
+  "tidyverse",       
   "psych", "PerformanceAnalytics",          
   "broom", "rstatix",
   "summarytools", "tadaatoolbox",           
   "ggplot2", "ggpubr", "scales",        
-  "rio"
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang"
   # , ...
 )
 if (!require("pacman")) install.packages("pacman")
@@ -74,6 +76,7 @@ theme_set(theme_apa())
 <!-- Report -->
 
 # Define functions
+
 ```{r def_func}
 ## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
 colstonumeric <- function(df){
@@ -161,6 +164,285 @@ func_t_box <- function(df, ind, pre_var, post_var){
 ```
 
 
+```{r def_func_ANCOVAPost}
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(broom)
+# library(emmeans)
+# library(rlang)
+
+
+# Function ANCOVAPost
+# Takes Long Data
+ANCOVAPost_func <- 
+  function(data, id_var, 
+           time_var, pre_label, post_label,
+           value_var = scores, cond_var, 
+           assum_check = TRUE, posthoc = TRUE, 
+           p_adjust_method = "bonferroni"){
+  
+  id_var_enq <- rlang::enquo(id_var)
+  id_var_name <- rlang::as_name(id_var_enq)    
+  time_var_enq <- rlang::enquo(time_var)
+  time_var_name <- rlang::as_name(time_var_enq)
+  pre_var_enq <- rlang::enquo(pre_label)
+  pre_var_name <- rlang::as_name(pre_var_enq)  
+  post_var_enq <- rlang::enquo(post_label)
+  post_var_name <- rlang::as_name(post_var_enq)
+  cond_var_enq <- rlang::enquo(cond_var)
+  cond_var_name <- rlang::as_name(cond_var_enq)
+  value_var_enq <- rlang::enquo(value_var)
+  value_var_name <- rlang::as_name(value_var_enq) 
+  
+  data_wider <-
+    data %>%
+    dplyr::select(!!id_var_enq, !!time_var_enq, !!cond_var_enq, !!value_var_enq) %>%
+    spread(key = time_var_name, value = value_var_name) # %>%     # if need to compute change score statistics go from here
+    # mutate(difference = !!post_var_enq - !!pre_var_enq)  
+    
+  # Assumptions
+  if(assum_check){
+  cat("\n Linearity assumptionLinearity assumption (linear relationship between pre-test and post-test for each group) \n")
+  # Create a scatter plot between the covariate (i.e., pretest) and the outcome variable (i.e., posttest)
+  scatter_lin <-  
+    ggscatter(data_wider, x = pre_var_name, y = post_var_name, color = cond_var_name, 
+              add = "reg.line", title = "Linearity assumption") +
+      stat_regline_equation(aes(label =  paste(..eq.label.., ..rr.label.., sep = "~~~~"), color = !!cond_var_enq))
+  
+  cat("\n Homogeneity of regression slopes (interaction term is n.s.) \n")
+  data_wider %>% 
+    anova_test(as.formula(paste0(post_var_name, " ~ ", cond_var_name, " * ", pre_var_name))) %>% 
+    print()   
+  
+  cat("\n Normality of residuals (Model diagnostics & Shapiro Wilk) \n")
+  # Fit the model, the covariate goes first
+  model <- 
+    lm(as.formula(paste0(post_var_name, " ~ ", cond_var_name, " + ", pre_var_name)),
+       data = data_wider)
+  cat("\n Inspect the model diagnostic metrics \n")
+  model.metrics <- 
+    augment(model) %>%
+    dplyr::select(-.hat, -.sigma, -.fitted, -.se.fit)  %>%    # Remove details
+    print()
+  cat("\n Normality of residuals (Shapiro Wilk p>.05) \n")
+  shapiro_test(model.metrics$.resid) %>% 
+    print()
+  
+  cat("\n Homogeneity of variances (Levene’s test p>.05) \n")
+  model.metrics %>% 
+    levene_test(as.formula(paste0(".resid", " ~ ", cond_var_name)) ) %>%     
+    print()
+  
+  cat("\n Outliers (needs to be 0) \n")
+  model.metrics %>% 
+    filter(abs(.std.resid) > 3) %>%
+    as.data.frame() %>% 
+    print()
+  
+  }
+  
+  cat("\n ANCOVAPost \n")
+  res_ancova <- 
+    data_wider %>% 
+    anova_test(as.formula(paste0(post_var_name, " ~ ",  pre_var_name, " + ", cond_var_name)))       # the covariate needs to be first term 
+  get_anova_table(res_ancova) %>% print()
+  
+  cat("\n Pairwise comparisons \n")
+  pwc <- 
+    data_wider %>% 
+    emmeans_test(as.formula(paste0(post_var_name, " ~ ", cond_var_name)),       
+                 covariate = !!pre_var_enq,
+                 p.adjust.method = p_adjust_method)
+  pwc %>% print()
+  cat("\n Display the adjusted means of each group, also called as the estimated marginal means (emmeans) \n")
+  get_emmeans(pwc) %>% print()
+  
+  # Visualization: line plots with p-values
+  pwc <- 
+    pwc %>% 
+    add_xy_position(x = cond_var_name, fun = "mean_se")
+  
+  line_plot <- 
+    ggline(get_emmeans(pwc), x = cond_var_name, y = "emmean") +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) + 
+      stat_pvalue_manual(pwc, hide.ns = TRUE, tip.length = FALSE) +
+      labs(subtitle = get_test_label(res_ancova, detailed = TRUE),
+           caption = get_pwc_label(pwc))
+  
+  if(assum_check){
+    list(scatter_lin, line_plot)
+  }else{
+    line_plot
+  }
+  
+}
+
+# ex.
+# ANCOVAPost_func(new_anxiety, time_var = time, pre_label = pretest, post_label = posttest,
+#           value_var = scores, cond_var = group, assum_check = TRUE, p_adjust_method = "bonferroni")
+```
+
+
+```{r def_func_mixedANOVA}
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(rlang)
+
+# Define Function for Mixed Anova
+tw_mixedANOVA_func <- 
+  function(data, id_var, cond_var, time_var, value_var, 
+           assum_check = TRUE, posthoc_sig_interac = FALSE, posthoc_ns_interac = FALSE,
+           p_adjust_method = "bonferroni"){
+    
+    # input dataframe needs to have columns names diffrent from "variable" and "value" because it collides with rstatix::shapiro_test
+    
+    id_var_enq <- rlang::enquo(id_var)  
+    cond_var_enq <- rlang::enquo(cond_var)
+    cond_var_name <- rlang::as_name(cond_var_enq)
+    time_var_enq <- rlang::enquo(time_var)
+    time_var_name <- rlang::as_name(time_var_enq)
+    value_var_enq <- rlang::enquo(value_var)
+    value_var_name <- rlang::as_name(value_var_enq)
+    
+    data <-                  # need to subset becuase of strange contrasts error in anova_test()
+      data %>%
+      dplyr::select(!!id_var_enq, !!time_var_enq, !!cond_var_enq, !!value_var_enq) 
+    
+    # Assumptions
+    if(assum_check){
+      cat("\n Outliers \n")
+      data %>%
+        dplyr::group_by(!!time_var_enq, !!cond_var_enq) %>%
+        rstatix::identify_outliers(!!value_var_enq) %>%                                  # outliers (needs to be 0)
+        print()
+      
+      cat("\n Normality assumption (p>.05) \n")
+      data %>%
+        dplyr::group_by(!!time_var_enq, !!cond_var_enq) %>%
+        rstatix::shapiro_test(!!value_var_enq) %>%                                        # normality assumption (p>.05)
+        print()
+      
+      qq_plot <- 
+        ggpubr::ggqqplot(data = data, value_var_name, ggtheme = theme_bw(), title = "QQ Plot") +
+        ggplot2::facet_grid(vars(!!time_var_enq), vars(!!cond_var_enq), labeller = "label_both")    # QQ plot
+      
+      cat("\n Homogneity of variance assumption - Levene’s test (p>.05) \n")
+      data %>%
+        group_by(!!time_var_enq ) %>%
+        levene_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name))) %>%
+        print()
+      
+      cat("\n Homogeneity of covariances assumption - Box’s test of equality of covariance matrices (p>.001) \n")
+      box_m(data = data[, value_var_name, drop = FALSE], group = data[, cond_var_name, drop = TRUE]) %>%
+        print
+    }
+    
+    # Two-way rmANOVA - check for interaction (ex. F(2, 22) = 30.4, p < 0.0001)
+    cat("\n Two-way rmANOVA \n")
+    res_aov <- 
+      anova_test(data = data, dv = !!value_var_enq, wid = !!id_var_enq,               # automatically does sphericity Mauchly’s test
+                 within = !!time_var_enq, between = !!cond_var_enq)
+    get_anova_table(res_aov) %>%  # ges: Greenhouse-Geisser sphericity correction is automatically applied to factors violating the sphericity assumption  
+      print()
+    
+    
+    # ------------------------------------------------------------------------
+    
+    #- Procedure for a significant two-way interaction -
+    if(posthoc_sig_interac){
+      cat("\n Effect of group at each time point - One-way ANOVA\n")
+      one_way <- 
+        data %>%
+        group_by(!!time_var_enq) %>%
+        anova_test(dv = !!value_var_enq, wid = !!id_var_enq, between = !!cond_var_enq) %>%
+        get_anova_table() %>%
+        adjust_pvalue(method = p_adjust_method)
+      one_way %>% print()
+      
+      cat("\n Pairwise comparisons between group levels \n")
+      pwc <- 
+        data %>%
+        group_by(!!time_var_enq) %>%
+        pairwise_t_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), 
+                        p.adjust.method = p_adjust_method)
+      pwc %>% print()
+      cat("\n Effect of time at each level of exercises group  - One-way ANOVA \n")
+      one_way2 <- 
+        data %>%
+        group_by(!!cond_var_enq) %>%
+        anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!time_var_enq) %>%
+        get_anova_table() %>%
+        adjust_pvalue(method = p_adjust_method)
+      one_way2 %>% print()
+      
+      cat("\n Pairwise comparisons between time points at each group levels (we have repeated measures by time) \n")
+      pwc2 <-
+        data %>%
+        group_by(!!cond_var_enq) %>%
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+          paired = TRUE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc2  %>% print()
+    }
+    
+    #- Procedure for non-significant two-way interaction- 
+    # If the interaction is not significant, you need to interpret the main effects for each of the two variables: treatment and time.
+    if(posthoc_ns_interac){
+      cat("\n Comparisons for treatment variable \n")
+      pwc_cond <-
+        data %>%
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", cond_var_name)),     # paste formula, not quosure             
+          paired = FALSE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc_cond %>% print()
+      cat("\n Comparisons for time variable \n")
+      pwc_time <-
+        data %>% 
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+          paired = TRUE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc_time %>% print()
+    }
+    
+    # Visualization
+    bx_plot <- 
+      ggboxplot(data, x = time_var_name, y = value_var_name,
+                color = cond_var_name, palette = "jco")
+    pwc <- 
+      pwc %>% 
+      add_xy_position(x = time_var_name)
+    bx_plot <- 
+      bx_plot + 
+      stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+      labs(
+        subtitle = get_test_label(res_aov, detailed = TRUE),
+        caption = get_pwc_label(pwc)
+      )
+    
+    if(assum_check){ 
+      list(qq_plot, bx_plot)
+    }else{
+      bx_plot
+    } 
+    
+  }
+
+# ex. - run on long format
+# tw_mixedANOVA_func(data = anxiety, id_var = id, cond_var = group, time_var = time, value_var = score,
+#                 posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+```
+
+
+
 # Read, Clean, Recode
 
 ```{r red_clean_recode_merge, results='hide', message=FALSE}
@@ -199,6 +481,8 @@ index_pss_post <- 123:136
 
 
 colnames(Data_pre)[1] <- "ID"
+colnames(Data_pre)[colnames(Data_pre) == "Stres pre"] <- "VAS_stress_pre"
+colnames(Data_pre)[colnames(Data_pre) == "Stres post"] <- "VAS_stress_post"
 colnames(Data_pre)[index_ryff_pre] <- sprintf("ryff_%01d", seq(1, 42))
 colnames(Data_pre)[index_pss_pre] <- sprintf("pss_%01d", seq(1, 14))
 Data_pre <-
@@ -210,6 +494,8 @@ Data_pre$pss_8[Data_pre$pss_8 == "++++++"] <- NA                           # typ
 Data_pre[index_pss_pre] <- colstonumeric(Data_pre[index_pss_pre])
 
 colnames(Data_post)[1] <- "ID"
+colnames(Data_post)[colnames(Data_post) == "Stres pre"] <- "VAS_stress_pre"
+colnames(Data_post)[colnames(Data_post) == "Stres post"] <- "VAS_stress_post"
 colnames(Data_post)[index_ryff_post] <- sprintf("ryff_%01d", seq(1, 42))
 colnames(Data_post)[index_pss_post] <- sprintf("pss_%01d", seq(1, 14))
 Data_post <-
@@ -300,6 +586,23 @@ Data_post$S3_Mean <- rowMeans(Data_post[, sprintf("s3.%d", c(1:6, 8:16))], na.rm
 ```
 
 
+# Add TR & CTRL groups
+
+```{r condgroups_df}
+tr_ids <- paste0(c(1, 2, 4, 5, 6, 10, 13, 14, 15, 16, 24, 25, 26, 32, 34, 35, 39, 40, 42, 46, 47, 48, 51, 53, 59, 60, 62, 63, 64), " M2") 
+ctrl_ids <- paste0(c(3, 7, 8, 9, 11, 12, 17, 18, 19, 20, 21, 22, 23, 27, 28, 30, 33, 36, 37, 38, 41, 43, 45, 49, 52, 54, 55, 56, 57, 58), " M2") 
+# Subj from TR: Data_pre[which(Data_pre$ID %in% tr_ids),]  
+# Subj from CTRL: Data_pre[which(Data_pre$ID %in% ctrl_ids),] 
+
+Data_pre$Cond <- dplyr::case_when(Data_pre$ID %in% tr_ids ~ "TR",
+                                  Data_pre$ID %in% ctrl_ids ~ "CTRL",
+                                  TRUE ~ NA_character_)
+Data_post$Cond <- dplyr::case_when(Data_post$ID %in% tr_ids ~ "TR",
+                                  Data_post$ID %in% ctrl_ids ~ "CTRL",
+                                  TRUE ~ NA_character_)
+```
+
+
 # Unite data frames
 
 ```{r unite_df}
@@ -311,18 +614,47 @@ cat("## Number of subjects in post")
 Data_post %>%
  dplyr::summarise(count = dplyr::n_distinct(ID))
 
-Data_pre$Cond <- rep("Pre", nrow(Data_pre))
-Data_post$Cond <- rep("Post", nrow(Data_post))
+Data_pre$PrePost <- rep("Pre", nrow(Data_pre))
+Data_post$PrePost <- rep("Post", nrow(Data_post))
 
-Data_pre_scales <- Data_pre[, c("ID", "PSS", "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", "Cond")]
-Data_post_scales <- Data_post[, c("ID", "PSS", "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", "Cond")]
+Data_pre_scales <- Data_pre[, c("ID", 
+                                "VAS_stress_pre", "VAS_stress_post", "PSS", 
+                                "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", 
+                                "PrePost", "Cond")]
+Data_post_scales <- Data_post[, c("ID", 
+                                  "VAS_stress_pre", "VAS_stress_post", "PSS", 
+                                  "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", 
+                                  "PrePost", "Cond")]
 
-Data_unif <- rbind(Data_pre_scales, Data_post_scales)
+Data_unif_long <- rbind(Data_pre_scales, Data_post_scales)
 Data_unif_wide <-
-  Data_unif %>%
-  tidyr::pivot_wider(names_from = Cond, values_from = c(PSS, Auto, EnvM, PersG, PosRel, PurLif,  SelfAc, S1_Mean, S2_Mean, S3_Mean))
+  Data_unif_long %>%
+  tidyr::pivot_wider(names_from = PrePost, values_from = c(VAS_stress_pre, VAS_stress_post, PSS, Auto, EnvM, PersG, PosRel, PurLif, SelfAc, S1_Mean, S2_Mean, S3_Mean))
+
+Data_unif_long <-
+  Data_unif_long %>%
+    dplyr::mutate(ID = as.factor(ID),
+                  Cond = as.factor(Cond),
+                  PrePost = as.factor(PrePost)) %>%
+   dplyr::mutate(Vas_Diff = VAS_stress_post - VAS_stress_pre,
+                 Vas_Mean = rowMeans(dplyr::select(.data = ., VAS_stress_post, VAS_stress_pre), na.rm = TRUE))
 ```
 
+
+## Export data for RMN in specified order
+
+```{r df_export_rmn}
+# rmn_order_ids <- c(1, 14, 13, 6, 4, 5, 10, 15, 2, 16, 42, 34, 24, 25, 26, 35, 39, 40, 32, 59, 53, 64, 46, 47, 62, 63, 48, 51, 60, 
+#                    8, 20, 12, 18, 9, 17, 19, 7, 3, 43, 41, 27, 23, 38, 22, 33, 28, 30, 21, 37, 49, 56, 58, 57, 52, 45, 55, 54)
+# rmn_order_ids <- paste0(rmn_order_ids, " M2")
+# 
+# RMN_df <- Data_unif_wide [match(rmn_order_ids, Data_unif_wide $ID),]    # only 57 subjs for RMN
+# 
+# rio::export(RMN_df, "RMN ordered M2.xlsx")
+```
+
+
+<!-- Do it by condition, need ANCOVA Post
 
 ```{r t_test, fig.width=5, fig.height=7, results='asis', warning=FALSE}
 cat("### PSS")
@@ -343,8 +675,113 @@ func_t_box(Data_unif_wide, "ID", "S2_Mean_Pre", "S2_Mean_Post")
 func_t_box(Data_unif_wide, "ID", "S3_Mean_Pre", "S3_Mean_Post")
 ```
 
+-->
 
 
+# ANCOVA Post
+
+```{r res_ANCOVAPost, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+cat("## PSS")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = PSS, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## Auto")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = Auto, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## EnvM")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = EnvM, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## PersG")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = PersG, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## PosRel")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = PosRel, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## PurLif")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = PurLif, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## SelfAc")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = SelfAc, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+
+cat("## S1_Mean")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = S1_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## S2_Mean")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = S2_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## S3_Mean")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = S3_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## Vas_Diff")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = Vas_Diff, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+
+cat("## Vas_Mean")
+ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
+                value_var = Vas_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
+```
+
+# Mixed ANOVA
+
+```{r res_mixedANOVA, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+cat("## PSS")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = PSS, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Auto")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = Auto, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## EnvM")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = EnvM, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## PersG")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = PersG, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## PosRel")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = PosRel, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## PurLif")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = PurLif, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## SelfAc")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = SelfAc, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## S1_Mean")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = S1_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## S2_Mean")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = S2_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## S3_Mean")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = S3_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Vas_Diff")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = Vas_Diff, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("## Vas_Mean")
+tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
+                   value_var = Vas_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
 
 
 
