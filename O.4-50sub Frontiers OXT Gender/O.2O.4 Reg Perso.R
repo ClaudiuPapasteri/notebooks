@@ -343,7 +343,7 @@ for(i in seq_along(pred_names)){
 
 toti.results <- lm.sig.result  # E3 = Asertivitate
 
-
+summary(lm(OXT_Post ~ OXT_Pre + IOS_Post, data = Data_toti_O4O2)) # IOS not
 
 
 

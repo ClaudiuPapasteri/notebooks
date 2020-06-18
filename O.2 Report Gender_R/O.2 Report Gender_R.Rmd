@@ -1,5 +1,5 @@
 ---
-title: "<br> O.2 Report - Gender" 
+title: "<br> O.2 Report - Review" 
 subtitle: "Focus on OXT by Gender"
 author: "<br> Claudiu Papasteri"
 date: "`r format(Sys.time(), '%d %m %Y')`"
@@ -180,6 +180,33 @@ Data$D_Ox_Neg <- Data[, "Ox_post_Neg"] - Data[, "Ox_pre_Neg"]
 ```
 
 -->
+
+## Dataset - Long Format
+
+```{r df_excel_long}
+Data_Gen_merged_long %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
+
+## Dataset - Wide Format
+
+```{r df_excel_wide}
+Data_Gen_merged %>%
+  dplyr::select(-2) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
 
 # Define functions
 
