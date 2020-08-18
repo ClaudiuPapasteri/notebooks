@@ -1,0 +1,1318 @@
+---
+title: "<br> PA4" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang",
+  "pwr"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r def_func_ttest, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  vars <- c(ind, pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), as.factor) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+```{r samplesize_idepttest}
+samplesize_pairedttest <- function(df, pre_var, post_var){
+  vars <- c(pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  cat("## Cohen's d \n")
+  eff_size_table <-
+    df_modif %>%
+    cohens_d(value ~ Cond, paired = TRUE) %>%
+    print()
+  eff_size <- as.numeric(eff_size_table$effsize)
+
+  cat("## Sample Size estimation \n")
+  sample_size_table <-
+    pwr::pwr.t.test(d = eff_size, sig.level = .05, power = .8, type = "paired", alternative = "two.sided") 
+  sample_size_table %>% broom::tidy() %>% print()
+
+  plot(sample_size_table)
+}  
+```
+
+
+```{r def_func_ANCOVAPost}
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(broom)
+# library(emmeans)
+# library(rlang)
+
+
+# Function ANCOVAPost
+# Takes Long Data
+ANCOVAPost_func <- 
+  function(data, id_var, 
+           time_var, pre_label, post_label,
+           value_var = scores, cond_var, 
+           assum_check = TRUE, posthoc = TRUE, 
+           p_adjust_method = "bonferroni"){
+  
+  id_var_enq <- rlang::enquo(id_var)
+  id_var_name <- rlang::as_name(id_var_enq)    
+  time_var_enq <- rlang::enquo(time_var)
+  time_var_name <- rlang::as_name(time_var_enq)
+  pre_var_enq <- rlang::enquo(pre_label)
+  pre_var_name <- rlang::as_name(pre_var_enq)  
+  post_var_enq <- rlang::enquo(post_label)
+  post_var_name <- rlang::as_name(post_var_enq)
+  cond_var_enq <- rlang::enquo(cond_var)
+  cond_var_name <- rlang::as_name(cond_var_enq)
+  value_var_enq <- rlang::enquo(value_var)
+  value_var_name <- rlang::as_name(value_var_enq) 
+  
+  data_wider <-
+    data %>%
+    dplyr::select(!!id_var_enq, !!time_var_enq, !!cond_var_enq, !!value_var_enq) %>%
+    spread(key = time_var_name, value = value_var_name) # %>%     # if need to compute change score statistics go from here
+    # mutate(difference = !!post_var_enq - !!pre_var_enq)  
+    
+  # Assumptions
+  if(assum_check){
+  cat("\n Linearity assumptionLinearity assumption (linear relationship between pre-test and post-test for each group) \n")
+  # Create a scatter plot between the covariate (i.e., pretest) and the outcome variable (i.e., posttest)
+  scatter_lin <-  
+    ggscatter(data_wider, x = pre_var_name, y = post_var_name, color = cond_var_name, 
+              add = "reg.line", title = "Linearity assumption") +
+      stat_regline_equation(aes(label =  paste(..eq.label.., ..rr.label.., sep = "~~~~"), color = !!cond_var_enq))
+  
+  cat("\n Homogeneity of regression slopes (interaction term is n.s.) \n")
+  data_wider %>% 
+    anova_test(as.formula(paste0(post_var_name, " ~ ", cond_var_name, " * ", pre_var_name))) %>% 
+    print()   
+  
+  cat("\n Normality of residuals (Model diagnostics & Shapiro Wilk) \n")
+  # Fit the model, the covariate goes first
+  model <- 
+    lm(as.formula(paste0(post_var_name, " ~ ", cond_var_name, " + ", pre_var_name)),
+       data = data_wider)
+  cat("\n Inspect the model diagnostic metrics \n")
+  model.metrics <- 
+    augment(model) %>%
+    dplyr::select(-.hat, -.sigma, -.fitted, -.se.fit)  %>%    # Remove details
+    print()
+  cat("\n Normality of residuals (Shapiro Wilk p>.05) \n")
+  shapiro_test(model.metrics$.resid) %>% 
+    print()
+  
+  cat("\n Homogeneity of variances (Levene’s test p>.05) \n")
+  model.metrics %>% 
+    levene_test(as.formula(paste0(".resid", " ~ ", cond_var_name)) ) %>%     
+    print()
+  
+  cat("\n Outliers (needs to be 0) \n")
+  model.metrics %>% 
+    filter(abs(.std.resid) > 3) %>%
+    as.data.frame() %>% 
+    print()
+  
+  }
+  
+  cat("\n ANCOVAPost \n")
+  res_ancova <- 
+    data_wider %>% 
+    anova_test(as.formula(paste0(post_var_name, " ~ ",  pre_var_name, " + ", cond_var_name)))       # the covariate needs to be first term 
+  get_anova_table(res_ancova) %>% print()
+  
+  cat("\n Pairwise comparisons \n")
+  pwc <- 
+    data_wider %>% 
+    emmeans_test(as.formula(paste0(post_var_name, " ~ ", cond_var_name)),       
+                 covariate = !!pre_var_enq,
+                 p.adjust.method = p_adjust_method)
+  pwc %>% print()
+  cat("\n Display the adjusted means of each group, also called as the estimated marginal means (emmeans) \n")
+  get_emmeans(pwc) %>% print()
+  
+  # Visualization: line plots with p-values
+  pwc <- 
+    pwc %>% 
+    add_xy_position(x = cond_var_name, fun = "mean_se")
+  
+  line_plot <- 
+    ggline(get_emmeans(pwc), x = cond_var_name, y = "emmean") +
+      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) + 
+      stat_pvalue_manual(pwc, hide.ns = TRUE, tip.length = FALSE) +
+      labs(subtitle = get_test_label(res_ancova, detailed = TRUE),
+           caption = get_pwc_label(pwc))
+  
+  if(assum_check){
+    list(scatter_lin, line_plot)
+  }else{
+    line_plot
+  }
+  
+}
+
+# ex.
+# ANCOVAPost_func(new_anxiety, time_var = time, pre_label = pretest, post_label = posttest,
+#           value_var = scores, cond_var = group, assum_check = TRUE, p_adjust_method = "bonferroni")
+```
+
+
+```{r def_func_mixedANOVA}
+# library(tidyverse)
+# library(ggpubr)
+# library(rstatix)
+# library(rlang)
+
+# Define Function for Mixed Anova
+tw_mixedANOVA_func <- 
+  function(data, id_var, cond_var, time_var, value_var, 
+           assum_check = TRUE, posthoc_sig_interac = FALSE, posthoc_ns_interac = FALSE,
+           p_adjust_method = "bonferroni"){
+    
+    # input dataframe needs to have columns names diffrent from "variable" and "value" because it collides with rstatix::shapiro_test
+    
+    id_var_enq <- rlang::enquo(id_var)  
+    cond_var_enq <- rlang::enquo(cond_var)
+    cond_var_name <- rlang::as_name(cond_var_enq)
+    time_var_enq <- rlang::enquo(time_var)
+    time_var_name <- rlang::as_name(time_var_enq)
+    value_var_enq <- rlang::enquo(value_var)
+    value_var_name <- rlang::as_name(value_var_enq)
+    
+    data <-                  # need to subset becuase of strange contrasts error in anova_test()
+      data %>%
+      dplyr::select(!!id_var_enq, !!time_var_enq, !!cond_var_enq, !!value_var_enq) 
+    
+    # Assumptions
+    if(assum_check){
+      cat("\n Outliers \n")
+      data %>%
+        dplyr::group_by(!!time_var_enq, !!cond_var_enq) %>%
+        rstatix::identify_outliers(!!value_var_enq) %>%                                  # outliers (needs to be 0)
+        print()
+      
+      cat("\n Normality assumption (p>.05) \n")
+      data %>%
+        dplyr::group_by(!!time_var_enq, !!cond_var_enq) %>%
+        rstatix::shapiro_test(!!value_var_enq) %>%                                        # normality assumption (p>.05)
+        print()
+      
+      qq_plot <- 
+        ggpubr::ggqqplot(data = data, value_var_name, ggtheme = theme_bw(), title = "QQ Plot") +
+        ggplot2::facet_grid(vars(!!time_var_enq), vars(!!cond_var_enq), labeller = "label_both")    # QQ plot
+      
+      cat("\n Homogneity of variance assumption - Levene’s test (p>.05) \n")
+      data %>%
+        group_by(!!time_var_enq ) %>%
+        levene_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name))) %>%
+        print()
+      
+      cat("\n Homogeneity of covariances assumption - Box’s test of equality of covariance matrices (p>.001) \n")
+      box_m(data = data[, value_var_name, drop = FALSE], group = data[, cond_var_name, drop = TRUE]) %>%
+        print
+    }
+    
+    # Two-way rmANOVA - check for interaction (ex. F(2, 22) = 30.4, p < 0.0001)
+    cat("\n Two-way rmANOVA \n")
+    res_aov <- 
+      anova_test(data = data, dv = !!value_var_enq, wid = !!id_var_enq,               # automatically does sphericity Mauchly’s test
+                 within = !!time_var_enq, between = !!cond_var_enq)
+    get_anova_table(res_aov) %>%  # ges: Greenhouse-Geisser sphericity correction is automatically applied to factors violating the sphericity assumption  
+      print()
+    
+    
+    # ------------------------------------------------------------------------
+    
+    #- Procedure for a significant two-way interaction -
+    if(posthoc_sig_interac){
+      cat("\n Effect of group at each time point - One-way ANOVA\n")
+      one_way <- 
+        data %>%
+        group_by(!!time_var_enq) %>%
+        anova_test(dv = !!value_var_enq, wid = !!id_var_enq, between = !!cond_var_enq) %>%
+        get_anova_table() %>%
+        adjust_pvalue(method = p_adjust_method)
+      one_way %>% print()
+      
+      cat("\n Pairwise comparisons between group levels \n")
+      pwc <- 
+        data %>%
+        group_by(!!time_var_enq) %>%
+        pairwise_t_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), 
+                        p.adjust.method = p_adjust_method)
+      pwc %>% print()
+      cat("\n Effect of time at each level of exercises group  - One-way ANOVA \n")
+      one_way2 <- 
+        data %>%
+        group_by(!!cond_var_enq) %>%
+        anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!time_var_enq) %>%
+        get_anova_table() %>%
+        adjust_pvalue(method = p_adjust_method)
+      one_way2 %>% print()
+      
+      cat("\n Pairwise comparisons between time points at each group levels (we have repeated measures by time) \n")
+      pwc2 <-
+        data %>%
+        group_by(!!cond_var_enq) %>%
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+          paired = TRUE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc2  %>% print()
+    }
+    
+    #- Procedure for non-significant two-way interaction- 
+    # If the interaction is not significant, you need to interpret the main effects for each of the two variables: treatment and time.
+    if(posthoc_ns_interac){
+      cat("\n Comparisons for treatment variable \n")
+      pwc_cond <-
+        data %>%
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", cond_var_name)),     # paste formula, not quosure             
+          paired = FALSE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc_cond %>% print()
+      cat("\n Comparisons for time variable \n")
+      pwc_time <-
+        data %>% 
+        pairwise_t_test(
+          as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+          paired = TRUE,
+          p.adjust.method = p_adjust_method
+        )
+      pwc_time %>% print()
+    }
+    
+    # Visualization
+    bx_plot <- 
+      ggboxplot(data, x = time_var_name, y = value_var_name,
+                color = cond_var_name, palette = "jco")
+    pwc <- 
+      pwc %>% 
+      add_xy_position(x = time_var_name)
+    bx_plot <- 
+      bx_plot + 
+      stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+      labs(
+        subtitle = get_test_label(res_aov, detailed = TRUE),
+        caption = get_pwc_label(pwc)
+      )
+    
+    if(assum_check){ 
+      list(qq_plot, bx_plot)
+    }else{
+      bx_plot
+    } 
+    
+  }
+
+# ex. - run on long format
+# tw_mixedANOVA_func(data = anxiety, id_var = id, cond_var = group, time_var = time, value_var = score,
+#                 posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+```
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-report"
+file <- "Date_pt_analiza_PA4online.xlsx"
+
+setwd(folder)
+
+# ID df
+id_df <- rio::import(file.path(folder, file),
+                               skip = 1, which = "ID-uri atribuite")   
+id_df <- 
+  id_df %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), ""))     # remove white spaces
+all(id_df$ID == toupper(id_df$ID))                                     # check if all are upper case
+
+firstform_df <- rio::import(file.path(folder, file),
+                               skip = 0, which = "Formular de înscriere și consim") 
+colnames(firstform_df)[7] <- "e-mail"
+
+baseline_df <- dplyr::left_join(id_df, firstform_df, by = "e-mail")
+baseline_df <- baseline_df[, c(4:9, 2, 10:ncol(baseline_df), 1,3)]       # move cols from id_df to back so we have matching cols index for baseline_df & firstform_df
+all.equal(colnames(baseline_df)[1:72], colnames(firstform_df)[1:72])             # check if colnames match, except ID and name that where added
+
+table(baseline_df$ID) # ID 9C is doubled, completed 2 times
+which(baseline_df$ID == "9C")  # ID 9C row 27 is partially completed, excuted it
+baseline_df <- baseline_df[-27 ,]
+```
+
+
+```{r dasd}
+## Settings
+cutoffPCL <- 32   # literature: 31-33 or 38 
+algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+algPCL_subclin <- data.frame(B = 1, C = 1, D = 1, E = 1)
+
+cutoffMBI_Ex <- 2.20  
+cutoffMBI_Cy <- 2
+##
+
+## Data
+Data <- baseline_df
+##
+
+# Define column index:  index = col index; itemindex = index of item in questionnaire
+indexSIG <- 60:67 - 10    # modified in new table by 10
+indexMBI <- 68:83 - 10
+indexPCL <- 159:178 - 10
+itemindexMBI_Ex <- c(1, 3, 5, 11, 14)
+itemindexMBI_Cy <- c(2, 7, 8, 13, 15)
+itemindexMBI_Pe <- c(4, 6, 9, 10, 12, 16)
+
+# Rename columns
+# names(Data)[1:12] <- stringr::str_replace_all(names(Data)[1:12], "[[:blank:]]", "_")
+# names(Data)[17] <- "Real_Email"
+# names(Data)[18] <- "Real_Tel"
+# names(Data)[19] <- "Real_Name"
+# names(Data)[50] <- "Real_Age_categ"
+
+names(Data)[40] <- "Age_categ"
+names(Data)[41] <- "Sex"
+
+names(Data)[names(Data) %in% names(Data[, indexSIG])]  <- c(sprintf("SIG_%01d", seq(1, 8)))
+names(Data)[names(Data) %in% names(Data[, indexMBI])]  <- c(sprintf("MBI_%01d", seq(1, 16)))
+names(Data)[names(Data) %in% names(Data[, indexPCL])]  <- c(sprintf("PCL_%01d", seq(1, 20)))
+
+
+# Data <-
+#   Data %>%
+#   dplyr::filter(Response_Status == "completed")                          # select only complete cases
+ 
+
+# Recode 
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+
+# lapply(Data[,indexPCL], unique)
+Data[ ,indexPCL][ Data[ ,indexPCL] == "deloc"] <- "0"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "puțin"] <- "1"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "moderat"] <- "2"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "mult"] <- "3"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "foarte mult"] <- "4"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "Not Answered"] <- NA
+
+Data[ ,indexSIG][ Data[ ,indexSIG] == "NU"] <- "0"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "?"] <- "1.5"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "DA"] <- "3"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "Not Answered"] <- NA
+
+Data[ ,indexMBI] <- data.frame(lapply(Data[ ,indexMBI], 
+                                      function(x) {gsub(".*Niciodat.*", "0", x)}), stringsAsFactors = FALSE)
+Data[ ,indexMBI] <- data.frame(lapply(Data[ ,indexMBI], 
+                                      function(x) {gsub(".*Zilnic.*", "6", x)}), stringsAsFactors = FALSE)
+Data[ ,indexMBI][ Data[ ,indexMBI] == "Not Answered"] <- NA
+
+
+Data[, indexSIG] <- colstonumeric(Data[, indexSIG])
+Data[, indexMBI] <- colstonumeric(Data[, indexMBI])
+Data[, indexPCL] <- colstonumeric(Data[, indexPCL])
+
+
+
+# Scores
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, stat = "sum", natozero = FALSE, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)                           
+  
+  if(natozero) df[is.na(df)] <- 0                                    # NAs to 0 can help when stat = "mean" with na.rm = T because it keeps denominator constant
+  
+  if(stat == "sum"){
+  df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                   NA,
+                   rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  if(stat == "mean"){
+    df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                     NA,
+                     rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  return(df_res)
+}
+##
+
+
+# Score PCL
+Data$PCL_Total <- ScoreLikert(Data[, indexPCL], napercent = .3)               # NA if NA threshold is exceeded 
+Data$PCL_B <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 1:5))], napercent = 1)    # do nothing if NA threshold is exceeded
+Data$PCL_C <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 6:7))], napercent = 1) 
+Data$PCL_D <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 8:14))], napercent = 1)  
+Data$PCL_E <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 15:20))], napercent = 1)
+
+# Score SIG
+Data$SIG_Total <- ScoreLikert(Data[, indexSIG], napercent = .3)
+
+# Score MBI
+Data$MBI_Total <- ScoreLikert(Data[, indexMBI], napercent = .3, stat = "mean", natozero = TRUE)
+Data$MBI_Ex <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Ex))], napercent = 1, stat = "mean", natozero = TRUE)
+Data$MBI_Cy <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Cy))], napercent = 1, stat = "mean", natozero = TRUE)
+Data$MBI_Pe <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Pe))], napercent = 1, stat = "mean", natozero = TRUE)
+
+
+# PCL Diagnostic Algorithm
+itemsPCL_B <- c(sprintf("PCL_%01d", 1:5))
+itemsPCL_C <- c(sprintf("PCL_%01d", 6:7))
+itemsPCL_D <- c(sprintf("PCL_%01d", 8:14))
+itemsPCL_E <- c(sprintf("PCL_%01d", 15:20))
+
+DataPCLAlg <-  
+  Data %>% 
+  dplyr::select(tidyselect::all_of(indexPCL)) %>% 
+  dplyr::mutate_all(
+    funs(case_when(
+      . >=2 ~ 1,
+      # . <2 ~ 0,
+      is.na(.) ~ 0,
+      TRUE  ~  0))) %>% 
+  
+  mutate(PCL_CritB = case_when(rowSums(.[,itemsPCL_B], na.rm = TRUE) >= algPCL$B ~ 1,      # algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+                               # rowSums(.[,itemsPCL_B], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritC = case_when(rowSums(.[,itemsPCL_C], na.rm = TRUE) >= algPCL$C ~ 1,    
+                               # rowSums(.[,itemsPCL_C], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritD = case_when(rowSums(.[,itemsPCL_D], na.rm = TRUE) >= algPCL$D ~ 1,   
+                               # rowSums(.[,itemsPCL_D], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritE = case_when(rowSums(.[,itemsPCL_E], na.rm = TRUE) >= algPCL$E ~ 1,    
+                               # rowSums(.[,itemsPCL_E], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_Alg = case_when(PCL_CritB == 1 & PCL_CritC == 1 & PCL_CritD == 1 & PCL_CritE == 1 ~ 1,
+                             TRUE  ~  0)) 
+
+Data$PCLAlg <- DataPCLAlg$PCL_Alg
+
+DataPCLAlg_subclin <-  
+  Data %>% 
+  dplyr::select(tidyselect::all_of(indexPCL)) %>% 
+  dplyr::mutate_all(
+    funs(case_when(
+      . >=2 ~ 1,
+      # . <2 ~ 0,
+      is.na(.) ~ 0,
+      TRUE  ~  0))) %>% 
+  
+  mutate(PCL_CritB = case_when(rowSums(.[,itemsPCL_B], na.rm = TRUE) >= algPCL_subclin$B ~ 1,  
+                               # rowSums(.[,itemsPCL_B], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritC = case_when(rowSums(.[,itemsPCL_C], na.rm = TRUE) >= algPCL_subclin$C ~ 1,    
+                               # rowSums(.[,itemsPCL_C], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritD = case_when(rowSums(.[,itemsPCL_D], na.rm = TRUE) >= algPCL_subclin$D ~ 1,   
+                               # rowSums(.[,itemsPCL_D], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritE = case_when(rowSums(.[,itemsPCL_E], na.rm = TRUE) >= algPCL_subclin$E ~ 1,    
+                               # rowSums(.[,itemsPCL_E], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_Alg_subclin = case_when(PCL_CritB == 1 & PCL_CritC == 1 & PCL_CritD == 1 & PCL_CritE == 1 ~ 1,
+                                     TRUE  ~  0)) 
+
+Data$PCLAlg_subclin <- DataPCLAlg_subclin$PCL_Alg_subclin
+
+Data$MBI_Ex_cut <- ifelse(Data$MBI_Ex >= cutoffMBI_Ex, 1, 0)
+Data$MBI_Cy_cut <- ifelse(Data$MBI_Cy >= cutoffMBI_Cy, 1, 0)
+
+
+# Global Screening & Groups
+df_screening <- Data[,c("ID", "nume", "e-mail", "Age_categ", "Sex",
+                        "SIG_Total", "MBI_Ex_cut", "MBI_Cy_cut",
+                        "PCL_Total", "PCL_B", "PCL_C", "PCL_D", "PCL_E", "PCLAlg", "PCLAlg_subclin")]
+ids_ptsd <-
+  df_screening %>%
+    dplyr::filter(PCLAlg == 1) %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+ids_burn <-
+  df_screening %>%
+    dplyr::filter(MBI_Ex_cut == 1, MBI_Cy_cut == 1) %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+ids_old <-
+  df_screening %>%
+    dplyr::filter(Age_categ == "peste 65 ani") %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+ids_normal <-
+   df_screening %>%
+    dplyr::filter(!(ID %in% c(ids_ptsd, ids_burn, ids_old))) %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+intersect(ids_ptsd, ids_burn)   # 8 common
+intersect(ids_ptsd, ids_old)    # no old with PTSD
+intersect(ids_ptsd, ids_old)    # no old with Burn Out
+length(unique(c(ids_ptsd, ids_burn, ids_old, ids_normal))) == 76  # all good
+
+
+ids_groups_df<- 
+  Data %>%
+  dplyr::select(173, 175:188)
+```
+
+
+
+
+# Outcome Measures
+
+# Dictator Game
+
+```{r dg_scoring, results='hide'}
+# DG df
+dg_df_pre <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame pre")
+colnames(dg_df_pre)[4] <- "ID"
+dg_df_pre <- 
+  dg_df_pre %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_pre$ID == toupper(dg_df_pre$ID)) 
+
+dg_df_post <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame post")
+colnames(dg_df_post)[4] <- "ID"
+dg_df_post <- 
+  dg_df_post %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_post$ID == toupper(dg_df_post$ID)) 
+
+colnames(dg_df_pre)[5:8] <- sprintf("DG_%d", 1:4)
+colnames(dg_df_post)[5:8] <- sprintf("DG_%d", 1:4)
+
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~na_if(., "Not Answered"))
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered"))
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Pre", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Post", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+# Transform DG 0-900 egoism to 0-9 altruism
+dg_trans_func <- function(x){trans <- 9 - x / 100}
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+# Unite DG data - Long Format
+dg_united_long <- rbind(dg_df_pre, dg_df_post)
+which(table(dg_united_long$ID)> 2 )     # IDs "3B" & "31X" have more than 2 trials
+dg_united_long[dg_united_long$ID == "3B",]  # two Pres -- keep the first
+dg_united_long <- dg_united_long[-55, ]
+dg_united_long[dg_united_long$ID == "31X",] # two Pres -- keep the first
+dg_united_long <- dg_united_long[-73, ]
+
+dg_united_long$DG_Total <- rowSums(dg_united_long[, sprintf("DG_%d", 1:4)], na.rm = TRUE) 
+
+# Unite DG data - Wide Format
+dg_united_wide <-
+  dg_united_long %>%
+  tidyr::pivot_wider(names_from = Time, values_from = c("Date Modified", sprintf("DG_%d", 1:4), "DG_Total"))
+# dg_united_wide2 <- dplyr::left_join(dg_united_wide, ids_groups_df, by = "ID")     # no need to merge, already have ids for groups stored
+
+```
+
+<!--
+```{r mixedanova_dg}
+cat("Mixed ANOVA - DG whole sample (not by groups)")
+# Mixed ANOVA
+dg_united_long %>%
+  group_by(ID) %>%
+  filter(n() > 1) %>%     # keep only complete cases
+  ungroup() %>% 
+  tw_mixedANOVA_func(data = ., id_var = ID, cond_var = Cond, time_var = Time, value_var = DG_Total,
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+-->
+
+# T test Dicatator Game
+
+```{r ttest_bygroup_dg}
+# dplyr::filter(ID %in% c(ids_ptsd, ids_burn, ids_old, ids_normal)) %>%
+
+cat("## DG - PTSD TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - PTSD CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+
+cat("## DG - Burnout TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - Burnout CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+
+cat("## DG - Old TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - Old CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+cat("## DG - General Population TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - General Population CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+```
+
+## DG Normal Sample Size estimation
+
+```{r dg_samplesize}
+cat("## DG - General Population TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  samplesize_pairedttest(., pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - General Population CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  samplesize_pairedttest(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+```
+
+
+```{r scale_scoring, results='hide'}
+# Scales df
+scale_df_pre <- rio::import(file.path(folder, file),
+                           skip = 0, which = "Set teste zi 1 pre")
+scale_df_pre <- scale_df_pre[,-2]
+colnames(scale_df_pre)[1] <- "Date"
+colnames(scale_df_pre)[2] <- "ID"
+scale_df_pre <- 
+  scale_df_pre %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(scale_df_pre$ID == toupper(scale_df_pre$ID)) 
+
+scale_df_post <- rio::import(file.path(folder, file),
+                            skip = 0, which = "Set teste zi 5 post")
+scale_df_post <- scale_df_post[,-2]
+colnames(scale_df_post)[1] <- "Date"
+colnames(scale_df_post)[2] <- "ID"
+scale_df_post <- 
+  scale_df_post %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(scale_df_post$ID == toupper(scale_df_post$ID))
+
+all.equal(colnames(scale_df_post), colnames(scale_df_pre))   # setdiff(colnames(scale_df_post), colnames(scale_df_pre))
+
+# Deal with Not Answer
+scale_df_pre <-
+  scale_df_pre %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered"))
+
+scale_df_post <-
+  scale_df_post %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered"))
+
+# Add Condition
+scale_df_pre <-
+  scale_df_pre %>%
+  dplyr::mutate(Time = rep("Pre", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR"))
+
+scale_df_post <-
+  scale_df_post %>%
+  dplyr::mutate(Time = rep("Post", nrow(.))) %>%
+    dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR"))
+
+
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.  
+index_item_panas <- 3:22
+colnames(scale_df_pre)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+colnames(scale_df_post)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+# Scoring
+scale_df_pre$PA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_pre$NA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+scale_df_post$PA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_post$NA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+
+## PSS-SF 14 (likert 0-4). Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+index_item_pss <- 23:36
+index_item_revPSS <- c(4, 5, 6, 7, 9, 10, 13)
+colnames(scale_df_pre)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+colnames(scale_df_post)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+# Score
+scale_df_pre[, index_item_pss] <- colstonumeric(scale_df_pre[, index_item_pss])
+scale_df_post[, index_item_pss] <- colstonumeric(scale_df_post[, index_item_pss])
+
+scale_df_pre[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_pre[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+scale_df_post[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_post[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+
+scale_df_pre$PSS_Total <- ScoreLikert(scale_df_pre[, index_item_pss], napercent = .11)
+scale_df_post$PSS_Total <- ScoreLikert(scale_df_post[, index_item_pss], napercent = .11)
+
+
+# Unite scale df - Long Format
+scale_united_long <- rbind(scale_df_pre, scale_df_post)
+
+scale_united_long %>%
+  count(ID) %>%
+  print(n = Inf)  # ID "2B" has double record both in pre and post -- keep first in both, second record has NAs
+
+# scale_united_long[scale_united_long$ID == "2B",]
+scale_united_long <- scale_united_long[-26,]
+scale_united_long <- scale_united_long[-102,]
+
+
+# Unite DG data - Wide Format
+scale_united_wide <-
+  scale_united_long %>%
+  dplyr::select(ID, Date, Time, Cond, PA_Total, NA_Total, PSS_Total) %>%
+  tidyr::pivot_wider(names_from = Time, values_from = c("Date", "PA_Total", "NA_Total", "PSS_Total"))
+
+```
+
+
+<!--
+```{r mixedanova_scales}
+cat("Mixed ANOVA - PSS whole sample (not by groups)")
+# Mixed ANOVA
+scale_united_long %>%
+  group_by(ID) %>%
+  filter(n() > 1) %>%     # keep only complete cases -- here are only complete
+  ungroup() %>% 
+  tw_mixedANOVA_func(data = ., id_var = ID, cond_var = Cond, time_var = Time, value_var = PSS_Total,
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("Mixed ANOVA - PA whole sample (not by groups)")
+scale_united_long %>%
+  group_by(ID) %>%
+  filter(n() > 1) %>%     # keep only complete cases -- here are only complete
+  ungroup() %>% 
+  tw_mixedANOVA_func(data = ., id_var = ID, cond_var = Cond, time_var = Time, value_var = PA_Total,
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+
+cat("Mixed ANOVA - NA whole sample (not by groups)")
+scale_united_long %>%
+  group_by(ID) %>%
+  filter(n() > 1) %>%     # keep only complete cases -- here are only complete
+  ungroup() %>% 
+  tw_mixedANOVA_func(data = ., id_var = ID, cond_var = Cond, time_var = Time, value_var = NA_Total,
+                  posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
+```
+-->
+
+# T test PSS
+
+```{r ttest_bygroup_pss}
+# dplyr::filter(ID %in% c(ids_ptsd, ids_burn, ids_old, ids_normal)) %>%
+
+cat("## PSS - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+
+cat("## PSS - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+
+cat("## PSS - Old TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - Old CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+cat("## PSS - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+```
+
+## PSS Normal Sample Size estimation
+
+```{r samplesize_pss}
+cat("## PSS - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  samplesize_pairedttest(., pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  samplesize_pairedttest(., pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+```
+
+
+# T test PA
+
+```{r ttest_bygroup_pa}
+cat("## PA - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+
+cat("## PA - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+
+cat("## PA - Old TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - Old CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+cat("## PA - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+```
+
+## PA Normal Sample Size estimation
+
+```{r samplesize_pa}
+cat("## PSS - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  samplesize_pairedttest(., pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PSS - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  samplesize_pairedttest(., pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+```
+
+
+# T test NA
+
+```{r ttest_bygroup_na}
+cat("## NA - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+
+cat("## NA - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+
+cat("## NA - Old TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - Old CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_old) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+cat("## NA - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+```
+
+## NA Normal Sample Size estimation
+
+```{r samplesize_na}
+cat("## PSS - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "TR") %>%
+  samplesize_pairedttest(., pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## PSS - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  samplesize_pairedttest(., pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
