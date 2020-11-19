@@ -1,0 +1,430 @@
+---
+title: "<br> Resilience - 3 scales" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "psycho"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, warning=FALSE, message=FALSE, results='hide',}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+
+# Read current Data
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/Rezilienta-3scale"
+file <- "BAZA DE DATE FINALA VARIANTA EXCEL (1).xlsx"
+setwd(folder)
+
+suppressMessages({                                   # some columns are renamed and the warning breaks pandoc
+Data <- rio::import(file.path(folder, file),
+                           which = "Sheet1",
+                           skip = 0)
+})
+
+```
+
+
+# Define functions for scoring
+
+```{r def_func_scoring}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+                    lapply(df,
+                           function(x) { as.numeric(as.character(x))})) 
+      },warning = function(stop_on_warning) {
+        message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+```
+
+# Define fuction for correlation table
+
+```{r}
+# x is a matrix containing the data
+# method : correlation method. "pearson"" or "spearman"" is supported
+# removeTriangle : remove upper or lower triangle
+# results :  if "html" or "latex"
+  # the results will be displayed in html or latex format
+corstars <-function(x, method=c("pearson", "spearman"), removeTriangle=c("upper", "lower"),
+                     result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  suppressMessages({
+    require(Hmisc)
+    require(knitr)
+  })
+  
+    x <- as.matrix(x)
+    correlation_matrix<-rcorr(x, type=method[1])
+    R <- correlation_matrix$r # Matrix of correlation coeficients
+    p <- correlation_matrix$P # Matrix of p-value 
+    
+    ## Define notions for significance levels; spacing is important.
+    mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+    
+    ## trunctuate the correlation matrix to two decimal
+    R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+    
+    ## build a new matrix that includes the correlations with their apropriate stars
+    Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+    diag(Rnew) <- paste(diag(R), " ", sep="")
+    rownames(Rnew) <- colnames(x)
+    colnames(Rnew) <- paste(colnames(x), "", sep="")
+    
+    ## remove upper triangle of correlation matrix
+    if(removeTriangle[1]=="upper"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove lower triangle of correlation matrix
+    else if(removeTriangle[1]=="lower"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+      Rnew <- as.data.frame(Rnew)
+    }
+    
+    ## remove last column and return the correlation matrix
+    Rnew <- cbind(Rnew[1:length(Rnew)-1])
+    if (result[1]=="none") return(Rnew)
+    else{
+      if(result[1]=="html") print(knitr::kable(Rnew, format = "html")) 
+      else print(knitr::kable(Rnew, format = "latex")) 
+    }
+} 
+
+```
+
+
+
+# Scoring 
+
+```{r score_scales, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Recode and Score
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## 
+
+
+Data$Totala_check <- ScoreLikert(Data[, sprintf("a%d", 1:25)], tonumeric = TRUE)
+Data$Totalb_check <- ScoreLikert(Data[, sprintf("b%d", 1:33)], tonumeric = TRUE)
+Data$Totalc_check <- ScoreLikert(Data[, sprintf("c%d", 1:25)], tonumeric = TRUE)
+
+all.equal(Data$Totala_check, Data$Totala)
+all.equal(Data$Totalb_check, Data$Totalb)
+all.equal(Data$Totalc_check, Data$Totalc)
+
+Data$aRCompPers <- ScoreLikert(Data[, c("a1", "a2", "a3", "a4", "a5", "a6", "a9", "a10", "a13", "a14", "a15", "a17", "a18", "a19", "a20", "a23", "a24")], 
+                                    tonumeric = TRUE)
+Data$aRAccept <- ScoreLikert(Data[, c("a7", "a8", "a11", "a12", "a16", "a21", "a22", "a25")], tonumeric = TRUE)
+
+Data$bPS <- ScoreLikert(Data[, c("b1", "b2", "b3", "b4", "b5", "b6")], tonumeric = TRUE)
+Data$bPV <- ScoreLikert(Data[, c("b7", "b8", "b9", "b10")], tonumeric = TRUE)
+Data$bCS <- ScoreLikert(Data[, c("b12", "b13", "b14", "b15", "b16")], tonumeric = TRUE)        # exclude b11 because no variance
+Data$pSS <- ScoreLikert(Data[, c("b17", "b18", "b19", "b20", "b21", "b22")], tonumeric = TRUE)
+Data$bCF <- ScoreLikert(Data[, c("b23", "b24", "b25", "b26", "b27", "b28", "b29")], tonumeric = TRUE)
+Data$bRS <- ScoreLikert(Data[, c("b30", "b31", "b32", "b33")], tonumeric = TRUE)
+
+Data$cCP <- ScoreLikert(Data[, c("c24", "c12", "c11", "c25", "c10", "c23", "c17", "c16")], tonumeric = TRUE)
+Data$cII <- ScoreLikert(Data[, c("c20", "c18", "c15", "c6", "c7", "c19", "c14")], tonumeric = TRUE)
+Data$cAP <- ScoreLikert(Data[, c("c1", "c4", "c5", "c2", "c8")], tonumeric = TRUE)
+Data$cC <- ScoreLikert(Data[, c("c22", "c13", "c21")], tonumeric = TRUE)
+Data$cIS <- ScoreLikert(Data[, c("c3", "c9")], tonumeric = TRUE)
+```
+
+
+
+# Descriptives
+
+```{r desc}
+Data %>%
+  dplyr::select(Totala, Totalb, Totalc) %>%
+  rstatix::get_summary_stats(type = "full")
+```
+
+# Correlations
+
+```{r cor}
+Data %>%
+  dplyr::select(Totala, Totalb, Totalc) %>%
+  PerformanceAnalytics::chart.Correlation()
+```
+
+
+```{r results='asis', rows.print = 20}
+corstars(Data[, c(103:118)], result = "none")
+```
+
+
+
+# CFA
+
+## Define function
+
+```{r func_cfa}
+fast_cfa_func <- function(data, model, lav_estimator = "ML", ordered_vars = FALSE){
+  
+  if(ordered_vars){
+    modelvars <- lavaan::lavNames(model)              # ! for some reason list of names in ordered needs to match order of columns in dataframe, no problem here
+    data <- as.data.frame(lapply(data[, modelvars], ordered))             # specially for binary
+  }else{
+    modelvars <- NULL
+  }                                                             # estimator = "ML" // ordered = names(data), estimator = "WLSMV"
+  cfa <- lavaan::cfa(model = model, data = data, std.lv = TRUE, estimator = lav_estimator, ordered = modelvars)   
+  summary(cfa, fit.measure = TRUE, standardized = TRUE) %>% print()
+  fcfa <- lavaan::fitMeasures(cfa, c("nfi", "tli", "cfi","rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "srmr"))
+  fcfa %>% print()
+  semPlot::semPaths(cfa, "std", curvePivot = TRUE, thresholds = FALSE, layout="tree2") # grafic
+  text(1.2,1.1,labels=paste0('TLI=', round(fcfa["tli"], 3), '\n', 
+                           'CFI=',  round(fcfa["cfi"], 3), '\n',
+                           'NFI=', round(fcfa["nfi"], 3), '\n',
+                           'RMSEA=', round(fcfa["rmsea"], 3), '\n',
+                           '95%CI=', round(fcfa["rmsea.ci.lower"], 3), '-', round(fcfa["rmsea.ci.upper"], 3), '\n',
+                           'SRMR=', round(fcfa["srmr"], 3)  )   )
+  print(head(lavaan::modificationindices(cfa)[order(lavaan::modificationindices(cfa)$mi, decreasing = TRUE), ], 30)) %>% print()
+  semTools::reliability(cfa) %>% print()
+}
+```
+
+
+## CFA Wagnild & Young
+
+```{r cfa_W&y}
+model_WY <- '
+RCompPers =~  a1 + a2 + a3 + a4 + a5 + a6 + a9 + a10 + a13 + a14 + a15 + a17 + a18 + a19 + a20 + a23 + a24
+RAccept =~  a7 + a8 + a11 + a12 + a16 + a21 + a22 + a25
+'
+
+model_WY_1f <- '
+F =~ a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11 + a12 + a13 + a14 + a15 + a16 + a17 + a18 + a19 + a20 + a21 + a22 + a23 + a24 + a25
+'
+
+fast_cfa_func(data = Data, model = model_WY_1f)
+```
+
+## CFA Wagnild & Young - Short 14
+
+```{r cfa_W&y_short}
+model_WY_short <- '
+F =~ a2 + a6 + a7 + a8 + a9 + a10 + a13 + a14 + a15 + a16 + a17 + a18 + a21 + a23
+'
+
+fast_cfa_func(data = Data, model = model_WY_short)
+```
+
+
+
+
+
+
+## CFA Resilience Scale for Adults
+
+```{r cfa_RSA}
+# Analiza factoriala a scalei norvegiene RSA evidentiaza 6 factori:
+# 1.Perceptia de sine (itemii 1 la 6)
+# 2.Planificarea viitorului (itemii 7 la 10)
+# 3.Competenta sociala (itemii 11 la 16)
+# 4.Stil structurat (itemii 17 la 22)
+# 5.Coeziunea familiala (itemii 23 la 29)
+# 6.Resursele sociale (itemii 30 la 33)
+
+# paste(sprintf("b%d", 1:6), collapse = " + ")
+model_RSA <- '
+bPS =~ b1 + b2 + b3 + b4 + b5 + b6
+bPV =~ b7 + b8 + b9 + b10
+bCS =~ b12 + b13 + b14 + b15 + b16          
+pSS =~ b17 + b18 + b19 + b20 + b21 + b22
+bCF =~ b23 + b24 + b25 + b26 + b27 + b28 + b29
+bRS =~ b30 + b31 + b32 + b33
+'
+
+model_RSA_1f <- '
+F =~ b1 + b2 + b3 + b4 + b5 + b6 + b7 + b8 + b9 + b10 + b12 + b13 + b14 + b15 + b16 + b17 + b18 + b19 + b20 +     # exclude b11 because no variance
+     b21 + b22 + b23 + b24 + b25 + b26 + b27 + b28 + b29 + b30 + b31 + b32 + b33 
+'
+
+fast_cfa_func(data = Data, model = model_RSA_1f)
+```
+
+
+### CFA Resilience Scale for Adults - Short 11 (German)
+
+```{r cfa_RSA_short}
+# the German short version already doesnt't include b11 which is missing in our data
+
+# test_df <- Data
+# test_df$b8 <- 8 - test_df$b8    # try reverse coding b8
+
+model_RSA_short <- '
+F =~ b1 + b2 + b4 + b8 + b9 + b10 + b15 + b16 + b19 + b20 + b24 
+'
+
+fast_cfa_func(data = Data, model = model_RSA_short)
+```
+
+
+## CFA Connor-Davidson
+
+```{r cfa_CD}
+# Analiza factoriala la scalei Connor-Davidson pune în evidenta 5 factori:
+# -Factorul 1 – Competenta personala, standarde înalte si tenacitate
+# [itemii 24, 12, 11, 25, 10, 23, 17, 16]
+# -Factorul 2 – Încrederea în intuitiile sale, toleranta fata de afectele negative si fata de efectele accentuarii stresului
+# [itemii 20, 18, 15, 6, 7, 19, 14]
+# -Factorul 3 – Acceptarea pozitiva a schimbarilor si relatii sigure/secure
+# [itemii 1, 4, 5, 2, 8]
+# -Factorul 4 – Controlul
+# [itemii 22, 13, 21]
+# -Factorul 5 – Influentele spirituale
+# [itemii 3, 9]
+
+
+# paste(sprintf("c%d", c(24, 12, 11, 25, 10, 23, 17, 16)), collapse = " + ")
+model_CD <- '
+cCP =~ c24 + c12 + c11 + c25 + c10 + c23 + c17 + c16
+cII =~ c20 + c18 + c15 + c6 + c7 + c19 + c14
+cAP =~ c1 + c4 + c5 + c2 + c8
+cC =~ c22 + c13 + c21
+cIS =~ c3 + c9 
+'
+
+model_CD_1f <- '
+F =~ c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + c10 + c11 + c12 + c13 + c14 + c15 + c16 + c17 + c18 + c19 + c20 + c21 + c22 + c23 + c24 + c25
+'
+
+fast_cfa_func(data = Data, model = model_CD_1f)
+```
+
+
+### CFA Connor-Davidson - Short 10
+
+```{r cfa_CD_short}
+model_CD_short <- '
+F =~ c1 + c4 + c6 + c7 + c8 + c11 + c14 + c16 + c17 + c19
+'
+
+fast_cfa_func(data = Data, model = model_CD_short)
+```
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
