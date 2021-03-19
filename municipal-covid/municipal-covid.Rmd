@@ -1,0 +1,538 @@
+---
+title: "<br> Studiu Covid SUUB" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "rstatix", "broom", "emmeans", "pwr",
+  "rlang",
+  "performance", "DataExplorer", "ggstatsplot", "statsExpressions", "dlookr"
+  # , ...
+)
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages, update = FALSE)
+
+# Themes for ggplot2 ploting (here used APA style)
+ggplot2::theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+
+
+# Scores
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, stat = c("sum", "mean"), imputena = c(FALSE, "zero", "mean", "median"), 
+                        napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  stat <- match.arg(stat)
+  imputena <- match.arg(imputena)
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)                           
+  
+  if(imputena == "zero") df[is.na(df)] <- 0                            # NAs to 0 can help when stat = "mean" with na.rm = T because it keeps denominator constant
+  if(imputena == "mean") {                                             # replace NA with row means, the denominator of this mean is the number of completed items
+    # index_na <- which(is.na(df), arr.ind = TRUE)                    # for some reason doesnt work on tibbles
+    # df[index_na] <- rowMeans(df, na.rm=TRUE)[index_na[, 1]]
+    df <- t(apply(df, 1, function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))))
+  }
+  if(imputena == "median") {                                             # replace NA with row medians
+    df <- t(apply(df, 1, function(x) replace(x, is.na(x), median(x, na.rm = TRUE))))
+} 
+  
+  if(stat == "sum"){
+    df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                     NA,
+                     rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  if(stat == "mean"){
+    df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                     NA,
+                     rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  return(df_res)
+}
+##
+
+
+# Tests --- Don't Run
+# bla <- mtcars[, 8:11]
+# 
+# bla[1, 4] <- NA
+# bla[2, 3] <- NA; bla[2, 4] <- NA 
+# bla[3, 2] <- NA; bla[3, 3] <- NA; bla[3, 4] <- NA 
+# 
+# bla$Tot <- ScoreLikert(bla[, 1:4]) 
+# bla$Tot2 <- ScoreLikert(bla[, 1:4], napercent = .9) 
+# bla$Tot3 <- ScoreLikert(bla[, 1:4], imputena = "zero", napercent = .1)
+# bla$Tot4 <- ScoreLikert(bla[, 1:4], stat = "mean", imputena = "zero", napercent = .1)
+# bla$Tot5 <- ScoreLikert(bla[, 1:4], stat = "sum", imputena = "zero", napercent = .1)
+# bla$Tot6 <- ScoreLikert(bla[, 1:4], stat = "sum", imputena = "mean", napercent = .9)
+```
+
+
+
+# Read data
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/municipal-covid"
+file <- "Cercetare SUUB - Covid 2020.xlsx"
+
+setwd(folder)
+
+# Read data
+Data <- rio::import(file.path(folder, file),
+                    skip = 0, which = "Sheet2")  
+
+# Exclude last 3 rows: empty and other info
+Data <- Data[-c(133:135),]
+
+```
+
+
+# Clean, Transform, Score scales
+
+```{r dasd}
+## Cutoffs
+cutoffPCL <- 32   # literature: 31-33 or 38 
+algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+
+cutoffMBI_Ex <- 2.20  
+cutoffMBI_Cy <- 2
+##
+
+
+# Define column index:  index = col index; itemindex = index of item in questionnaire
+indexDASS <- 22:42
+indexMBI <- 43:58
+indexCERQ <- 59:94
+indexPCL <- 95:114
+indexAllItems <- 22:114
+
+itemindexMBI_Ex <- c(1, 3, 5, 11, 14)      # Emotional Exhaustion
+itemindexMBI_Cy <- c(2, 7, 8, 13, 15)      # Cynicism
+itemindexMBI_Pe <- c(4, 6, 9, 10, 12, 16)  # Professional Efficacy
+
+itemindexDASS_S <- c(1, 6, 8, 11, 12, 14, 18)
+itemindexDASS_D <- c(3, 5, 10, 13, 16, 17, 21)
+itemindexDASS_A <- c(2, 4, 7, 9, 15, 19, 20)
+
+itemindexCERQ_Sbl <- c(1, 10, 19, 28)  # Self-blame
+itemindexCERQ_Acc <- c(2, 11, 20, 29)  # Acceptance
+itemindexCERQ_Rum <- c(3, 12, 21, 30)  # Rumination
+itemindexCERQ_PRf <- c(4, 13, 22, 31)  # Positive Refocusing
+itemindexCERQ_RPl <- c(5, 14, 23, 32)  # Refocus on Planning
+itemindexCERQ_PRa <- c(6, 15, 24, 33)  # Positive Reappraisal
+itemindexCERQ_PPe <- c(7, 16, 25, 34)  # Putting into Perspective
+itemindexCERQ_Cat <- c(8, 17, 26, 35)  # Catastrophizing
+itemindexCERQ_Obl <- c(9, 18, 27, 36)  # Other-blame
+
+# Rename columns
+# names(Data)[1:12] <- stringr::str_replace_all(names(Data)[1:12], "[[:blank:]]", "_")
+Data <- janitor::clean_names(Data)
+names(Data)[1] <- "ID"
+names(Data)[names(Data) %in% names(Data[, indexDASS])]  <- c(sprintf("DASS_%01d", seq(1, 21)))
+names(Data)[names(Data) %in% names(Data[, indexMBI])]  <- c(sprintf("MBI_%01d", seq(1, 16)))
+names(Data)[names(Data) %in% names(Data[, indexCERQ])]  <- c(sprintf("CERQ_%01d", seq(1, 36)))
+names(Data)[names(Data) %in% names(Data[, indexPCL])]  <- c(sprintf("PCL_%01d", seq(1, 20)))
+
+# Transform general info
+to_num_cols <- c(2, 5, 6)  # "varsta", "copii", "nepoti"
+to_fac_cols <- c(3, 4, 7:21)
+
+Data <-
+  Data %>%
+  dplyr::mutate_at(vars(to_num_cols), as.numeric) %>%
+  dplyr::mutate_at(vars(to_fac_cols), as.factor)
+
+# Transfomr item scores to numeric
+Data[, indexDASS] <- colstonumeric(Data[, indexDASS])
+Data[, indexMBI] <- colstonumeric(Data[, indexMBI])
+Data[, indexCERQ] <- colstonumeric(Data[, indexCERQ])
+Data[, indexPCL] <- colstonumeric(Data[, indexPCL])
+
+
+# Score CERQ
+Data$CERQ_Sbl  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_Sbl))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_Acc  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_Acc))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_Rum  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_Rum))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_PRf  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_PRf))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_RPl  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_RPl))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_PRa  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_PRa))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_PPe  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_PPe))], stat = "sum", imputena = "mean", napercent = 1)
+Data$CERQ_Cat  <- ScoreLikert(Data[, c(sprintf("CERQ_%01d", itemindexCERQ_PPe))], stat = "sum", imputena = "mean", napercent = 1)
+
+
+# Score DASS
+Data$DASS_S  <- ScoreLikert(Data[, c(sprintf("DASS_%01d", itemindexDASS_S))], napercent = 1)
+Data$DASS_D  <- ScoreLikert(Data[, c(sprintf("DASS_%01d", itemindexDASS_D))], napercent = 1)
+Data$DASS_A  <- ScoreLikert(Data[, c(sprintf("DASS_%01d", itemindexDASS_A))], napercent = 1)
+
+# Correct MBI error (MBI items scores are 0-6, while in data item scores range 0-7)
+Data[, indexMBI] <-
+  Data[, indexMBI] %>%
+  dplyr::mutate_all(~ifelse(. == 7, 6, .))
+
+# Score MBI
+Data$MBI_Total <- ScoreLikert(Data[, indexMBI], napercent = .3, stat = "mean", imputena = "zero")
+Data$MBI_Ex <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Ex))], napercent = 1, stat = "mean", imputena = "zero")
+Data$MBI_Cy <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Cy))], napercent = 1, stat = "mean", imputena = "zero")
+Data$MBI_Pe <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Pe))], napercent = 1, stat = "mean", imputena = "zero")
+
+# Score PCL
+Data$PCL_Total <- ScoreLikert(Data[, indexPCL], napercent = .3)               # NA if NA threshold is exceeded 
+Data$PCL_B <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 1:5))], napercent = 1)    # do nothing if NA threshold is exceeded
+Data$PCL_C <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 6:7))], napercent = 1) 
+Data$PCL_D <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 8:14))], napercent = 1)  
+Data$PCL_E <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 15:20))], napercent = 1)
+
+
+
+# ---
+# PCL Diagnostic Algorithm
+itemsPCL_B <- c(sprintf("PCL_%01d", 1:5))
+itemsPCL_C <- c(sprintf("PCL_%01d", 6:7))
+itemsPCL_D <- c(sprintf("PCL_%01d", 8:14))
+itemsPCL_E <- c(sprintf("PCL_%01d", 15:20))
+
+DataPCLAlg <-  
+  Data %>% 
+  dplyr::select(tidyselect::all_of(indexPCL)) %>% 
+  dplyr::mutate_all(
+    funs(case_when(
+      . >=2 ~ 1,
+      # . <2 ~ 0,
+      is.na(.) ~ 0,
+      TRUE  ~  0))) %>% 
+  
+  mutate(PCL_CritB = case_when(rowSums(.[,itemsPCL_B], na.rm = TRUE) >= algPCL$B ~ 1,      # algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+                               # rowSums(.[,itemsPCL_B], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritC = case_when(rowSums(.[,itemsPCL_C], na.rm = TRUE) >= algPCL$C ~ 1,    
+                               # rowSums(.[,itemsPCL_C], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritD = case_when(rowSums(.[,itemsPCL_D], na.rm = TRUE) >= algPCL$D ~ 1,   
+                               # rowSums(.[,itemsPCL_D], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritE = case_when(rowSums(.[,itemsPCL_E], na.rm = TRUE) >= algPCL$E ~ 1,    
+                               # rowSums(.[,itemsPCL_E], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_Alg = case_when(PCL_CritB == 1 & PCL_CritC == 1 & PCL_CritD == 1 & PCL_CritE == 1 ~ 1,
+                             TRUE  ~  0)) 
+
+# Cutoffs
+Data$PCL_cut <- ifelse(Data$PCL_Total >= cutoffPCL, 1, 0)
+Data$PCLAlg <- DataPCLAlg$PCL_Alg
+
+Data$MBI_Ex_cut <- ifelse(Data$MBI_Ex >= cutoffMBI_Ex, 1, 0)
+Data$MBI_Cy_cut <- ifelse(Data$MBI_Cy >= cutoffMBI_Cy, 1, 0)
+Data$MBI_cut <- ifelse(Data$MBI_Ex_cut | Data$MBI_Cy_cut, 1, 0)
+# ---
+
+```
+
+
+# Descriptives
+
+```{r desc_intro}
+knitr::asis_output("## Basic description for dataframe")
+introduce(Data)
+```
+
+```{r desc_stats}
+# knitr::asis_output("## Basic description for dataframe")
+Data[, -indexAllItems] %>%
+  dplyr::rename_all(~stringr::str_replace_all( ., "_", " " ))  %>% 
+  dplyr::rename_all(~stringr::str_wrap(., 20)) %>%
+  summarytools::dfSummary(plain.ascii = FALSE, style = "grid", 
+                        graph.magnif = 0.75, valid.col = FALSE) %>%
+  print(method = 'render')
+```
+
+
+
+```{r desc_categ, fig.height=8, fig.width=11}
+knitr::asis_output("## Frequency distribution of all discrete variables")
+plot_bar(Data)
+
+# knitr::asis_output("## Frequency distribution of all discrete variables by PCL cutoff")
+# plot_bar(Data, by = "PCL_cut")
+# 
+# knitr::asis_output("## Frequency distribution of all discrete variables by PCL diagnostic alg")
+# plot_bar(Data, by = "PCLAlg")
+# 
+# knitr::asis_output("## Frequency distribution of all discrete variables by MBI cutoff")
+# plot_bar(Data, by = "MBI_cut")
+```
+
+
+```{r desc_cont, fig.height=8, fig.width=11}
+knitr::asis_output("## View histogram of all continuous variables")
+Data %>%
+  dplyr::select(-all_of(c(indexDASS, indexMBI, indexCERQ, indexPCL))) %>%       # exclude items
+  plot_histogram()
+```
+
+
+
+## Rename / compute grouping variables
+```{r grouping_vars}
+names(Data)[12] <- "cazuri_pe_sectie"
+names(Data)[15] <- "expunere"
+
+levels_sectie <- levels(Data$sectia_pe_care_desfasurati_activitatea)
+levels_sectie_alte <- levels_sectie[!(levels_sectie %in% c("1", "21"))] 
+Data$sectie_categ <- forcats::fct_collapse(Data$sectia_pe_care_desfasurati_activitatea, 
+                                           altele = levels_sectie_alte,
+                                           ati = "1",
+                                           upu = "21")
+```
+
+
+# Tests - Item Covid Cases (no. 9 in xlsx, 12 in data)
+
+```{r test_item12, fig.height=7, fig.width=6, fig.sep=c('\\newline','\\newline')}
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = cazuri_pe_sectie, y = MBI_Total,
+  type = "nonparametric",
+  title = "Burnout Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = cazuri_pe_sectie, y = PCL_Total,
+  type = "nonparametric",
+  title = "PTSD Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = cazuri_pe_sectie, y = DASS_A,
+  type = "nonparametric",
+  title = "Anxiety")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = cazuri_pe_sectie, y = DASS_S,
+  type = "nonparametric",
+  title = "Stress")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = cazuri_pe_sectie, y = DASS_D,
+  type = "nonparametric",
+  title = "Depression")
+```
+
+# Tests - Item Expunere (no. 12 in xlsx, 15 in data)
+
+```{r test_item15, fig.height=7, fig.width=6, fig.sep=c('\\newline','\\newline')}
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = expunere, y = MBI_Total,
+  type = "nonparametric",
+  title = "Burnout Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = expunere, y = PCL_Total,
+  type = "nonparametric",
+  title = "PTSD Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = expunere, y = DASS_A,
+  type = "nonparametric",
+  title = "Anxiety")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = expunere, y = DASS_S,
+  type = "nonparametric",
+  title = "Stress")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = expunere, y = DASS_D,
+  type = "nonparametric",
+  title = "Depression")
+```
+
+# Tests - Item Sectii (no. 8 in xlsx, releveled in data)
+
+```{r test_item140, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline')}
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = sectie_categ, y = MBI_Total,
+  type = "nonparametric",
+  title = "Burnout Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = sectie_categ, y = PCL_Total,
+  type = "nonparametric",
+  title = "PTSD Total")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = sectie_categ, y = DASS_A,
+  type = "nonparametric",
+  title = "Anxiety")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = sectie_categ, y = DASS_S,
+  type = "nonparametric",
+  title = "Stress")
+
+ggstatsplot::ggbetweenstats(
+  data = Data,
+  x = sectie_categ, y = DASS_D,
+  type = "nonparametric",
+  title = "Depression")
+```
+
+
+# Tests - Item Sectii & Cutoff scores
+
+```{r test_item140_cutoffs, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline'), warning=FALSE}
+ggstatsplot::ggpiestats(
+  data = Data,
+  x = sectie_categ, y = PCLAlg,
+  type = "nonparametric",
+  title = "PTSD algo")
+
+ggstatsplot::ggpiestats(
+  data = Data,
+  x = sectie_categ, y = PCL_cut,
+  type = "nonparametric",
+  title = "PTSD cutoff")
+
+ggstatsplot::ggpiestats(
+  data = Data,
+  x = sectie_categ, y = MBI_cut,
+  type = "nonparametric",
+  title = "MBI cutoff")
+```
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
