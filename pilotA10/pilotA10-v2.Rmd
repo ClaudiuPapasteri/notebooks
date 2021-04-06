@@ -1,0 +1,417 @@
+---
+title: "<br> pilotA10" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang",
+  "pwr"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r def_func_ttest, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  vars <- c(ind, pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), as.factor) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+```{r samplesize_idepttest}
+samplesize_pairedttest <- function(df, pre_var, post_var){
+  vars <- c(pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  cat("## Cohen's d \n")
+  eff_size_table <-
+    df_modif %>%
+    cohens_d(value ~ Cond, paired = TRUE) %>%
+    print()
+  eff_size <- as.numeric(eff_size_table$effsize)
+
+  cat("## Sample Size estimation \n")
+  sample_size_table <-
+    pwr::pwr.t.test(d = eff_size, sig.level = .05, power = .8, type = "paired", alternative = "two.sided") 
+  sample_size_table %>% broom::tidy() %>% print()
+
+  plot(sample_size_table)
+}  
+```
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/pilotA10"
+file <- "30.03.2021 Raspunsuri chestionar inscriere PA4.xlsx"
+
+setwd(folder)
+
+# Read data
+data <- rio::import(file.path(folder, file),
+                               skip = 0, which = "APS")
+
+# Rename
+names(data)[13:28] <- sprintf("APS_%d", 1:16)
+names(data)[29] <- "ID"
+data <-
+  data %>%
+  dplyr::rename_all(~stringr::str_replace_all(., fixed(" "), "_"))
+
+# Exclude a duplicate
+data %>%
+  count(ID)  # RDpilotA10 has 2 Post responses but they are the same, exclude the last one
+# data[data$ID == "RDpilotA10", ][3, ]  # exclude this
+data <- data[-21, ]
+
+# Add PrePost Column
+data <- 
+  data %>%
+  dplyr::group_by(ID) %>%                           # can do arrange on Dates column if rows are not in order, but here they are
+  dplyr::mutate(numbering = row_number()) %>%
+  dplyr::mutate(PrePost = dplyr::case_when(numbering == 1 ~ "Pre",
+                                           numbering == 2 ~ "Post",
+                                           TRUE ~ "Other")) %>% 
+  dplyr::ungroup()
+
+table(data$ID, data$PrePost)   # check
+
+# Define TR & CTRL groups
+TR <- c("01pilotA10", "02pilotA10", "03pilotA10", "04pilota10", "05pilotA10", "06pilotA10")
+TR_new <- c("07pilotA10", "08pilotA10", "10pilotA10", "BpilotA10", "adrianavisanpsiho@yaho.com")
+CTRL <- c("PGpilotA10", "CApilotA10", "RDpilotA10", "BBpilotA10", "andreealauradogaru@yahoo.com")
+```
+
+
+
+## Score APS
+```{r}
+# Recode
+# data <-
+#   data %>%
+#   dplyr::mutate_at(vars(sprintf("APS_%d", 1:16)), ~case_when(. == "niciodată / aproape niciodată adevărat" ~ 1,
+#                                                              . == "ocazional adevărat" ~ 2,
+#                                                              . == "câteodată adevărat" ~ 3,
+#                                                              . == "deseori adevărat" ~ 4,
+#                                                              . == "aproape întotdeauna/întotdeauna adevărat" ~ 5,
+#                                                              TRUE ~ NA_real_))
+
+
+# Updated because special characters were not recognized -- replaced as wild cards in regex
+data[, sprintf("APS_%d", 1:16)] <-
+  data[, sprintf("APS_%d", 1:16)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "niciodat*") ~ 1,
+                               stringr::str_detect(., "ocazional*") ~ 2,
+                               stringr::str_detect(., "c?teodat*") ~ 3,
+                               stringr::str_detect(., "deseori*") ~ 4,
+                               stringr::str_detect(., "ntotdeauna") ~ 5,
+                              TRUE ~ NA_real_))
+
+# Score
+data$APS_Total <- ScoreLikert(data[, sprintf("APS_%d", 1:16)], napercent = .13)
+```
+
+
+## T test TR (treatment both old and new)
+
+```{r ttest_TR}
+data_TR <- 
+  data %>%
+  dplyr::filter(ID %in% c(TR, TR_new))
+
+cat("### Summary") 
+data_TR %>%
+  dplyr::group_by(PrePost) %>%
+  rstatix::get_summary_stats(APS_Total, type = "mean_sd")
+
+cat("# T test")
+stat_test_TR <- 
+  data_TR  %>% 
+  rstatix::wilcox_test(APS_Total ~ PrePost, paired = TRUE) %>%    # can be t_test
+  rstatix::add_significance()
+stat_test_TR
+
+cat("# Effect size")
+data_TR  %>% 
+  rstatix::wilcox_effsize(APS_Total ~ PrePost, paired = TRUE)             # can be cohen_d
+
+# Plot
+bxp_TR <- 
+  ggpubr::ggpaired(data_TR, x = "PrePost", y = "APS_Total", id = "ID",
+                   order = c("Pre", "Post"),
+                   ylab = "APS_Total", xlab = "Cond")
+
+stat_test_TR <- 
+  stat_test_TR %>% 
+  rstatix::add_xy_position(x = "PrePost")
+
+bxp_TR + 
+  ggpubr::stat_pvalue_manual(stat_test_TR, tip.length = 0) +
+  labs(subtitle = get_test_label(stat_test_TR, detailed= TRUE))  
+```
+
+
+## T test TR (only new)
+
+```{r ttest_TRn}
+data_TRn <- 
+  data %>%
+  dplyr::filter(ID %in% TR_new)
+
+cat("### Summary") 
+data_TRn %>%
+  dplyr::group_by(PrePost) %>%
+  rstatix::get_summary_stats(APS_Total, type = "mean_sd")
+
+cat("# T test")
+stat_test_TRn <- 
+  data_TRn  %>% 
+  rstatix::wilcox_test(APS_Total ~ PrePost, paired = TRUE) %>%    # can be t_test
+  rstatix::add_significance()
+stat_test_TRn
+
+cat("# Effect size")
+data_TRn  %>% 
+  rstatix::wilcox_effsize(APS_Total ~ PrePost, paired = TRUE)             # can be cohen_d
+
+# Plot
+bxp_TRn <- 
+  ggpubr::ggpaired(data_TRn, x = "PrePost", y = "APS_Total", id = "ID",
+                   order = c("Pre", "Post"),
+                   ylab = "APS_Total", xlab = "Cond")
+
+stat_test_TRn <- 
+  stat_test_TRn %>% 
+  rstatix::add_xy_position(x = "PrePost")
+
+bxp_TRn + 
+  ggpubr::stat_pvalue_manual(stat_test_TRn, tip.length = 0) +
+  labs(subtitle = get_test_label(stat_test_TRn, detailed= TRUE))  
+```
+
+
+## T test CTRL (control)
+
+```{r ttest_CTRL}
+data_CTRL <- 
+  data %>%
+  dplyr::filter(ID %in% CTRL)
+
+cat("### Summary") 
+data_CTRL %>%
+  dplyr::group_by(PrePost) %>%
+  rstatix::get_summary_stats(APS_Total, type = "mean_sd")
+
+cat("# T test")
+stat_test_CTRL <- 
+  data_CTRL  %>% 
+  rstatix::wilcox_test(APS_Total ~ PrePost, paired = TRUE) %>%    # can be t_test
+  rstatix::add_significance()
+stat_test_CTRL
+
+cat("# Effect size")
+data_CTRL  %>% 
+  rstatix::wilcox_effsize(APS_Total ~ PrePost, paired = TRUE)             # can be cohen_d
+
+# Plot
+bxp_CTRL <- 
+  ggpubr::ggpaired(data_CTRL, x = "PrePost", y = "APS_Total", id = "ID",
+                   order = c("Pre", "Post"),
+                   ylab = "APS_Total", xlab = "Cond")
+
+stat_test_CTRL <- 
+  stat_test_CTRL %>% 
+  rstatix::add_xy_position(x = "PrePost")
+
+bxp_CTRL + 
+  ggpubr::stat_pvalue_manual(stat_test_CTRL, tip.length = 0) +
+  labs(subtitle = get_test_label(stat_test_CTRL, detailed= TRUE))  
+```
+
+
+
+<!--
+## Sample Size estimation
+
+```{r samplesize}
+
+```
+-->
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
