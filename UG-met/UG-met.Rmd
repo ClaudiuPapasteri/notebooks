@@ -112,6 +112,23 @@ post <- readr::read_csv("POST_answers.csv")
 
 ```
 
+# Emails and groups
+
+```{r email_df}
+# Read in data ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+setwd("C:/Users/Mihai/Desktop/R Notebooks/notebooks/UG-met")
+email_df <- rio::import("mail-grup.xlsx", skip = 3)
+
+
+gsr_df <- email_df[1:42, 1:4]
+names(gsr_df)[1:4] <- c("Group", "Cond", "ID", "email")
+
+rmn_df <- email_df[181:197, 2:4]
+names(rmn_df)[1:3] <- c("Nr_Crt", "ID", "email")
+rmn_df$Cond <- rep("EXPERIMENTAL", nrow(rmn_df))
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+```
 
 
 ## Exclude known test-IDs
@@ -192,8 +209,8 @@ pre_scores <-
   dplyr::ungroup() %>%
   tidyr::complete(Username, Type, Accepted, fill = list(n_Type = 0, n_Accepted_Type = 0, Percent = 0)) %>%  # for missing factor levels leading to 0% Percentages
   dplyr::filter(Accepted == "Y") %>%
-  dplyr::mutate(Cond = rep("Pre", n())) %>%
-  dplyr::mutate(Cond = factor(Cond, levels = c("Pre", "Post"))) 
+  dplyr::mutate(PrePost = rep("Pre", n())) %>%
+  dplyr::mutate(PrePost= factor(PrePost, levels = c("Pre", "Post"))) 
 
 post_scores <-
   post %>%
@@ -203,12 +220,24 @@ post_scores <-
   dplyr::ungroup() %>%
   tidyr::complete(Username, Type, Accepted, fill = list(n_Type = 0, n_Accepted_Type = 0, Percent = 0)) %>%  # for missing factor levels leading to 0% Percentages
   dplyr::filter(Accepted == "Y") %>%
-  dplyr::mutate(Cond = rep("Post", n())) %>%
-  dplyr::mutate(Cond = factor(Cond, levels = c("Pre", "Post")))
+  dplyr::mutate(PrePost = rep("Post", n())) %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post")))
   
 
+# Merge
 merged_scores <- rbind(pre_scores, post_scores) 
 
+merged_scores$Username <- tolower(merged_scores$Username)   # emails to lower letters to match on
+gsr_df$email <- tolower(gsr_df$email)
+rmn_df$email <- tolower(rmn_df$email)
+
+merged_scores_gsr <- dplyr::left_join(merged_scores, gsr_df, by = c("Username" = "email"))     # Merge with emails/cond
+merged_scores_rmn <- dplyr::left_join(merged_scores, rmn_df, by = c("Username" = "email"))     # Merge with emails/cond
+
+merged_scores_gsr_rmn <-
+  dplyr::left_join(merged_scores_gsr, merged_scores_rmn, by = c("Username", "Type", "Accepted", "n_Type", "n_Accepted_Type", "Percent", "PrePost")) %>%
+  dplyr::mutate(Cond = dplyr::coalesce(Cond.x, Cond.y)) %>%
+  dplyr::mutate(ID = dplyr::coalesce(ID.x, ID.y))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Full scoring procedures but has problems with 0% cases (e.g. no Y answers for Fair ... this should be 0% but is not in data)
@@ -230,7 +259,7 @@ merged_scores <- rbind(pre_scores, post_scores)
 #   dplyr::summarise() %>%
 #   dplyr::ungroup() %>%
 #   dplyr::filter(Accepted == "Y") %>%
-#   dplyr::mutate(Cond = rep("Pre", n()))
+#   dplyr::mutate(PrePost = rep("Pre", n()))
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -253,81 +282,122 @@ merged_scores <- rbind(pre_scores, post_scores)
   
 ```
 
-# ANOVA
+
+# Two-way repeated measures ANOVA
+
 ```{r anova}
+knitr::asis_output("## Analyses for Unfair")
+merged_scores_gsr_unf <- 
+  merged_scores_gsr %>%
+  dplyr::filter(Type == "Unfair")
+
 knitr::asis_output("### Descriptives")
-merged_scores %>%
-  group_by(Cond, Type) %>%
+merged_scores_gsr_unf %>%
+  dplyr::group_by(Cond, PrePost) %>%
   rstatix::get_summary_stats(Percent, type = "mean_sd")
 
 knitr::asis_output("### Outliers")
-merged_scores %>%
-  dplyr::group_by(Cond, Type) %>%
+merged_scores_gsr_unf %>%
+  dplyr::group_by(Cond, PrePost) %>%
   rstatix::identify_outliers(Percent)
 
 knitr::asis_output("### Normality assumption")
-model <- lm(Percent ~ Cond * Type, data = merged_scores)
-ggpubr::ggqqplot(residuals(model))
-
-knitr::asis_output("### Compute Shapiro-Wilk test of normality")
-rstatix::shapiro_test(residuals(model))
-
-knitr::asis_output("### Check normality assumption by groups")
-merged_scores %>%
-  dplyr::group_by(Cond, Type) %>%
+merged_scores_gsr_unf %>%
+  dplyr::group_by(Cond, PrePost) %>%
   rstatix::shapiro_test(Percent)
 
-ggpubr::ggqqplot(merged_scores, "Percent", ggtheme = theme_bw()) +
-  ggplot2::facet_grid(Cond ~ Type)
+ggpubr::ggqqplot(merged_scores_gsr_unf, "Percent", ggtheme = theme_bw()) +
+  ggplot2::facet_grid(PrePost ~ Cond)
 
-knitr::asis_output("### Homogneity of variance assumption")
-merged_scores %>%
-  rstatix::levene_test(Percent ~ Cond * Type)
+knitr::asis_output("### ANOVA")
+res_aov <- rstatix::anova_test(data = merged_scores_gsr_unf, dv = Percent, wid = Username, within = c(Cond, PrePost))
+rstatix::get_anova_table(res_aov)
 
-knitr::asis_output("### 2X2 ANOVA")
-res_aov <- 
-  merged_scores %>% 
-  rstatix::anova_test(Percent ~ Cond * Type)
-as.data.frame(res_aov)
-
-knitr::asis_output("### Pairwise comparisons")  
-pwc <-
-  merged_scores %>%
-  group_by(Type) %>%
-  rstatix::emmeans_test(Percent ~ Cond, p.adjust.method = "bonferroni")
+knitr::asis_output("### Pairwise comparisons between treatment groups")  
+pwc <- 
+  merged_scores_gsr_unf %>%
+  dplyr::group_by(PrePost) %>%
+  rstatix::pairwise_t_test(
+    Percent ~ Cond, paired = TRUE,
+    p.adjust.method = "bonferroni")
 pwc
 
 # Visualization: box plots with p-values
-# bxp <- 
-#   merged_scores %>%
-#   ggpubr::ggboxplot(x = "Cond", y = "Percent", color = "Type", palette = "jco")
-# 
-# pwc <- 
-#   pwc %>% 
-#   add_xy_position(x = "Cond")
-# 
-# bxp +
-#   stat_pvalue_manual(pwc) +
-#   labs(
-#     subtitle = get_test_label(res_aov, detailed = TRUE),
-#     caption = get_pwc_label(pwc))
-  
+bxp <- ggpubr::ggboxplot(merged_scores_gsr_unf, x = "time", y = "score", color = "treatment", palette = "jco")
+pwc <- pwc %>% add_xy_position(x = "PrePost")
+
+bxp + 
+  stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+  labs(
+    subtitle = get_test_label(res.aov, detailed = TRUE),
+    caption = get_pwc_label(pwc)
+  )  
 ```
 
 
 # Plot
 
 ```{r plot, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline'), warning=FALSE}
-grouped_ggwithinstats(
-  data = merged_scores, 
-  x = Cond,
-  y = Percent,
-  grouping.var = Type,
-  type = "parametric",
-  pairwise.comparisons = TRUE,
-  pairwise.display = "all"
-)
+merged_scores_gsr_rmn %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = ., 
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "Whole Sample"))
 
+
+merged_scores_gsr_rmn %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = ., 
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "EXPERIMENTAL: PA4 + RMN"))
+
+merged_scores_gsr_rmn %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", is.na(Nr_Crt)) %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = ., 
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "EXPERIMENTAL: PA4"))
+  
+
+merged_scores_gsr_rmn %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+    grouped_ggwithinstats(
+      data = ., 
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "CONTROL"))
+
+merged_scores_gsr_rmn %>%
+  dplyr::filter(!is.na(Nr_Crt)) %>%      # only RMN participants have Nr_Crt  
+    ggstatsplot::grouped_ggwithinstats(
+      data = ., 
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "EXPERIMENTAL: RMN"))
 ```
 
 

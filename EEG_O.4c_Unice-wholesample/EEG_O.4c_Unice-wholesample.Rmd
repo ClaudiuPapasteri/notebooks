@@ -131,6 +131,7 @@ sort_files_to_dirs(wd = wd, pattern = c("unic", "oglinda", "solo"), dir = "Unic_
 # this part of script may be re-run if files from wd are updated
 # RE-RUN FROM HERE IF FOLDERS AND SORTING WAS ALREADY DONE
 
+wd <- "E:/CINETIC diverse/O.4c (EEG)/18.03.2021 Unice/Procesate&Exclusi"
 setwd(wd)
 folders <- list.files(wd)
 folders <- folders[file.info(folders)$isdir]   # luam doar folderele
@@ -222,6 +223,67 @@ unic_df_obj <-lapply(unic_df_obj, colnames)
 outer(unic_df_obj, unic_df_obj, Vectorize(identical))                           # if all are TRUE, all df have same columns
 ```
 
+
+## Clean IDs
+
+```{r clean_ids}
+Unic_CTRL_Instr <- 
+  Unic_CTRL_Instr %>%
+  dplyr::mutate(ID = stringr::str_match(.id, "ID[0-9]+")) %>%
+  dplyr::mutate(ID = as.factor(ID)) %>%
+  dplyr::relocate(ID)
+
+Unic_CTRL_Solo <- 
+  Unic_CTRL_Solo %>%
+  dplyr::mutate(ID = stringr::str_match(.id, "ID[0-9]+")) %>%
+  dplyr::mutate(ID = as.factor(ID)) %>%
+  dplyr::relocate(ID)
+
+Unic_OGL_Instr <- 
+  Unic_OGL_Instr %>%
+  dplyr::mutate(ID = stringr::str_match(.id, "ID[0-9]+")) %>%
+  dplyr::mutate(ID = as.factor(ID)) %>%
+  dplyr::relocate(ID)
+
+Unic_OGL_Solo <- 
+  Unic_OGL_Solo %>%
+  dplyr::mutate(ID = stringr::str_match(.id, "ID[0-9]+")) %>%
+  dplyr::mutate(ID = as.factor(ID)) %>%
+  dplyr::relocate(ID)
+
+
+
+# Check IDs matches
+checkid_Unic_CTRL_Instr <- 
+  Unic_CTRL_Instr %>%
+    dplyr::arrange(ID) %>%
+    dplyr::count(ID)
+
+checkid_Unic_CTRL_Solo <- 
+  Unic_CTRL_Solo %>%
+  dplyr::arrange(ID) %>%
+  dplyr::count(ID)
+
+checkid_Unic_OGL_Instr <- 
+  Unic_OGL_Instr %>%
+  dplyr::arrange(ID) %>%
+  dplyr::count(ID)
+
+checkid_Unic_OGL_Solo <- 
+  Unic_OGL_Solo %>%
+  dplyr::arrange(ID) %>%
+  dplyr::count(ID)
+
+
+knitr::asis_output("### Check IDs match")
+checkid_Unic_CTRL_Instr %>% 
+  dplyr::full_join(checkid_Unic_CTRL_Solo,  by = "ID", suffix = c("Unic_CTRL_Instr", "Unic_CTRL_Solo")) %>%
+  dplyr::full_join(checkid_Unic_OGL_Instr,  by = "ID", suffix = c("Unic_CTRL_Instr", "Unic_OGL_Instr")) %>%
+  dplyr::full_join(checkid_Unic_OGL_Solo,  by = "ID", suffix = c("Unic_CTRL_Instr", "Unic_OGL_Solo")) %>%
+  print(n = Inf)
+```
+
+
 <br>
 <br>
 
@@ -239,7 +301,6 @@ descriptive_func <- function(df, Stim_type, By_ID = FALSE){
   suppressWarnings({                                                                # if all NAs in SAM_Resp, NaNs and Infs will be produced
     df_modif <- 
       df %>%
-      dplyr::rename("ID" = .id) %>%
       dplyr::select_all(~gsub("\\s+|\\.", "_", .)) %>%                                     # replaces blancks with "_" in colnames 
       dplyr::filter(Stimulus_type == Stim_type)                                            # filter by stimulus type
       
@@ -298,9 +359,9 @@ ID_rename <- function(df){
   if(".id" %in% colnames(df)) {
     df_modif <- 
       df %>%
-      dplyr::rename("ID" = .id)
+      dplyr::rename("ID_file" = .id)
     df <- deparse(substitute(df))
-    cat("Changed .id to ID for: ", as.name(df))
+    cat("Changed .id to ID_file for: ", as.name(df))
     assign(df, df_modif, envir = globalenv())
   }  
 }
