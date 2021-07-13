@@ -117,6 +117,18 @@ Data %>%
                      buttons = c('excel', "csv")))
 ```
 
+## Dataset Wide format
+
+```{r}
+Data_wide %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
 
 # Depression
 
