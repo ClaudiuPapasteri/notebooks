@@ -1,0 +1,330 @@
+---
+title: "<br> PA4 RMN" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",
+  "rlang",
+  "rio",
+  "rstatix", "broom", "emmeans", "pwr",
+  "ggstatsplot"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-report-RMN"
+file <- "09.06.2021 Raspunsuri chestionare online.xlsx"
+file_incadrari <- "Incadrare PA4 RMN.xlsx"
+
+setwd(folder)
+
+# Read incadrare
+data_incadrari <- rio::import(file.path(folder, file_incadrari), skip = 0)
+
+data_incadrari <- 
+  data_incadrari %>%
+  mutate(ID = toupper(ID),
+         ID = stringr::str_replace_all(ID, "[[:blank:]]", ""),
+         ID = stringr::str_remove(ID, "ID"),
+         ID = stringr::str_remove(ID, "^0")) %>%
+  mutate(Email = tolower(Email))
+
+# Read data
+data <- rio::import(file.path(folder, file),
+                               skip = 0, which = "APS")
+data <- data[-c(1:33), ]    # data begins with row 34, until 34 its a pilot study
+
+
+# Rename
+names(data)[13:28] <- sprintf("APS_%d", 1:16)
+names(data)[29] <- "ID"
+
+data <-
+  data %>%
+  dplyr::rename_all(~stringr::str_replace_all(., fixed(" "), "_")) %>%
+  dplyr:: mutate(ID = toupper(ID),
+                 ID = stringr::str_replace_all(ID, "[[:blank:]]", ""),
+                 ID = stringr::str_replace_all(ID, "@.*", ""),
+                 ID = stringr::str_remove(ID, "ID"),
+                 ID = stringr::str_remove(ID, "^0")) %>%
+  dplyr::filter(stringr::str_detect(ID, "A10"))
+
+data <- dplyr::left_join(data, data_incadrari, by = "ID")
+
+
+
+# Cherck - should be 3 for 21 subjs, but some will have 2 (Pre + Post, no Followup)
+data %>%
+  count(ID)  
+
+# Add PrePost Column
+data <- 
+  data %>%
+  dplyr::group_by(ID) %>%                           # can do arrange on Dates column if rows are not in order, but here they are
+  dplyr::mutate(numbering = row_number()) %>%
+  dplyr::mutate(PrePost = dplyr::case_when(numbering == 1 ~ "Pre",
+                                           numbering == 2 ~ "Post",
+                                           numbering == 3 ~ "Followup",
+                                           TRUE ~ "Other")) %>% 
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post", "Followup"))) %>% 
+  dplyr::ungroup() %>%
+  dplyr::mutate(Conditie = factor(Conditie, levels = c("experimental", "ctrl")))
+
+table(data$ID, data$PrePost)   # check
+table(data$ID, data$Conditie)
+table(data$Conditie, data$PrePost)
+```
+
+
+## Score APS
+
+```{r}
+# Recode
+# data <-
+#   data %>%
+#   dplyr::mutate_at(vars(sprintf("APS_%d", 1:16)), ~case_when(. == "niciodată / aproape niciodată adevărat" ~ 1,
+#                                                              . == "ocazional adevărat" ~ 2,
+#                                                              . == "câteodată adevărat" ~ 3,
+#                                                              . == "deseori adevărat" ~ 4,
+#                                                              . == "aproape întotdeauna/întotdeauna adevărat" ~ 5,
+#                                                              TRUE ~ NA_real_))
+
+
+# Updated because special characters were not recognized -- replaced as wild cards in regex
+data[, sprintf("APS_%d", 1:16)] <-
+  data[, sprintf("APS_%d", 1:16)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "niciodat*") ~ 1,
+                               stringr::str_detect(., "ocazional*") ~ 2,
+                               stringr::str_detect(., "c?teodat*") ~ 3,
+                               stringr::str_detect(., "deseori*") ~ 4,
+                               stringr::str_detect(., "ntotdeauna") ~ 5,
+                              TRUE ~ NA_real_))
+
+# Score
+data$APS_Total <- ScoreLikert(data[, sprintf("APS_%d", 1:16)], napercent = .13)
+```
+
+
+# Analyses
+
+```{r, fig.height=7, fig.width=6, fig.sep=c('\\newline','\\newline')}
+p_aps_1 <- 
+  data %>%
+  dplyr::filter(Conditie == "experimental", PrePost %in% c("Pre", "Post")) %>%
+    ggwithinstats(
+      x = PrePost,
+      y = APS_Total,
+      type = "np", # non-parametric statistics
+      xlab = "",
+      outlier.tagging = TRUE,
+      outlier.label = ID, 
+      annotation.args = list(title = "Experimental - Pre & Post")) 
+
+p_aps_1
+extract_stats(p_aps_1)$subtitle_data
+
+
+p_aps_2 <- 
+  data %>%
+  dplyr::filter(Conditie == "experimental") %>%
+  group_by(ID) %>%
+  dplyr::filter(n() == 3) %>%
+  dplyr::ungroup() %>%
+    ggwithinstats(
+      x = PrePost,
+      y = APS_Total,
+      type = "np", # non-parametric statistics
+      xlab = "",
+      outlier.tagging = TRUE,
+      outlier.label = ID, 
+      annotation.args = list(title = "Experimental - Pre, Post and Followup")) 
+
+p_aps_2
+extract_stats(p_aps_2)$subtitle_data
+
+
+p_aps_3 <- 
+  data %>%
+  dplyr::filter(Conditie == "ctrl", PrePost %in% c("Pre", "Post")) %>%
+    ggwithinstats(
+      x = PrePost,
+      y = APS_Total,
+      type = "np", # non-parametric statistics
+      xlab = "",
+      outlier.tagging = TRUE,
+      outlier.label = ID, 
+      annotation.args = list(title = "Control - Pre & Post")) 
+
+p_aps_3
+extract_stats(p_aps_3)$subtitle_data
+
+
+p_aps_4 <- 
+  data %>%
+  dplyr::filter(Conditie == "ctrl") %>%
+  group_by(ID) %>%
+  dplyr::filter(n() == 3) %>%
+  dplyr::ungroup() %>%
+    ggwithinstats(
+      x = PrePost,
+      y = APS_Total,
+      type = "np", # non-parametric statistics
+      xlab = "",
+      outlier.tagging = TRUE,
+      outlier.label = ID, 
+      annotation.args = list(title = "Control - Pre, Post and Followup")) 
+
+p_aps_4
+extract_stats(p_aps_4)$subtitle_data
+
+
+```
+
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
