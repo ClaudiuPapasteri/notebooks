@@ -445,7 +445,7 @@ tw_mixedANOVA_func <-
 
 # Read, Clean, Recode
 
-```{r red_clean_recode_merge, results='hide', message=FALSE}
+```{r read_clean_recode_merge, results='hide', message=FALSE}
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Read, Clean, Recode, Unite
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -517,7 +517,6 @@ Data_post$s3.16[which(Data_post$s3.16 == "kq")] <- NA
 Data_post$s3.16 <- as.numeric(Data_post$s3.16)
 
 ```
-
 
 
 ```{r scoring, results='hide'}
@@ -603,6 +602,22 @@ Data_post$Cond <- dplyr::case_when(Data_post$ID %in% tr_ids ~ "TR",
 ```
 
 
+# Add Count-vars & Post-Vars
+
+```{r post_vars}
+names(Data_post)[137:139] <- c("spontaneous", "voluntary", "dreams")
+
+Data_pre$s1.count <- rowSums(!is.na(Data_pre[, grepl("s1.*", names(Data_pre))]))
+Data_pre$s2.count <- rowSums(!is.na(Data_pre[, grepl("s1.*", names(Data_pre))]))   
+Data_pre$s3.count <- rowSums(!is.na(Data_pre[, grepl("s3.*", names(Data_pre))]))
+
+Data_post$s1.count <- rowSums(!is.na(Data_post[, grepl("s1.*", names(Data_post))]))
+Data_post$s2.count <- rowSums(!is.na(Data_post[, grepl("s1.*", names(Data_post))]))    # for some reason it has +1 count from all rest
+Data_post$s3.count <- rowSums(!is.na(Data_post[, grepl("s3.*", names(Data_post))]))
+```
+
+
+
 # Unite data frames
 
 ```{r unite_df}
@@ -620,16 +635,20 @@ Data_post$PrePost <- rep("Post", nrow(Data_post))
 Data_pre_scales <- Data_pre[, c("ID", "Varsta",
                                 "VAS_stress_pre", "VAS_stress_post", "PSS", 
                                 "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", 
-                                "PrePost", "Cond")]
+                                "PrePost", "Cond",
+                                "s1.count", "s2.count", "s3.count")]
 Data_post_scales <- Data_post[, c("ID", "Varsta",
                                   "VAS_stress_pre", "VAS_stress_post", "PSS", 
                                   "Auto", "EnvM", "PersG", "PosRel", "PurLif",  "SelfAc", "S1_Mean", "S2_Mean", "S3_Mean", 
-                                  "PrePost", "Cond")]
+                                  "PrePost", "Cond",
+                                  "s1.count", "s2.count", "s3.count",
+                                  "spontaneous", "voluntary", "dreams")]
 
-Data_unif_long <- rbind(Data_pre_scales, Data_post_scales)
+Data_unif_long <- dplyr::bind_rows(Data_pre_scales, Data_post_scales)
 Data_unif_wide <-
   Data_unif_long %>%
-  tidyr::pivot_wider(names_from = PrePost, values_from = c(VAS_stress_pre, VAS_stress_post, PSS, Auto, EnvM, PersG, PosRel, PurLif, SelfAc, S1_Mean, S2_Mean, S3_Mean))
+  tidyr::pivot_wider(id_cols = ID, names_from = PrePost, values_from = c(VAS_stress_pre, VAS_stress_post, PSS, Auto, EnvM, PersG, PosRel, PurLif, SelfAc, Cond,
+                                                           S1_Mean, S2_Mean, S3_Mean, s1.count, s2.count, s3.count, spontaneous, voluntary, dreams))
 
 Data_unif_long <-
   Data_unif_long %>%
@@ -638,440 +657,170 @@ Data_unif_long <-
                   PrePost = as.factor(PrePost)) %>%
    dplyr::mutate(Vas_Diff = VAS_stress_post - VAS_stress_pre,
                  Vas_Mean = rowMeans(dplyr::select(.data = ., VAS_stress_post, VAS_stress_pre), na.rm = TRUE))
-```
 
 
-## Export data for RMN in specified order
 
-```{r df_export_rmn}
-# rmn_order_ids <- c(1, 14, 13, 6, 4, 5, 10, 15, 2, 16, 42, 34, 24, 25, 26, 35, 39, 40, 32, 59, 53, 64, 46, 47, 62, 63, 48, 51, 60, 
-#                    8, 20, 12, 18, 9, 17, 19, 7, 3, 43, 41, 27, 23, 38, 22, 33, 28, 30, 21, 37, 49, 56, 58, 57, 52, 45, 55, 54)
-# rmn_order_ids <- paste0(rmn_order_ids, " M2")
-# 
-# RMN_df <- Data_unif_wide [match(rmn_order_ids, Data_unif_wide $ID),]    # only 57 subjs for RMN
-# 
-# rio::export(RMN_df, "RMN ordered M2.xlsx")
-```
 
-
-<!-- Do it by condition, need ANCOVA Post
-
-```{r t_test, fig.width=5, fig.height=7, results='asis', warning=FALSE}
-cat("### PSS")
-func_t_box(Data_unif_wide, "ID", "PSS_Pre", "PSS_Post")
-
-cat("### Ryff")
-func_t_box(Data_unif_wide, "ID", "Auto_Pre", "Auto_Post")
-func_t_box(Data_unif_wide, "ID", "EnvM_Pre", "EnvM_Post")
-func_t_box(Data_unif_wide, "ID", "PersG_Pre", "PersG_Post")
-func_t_box(Data_unif_wide, "ID", "PosRel_Pre", "PosRel_Post")
-func_t_box(Data_unif_wide, "ID", "PurLif_Pre", "PurLif_Post")
-func_t_box(Data_unif_wide, "ID", "SelfAc_Pre", "SelfAc_Post")
-
-
-cat("### Memory Scales")
-func_t_box(Data_unif_wide, "ID", "S1_Mean_Pre", "S1_Mean_Post")
-func_t_box(Data_unif_wide, "ID", "S2_Mean_Pre", "S2_Mean_Post")
-func_t_box(Data_unif_wide, "ID", "S3_Mean_Pre", "S3_Mean_Post")
-```
-
--->
-
-<!-- ALL GOOD BUT DONT NEED TO RUN THIS AGAIN, TOO LONG
-
-# ANCOVA Post
-
-```{r res_ANCOVAPost, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
-cat("## PSS")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = PSS, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## Auto")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = Auto, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## EnvM")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = EnvM, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## PersG")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = PersG, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## PosRel")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = PosRel, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## PurLif")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = PurLif, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## SelfAc")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = SelfAc, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-
-cat("## S1_Mean")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = S1_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## S2_Mean")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = S2_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## S3_Mean")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = S3_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## Vas_Diff")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = Vas_Diff, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-
-cat("## Vas_Mean")
-ANCOVAPost_func(data = Data_unif_long, id_var = ID, time_var = PrePost, pre_label = Pre, post_label = Post,
-                value_var = Vas_Mean, cond_var = Cond, assum_check = TRUE, p_adjust_method = "bonferroni")
-```
-
--->
-
-
-<!-- ALL GOOD BUT DONT NEED TO RUN THIS AGAIN, TOO LONG
-
-# Mixed ANOVA
-
-```{r res_mixedANOVA, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
-cat("## PSS")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = PSS, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## Auto")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = Auto, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## EnvM")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = EnvM, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## PersG")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = PersG, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## PosRel")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = PosRel, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## PurLif")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = PurLif, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## SelfAc")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = SelfAc, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## S1_Mean")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = S1_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## S2_Mean")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = S2_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## S3_Mean")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = S3_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## Vas_Diff")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = Vas_Diff, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-
-cat("## Vas_Mean")
-tw_mixedANOVA_func(data = Data_unif_long, id_var = ID, cond_var = Cond, time_var = PrePost, 
-                   value_var = Vas_Mean, posthoc_sig_interac = TRUE, posthoc_ns_interac = TRUE)
-```
-
--->
-
-# Split by Age (<=34; >=35)
-
-## Define functions
-
-```{r def_func_multiplegroups}
-# library(tidyverse)
-# library(rstatix)
-# library(ggpubr)
-
-ANOVAKruskal_func <- function(data, cond_var, value_var, p_adjust_method = "bonferroni", parametric = TRUE){ # id_var
-  
-    #id_var_enq <- rlang::enquo(id_var)  
-    cond_var_enq <- rlang::enquo(cond_var)
-    cond_var_name <- rlang::as_name(cond_var_enq)
-    value_var_enq <- rlang::enquo(value_var)
-    value_var_name <- rlang::as_name(value_var_enq)
-  
-  cat("\n Summary statistics \n")
-  data %>%
-    group_by(!!cond_var_enq) %>%
-    get_summary_stats(!!value_var_enq, type = "common") %>% 
-    print()
-  
-  if(parametric){  
-    cat("\n Compare the mean of multiple groups using ANOVA test \n")
-    res.aov <- 
-      data %>% 
-      anova_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)))   
-    res.aov %>% print()
-    
-    cat("Pairwise comparisons")
-    pwc <- 
-      data %>%
-      pairwise_t_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), 
-                      p.adjust.method = p_adjust_method)
-    pwc %>% print()
-    
-    cat("\n Plot: Show significance levels & hide non-significant tests \n")
-    pwc <- 
-      pwc %>% 
-      add_xy_position(x = cond_var_name)
-    ggboxplot(data, x = cond_var_name, y = value_var_name) +
-    stat_pvalue_manual(pwc, hide.ns = TRUE, label = "p.adj.signif") +
-    labs(
-      subtitle = get_test_label(res.aov, detailed = TRUE),
-      caption = get_pwc_label(pwc)
-      )
-    
-  }else{
-    cat("\n Compare the mean of multiple groups using Kruskal–Wallis test \n")
-    res.kruskal <- 
-      data %>% 
-      kruskal_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)))
-    res.kruskal %>% print()
-    
-    cat("\n The eta squared, based on the H-statistic, can be used as the measure of the Kruskal-Wallis test effect size \n")
-    # It is calculated as follow : eta2[H] = (H - k + 1)/(n - k); where H is the value obtained in the Kruskal-Wallis test; k is the number of groups; 
-    # n is the total number of observations (M. T. Tomczak and Tomczak 2014).
-    data %>% 
-      kruskal_effsize(as.formula(paste0(value_var_name, " ~ ", cond_var_name)))%>%
-      print()
-    
-    cat("\n Pairwise comparisons using Dunn’s test \n")
-    pwc <- 
-      data %>% 
-      dunn_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), 
-                      p.adjust.method = p_adjust_method)
-    pwc %>% print()
-    
-    cat("\n Pairwise comparisons using Wilcoxon’s test \n")
-    pwc2 <- 
-      data %>% 
-      wilcox_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), 
-                      p.adjust.method = p_adjust_method)
-    pwc2 %>% print()
-    
-    cat("\n Plot: Show significance levels & hide non-significant tests \n")
-    pwc <- 
-      pwc %>% 
-      add_xy_position(x = cond_var_name)
-    ggboxplot(data, x = cond_var_name, y = value_var_name) +
-      stat_pvalue_manual(pwc, hide.ns = TRUE) +
-      labs(
-        subtitle = get_test_label(res.kruskal, detailed = TRUE),
-        caption = get_pwc_label(pwc)
-        )
-    
-  }
-  
-  
-}
-
-# ANOVAKruskal_func(data = Data_unif_wide, cond_var = Cond, value_var = PSS_Post)
-
-```
-
-
-```{r}
-Data_unif_wide_age <- Data_unif_wide
-
-
-Data_unif_wide_age$Age_categ <- ifelse(Data_unif_wide_age$Varsta > 34, ">=35", "<=34")
-table(Data_unif_wide_age$Age_categ)
-table(Data_unif_wide_age$Age_categ, Data_unif_wide_age$Cond)
-
-Data_unif_wide_age$Age_categ_Cond <- paste0(Data_unif_wide_age$Age_categ, "_", Data_unif_wide_age$Cond) 
-table(Data_unif_wide_age$Age_categ_Cond)
-
-Data_unif_wide_age$PSS_Diff <- Data_unif_wide_age$PSS_Post - Data_unif_wide_age$PSS_Pre
-Data_unif_wide_age$Auto_Diff <- Data_unif_wide_age$Auto_Post - Data_unif_wide_age$Auto_Pre
-Data_unif_wide_age$EnvM_Diff <- Data_unif_wide_age$EnvM_Post - Data_unif_wide_age$EnvM_Pre
-Data_unif_wide_age$PersG_Diff <- Data_unif_wide_age$PersG_Post - Data_unif_wide_age$PersG_Pre
-Data_unif_wide_age$PosRel_Diff <- Data_unif_wide_age$PosRel_Post - Data_unif_wide_age$PosRel_Pre
-Data_unif_wide_age$PurLif_Diff <- Data_unif_wide_age$PurLif_Post - Data_unif_wide_age$PurLif_Pre
-Data_unif_wide_age$SelfAc_Diff <- Data_unif_wide_age$SelfAc_Post - Data_unif_wide_age$SelfAc_Pre
-Data_unif_wide_age$S1_Mean_Diff <- Data_unif_wide_age$S1_Mean_Post - Data_unif_wide_age$S1_Mean_Pre
-Data_unif_wide_age$S2_Mean_Diff <- Data_unif_wide_age$S2_Mean_Post - Data_unif_wide_age$S2_Mean_Pre
-Data_unif_wide_age$S3_Mean_Diff <- Data_unif_wide_age$S3_Mean_Post - Data_unif_wide_age$S3_Mean_Pre
-Data_unif_wide_age$VAS_Diff <- Data_unif_wide_age$VAS_stress_post_Post - Data_unif_wide_age$VAS_stress_pre_Pre
-
-
-```
-
-## Results
-
-```{r res_multiplegroups, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
-
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = PSS_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = Auto_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = EnvM_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = PersG_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = PosRel_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = PurLif_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = SelfAc_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = S1_Mean_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = S2_Mean_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = S3_Mean_Diff, parametric = FALSE)
-ANOVAKruskal_func(data = Data_unif_wide_age, cond_var = Age_categ_Cond, value_var = VAS_Diff, parametric = FALSE)
-
-```
-
-
-# Only Post variables
-
-```{r}
-Data_post_new <- Data_post
-
-colnames(Data_post_new)[137] <- "spontan"
-colnames(Data_post_new)[138] <- "voluntar"
-colnames(Data_post_new)[139] <- "vise"
-colnames(Data_post_new)[140] <- "perioada"
-
+# Export data
+# rio::export(Data_unif_wide, "M2 wide_format_2.xlsx")
+# rio::export(Data_unif_long, "M2 long_format_2.xlsx")
 
 
 # Export data for RMN in specified order
-
 # rmn_order_ids <- paste0(c(1, 14, 13, 6, 4, 5, 10, 15, 2, 16, 42, 34, 24, 25, 26, 35, 39, 40, 32, 59, 53, 64, 46, 47, 62, 63, 48, 51, 60,
 #                    8, 20, 12, 18, 9, 17, 19, 7, 3, 43, 41, 27, 23, 38, 22, 33, 28, 30, 21, 37, 49, 56, 58, 57, 52, 45, 55, 54), " ", "M2")
 # 
-# RMN_df <- Data_post_new[match(rmn_order_ids, Data_post_new$ID),]    # only 57 subjs for RMN
+# RMN_df <- Data_unif_wide[match(rmn_order_ids, Data_unif_wide$ID),]    # only 57 subjs for RMN
 # 
-# RMN_df <-
-#   RMN_df %>%
-#   select(ID, Varsta, spontan, voluntar, vise, perioada)
-# 
-# rio::export(RMN_df, "RMN ordered M2 post variables.xlsx")
+# rio::export(RMN_df, "RMN ordered M2 wide_format_2.xlsx")
+```
+
+
+## Read NFkB
+
+```{r read_nfkb, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M2-report"
+file <- "lista_M2 cu rezultate NFkB.xlsx"
+
+setwd(folder)
+
+Data_nfkb_TR <-  readxl::read_xlsx(file.path(folder, file), 
+                                   range = "A1:F30", sheet = "NFkB")
+Data_nfkb_CTRL <-  readxl::read_xlsx(file.path(folder, file), 
+                                     range = "H1:M31", sheet = "NFkB")
+
+Data_nfkb_TR <- Data_nfkb_TR[-1, ]
+colnames(Data_nfkb_TR)[c(1, 4, 6)] <- c("ID", "NFkB_Pre", "NFkB_Post")
+Data_nfkb_TR <- 
+  Data_nfkb_TR %>%
+  dplyr::rename_all(~stringr::str_replace_all(., " ", "_")) %>%
+  dplyr::select(-starts_with("ID_Parhon")) %>%
+  dplyr::mutate(Cond = rep("TR", nrow(Data_nfkb_TR))) %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, "ID")) %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, " ")) %>%
+  dplyr::mutate(ID = stringr::str_c(ID, " M2"))
+  
+
+Data_nfkb_CTRL <- Data_nfkb_CTRL[-1, ]
+colnames(Data_nfkb_CTRL)[c(1, 4, 6)] <- c("ID", "NFkB_Pre", "NFkB_Post")
+Data_nfkb_CTRL <- 
+  Data_nfkb_CTRL %>%
+  dplyr::rename_all(~stringr::str_replace_all(., " ", "_")) %>%
+  dplyr::select(-starts_with("ID_Parhon")) %>%
+  dplyr::mutate(Cond = rep("CTRL", nrow(Data_nfkb_CTRL))) %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, "ID")) %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, " ")) %>%
+  dplyr::mutate(ID = stringr::str_c(ID, " M2"))
+```
+
+
+# Unite with nfkb
+```{r unite_df_nfkb}
+# check
+all.equal(colnames(Data_nfkb_TR), colnames(Data_nfkb_CTRL))
+
+Data_unif_wide2 <- dplyr::left_join(Data_unif_wide, rbind(Data_nfkb_TR, Data_nfkb_CTRL), by = "ID")
+
+# check
+all.equal(Data_unif_wide2$Cond_Pre, Data_unif_wide2$Cond)
+
+Data_unif_wide2 <- 
+  Data_unif_wide2 %>%
+  dplyr::select(-c(Nume_subiect, Cond))
+```
+
+
+# NfKB
+```{r nfkb_ttest}
+func_t_box(Data_nfkb_TR, ind = "ID", pre_var = "NFkB_Pre", post_var = "NFkB_Post")
+
+Data_nfkb_TR %>%
+  tidyr::pivot_longer(cols = c(NFkB_Pre, NFkB_Post), names_to = "PrePost", values_to = "NFkB") %>%
+  rstatix::wilcox_test(NFkB ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
+
+func_t_box(Data_nfkb_CTRL, ind = "ID", pre_var = "NFkB_Pre", post_var = "NFkB_Post")
+
+Data_nfkb_CTRL %>%
+  tidyr::pivot_longer(cols = c(NFkB_Pre, NFkB_Post), names_to = "PrePost", values_to = "NFkB") %>%
+  rstatix::wilcox_test(NFkB ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
 ```
 
 
 
+## New Ideas: Correlations Number of memories & remembering
 
+```{r cor_memory, fig.height=5, fig.height=6}
+cat("PRE-POST Comparisons by Cond: TR")
+Data_unif_long %>%
+  dplyr::filter(Cond == "TR") %>% 
+  rstatix::wilcox_test(s1.count ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
 
-```{r def_func_compindep}
-ttestMannU_func <- function(data, cond_var, value_var, var_equal_ttest = FALSE, parametric = TRUE){ # id_var
-  
-    #id_var_enq <- rlang::enquo(id_var)  
-    cond_var_enq <- rlang::enquo(cond_var)
-    cond_var_name <- rlang::as_name(cond_var_enq)
-    value_var_enq <- rlang::enquo(value_var)
-    value_var_name <- rlang::as_name(value_var_enq)
-    
-  data <-
-    data %>%
-    select(!!cond_var_enq, !!value_var_enq)
-  
-  if(parametric){
-  cat("\n Summary statistics \n")
-  data %>%
-    group_by(!!cond_var_enq) %>%
-    get_summary_stats(!!value_var_enq, type = "common") %>% 
-    print()
-  
-  cat("\n Outliers \n")
-  data %>%
-    group_by(!!cond_var_enq) %>%
-    identify_outliers(!!value_var_enq) %>% 
-    print()
-  
-  cat("\n Check normality by groups (Shapiro wilk test) \n")
-  data %>%
-    group_by(!!cond_var_enq) %>%
-    shapiro_test(!!value_var_enq) %>% 
-    print()
-  
-  cat("\n Draw a qq plot by group \n")
-  qq_plot <- ggqqplot(data, x = value_var_name, facet.by = cond_var_name)
-  
-  cat("\n Check the equality of variances (Levene’s test) \n")
-  data %>% 
-    levene_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name))) %>% 
-    print()
-  
-  cat("\n Student t-test (var_equl = TRUE) / Welch t test (var_equal = FALSE) \n")
-  stat_test <- 
-    data %>% 
-    t_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), var.equal = var_equal_ttest) %>%
-    add_significance()
-  stat_test %>% print()
-  
-  cat("\n Effect size for Student t-test / Welch t test \n")
-  data %>%  
-    cohens_d(as.formula(paste0(value_var_name, " ~ ", cond_var_name)), var.equal = TRUE)
-  
-  # Visualization
-  stat_test <- stat_test %>% add_xy_position(x = cond_var_name)
-  bx_plot <- 
-    ggboxplot(data, x = cond_var_name, y = value_var_name, 
-              ylab = value_var_name, xlab = cond_var_name, add = "jitter") + 
-    stat_pvalue_manual(stat_test, tip.length = 0) +
-    labs(subtitle = get_test_label(stat_test, detailed = TRUE))
-  
-  
-  list(qq_plot, bx_plot)
-  
-  }else{
-    
-  cat("\n Summary statistics \n")
-  data %>%
-    group_by(!!cond_var_enq) %>%
-    get_summary_stats(!!value_var_enq, type = "median_iqr") %>% 
-    print()
-  
-  cat("\n Wilcoxon rank sum test \n")
-  stat_test <- 
-    data %>% 
-    wilcox_test(as.formula(paste0(value_var_name, " ~ ", cond_var_name))) %>%
-    add_significance()
-  stat_test %>% print()  
-  
-  cat("\n Effect size \n")
-  data %>% 
-    wilcox_effsize(as.formula(paste0(value_var_name, " ~ ", cond_var_name))) %>%
-    print()
-  
-  # Visualization
-  stat_test <- stat_test %>% add_xy_position(x = cond_var_name)
-  bx_plot <- 
-    ggboxplot(data, x = cond_var_name, y = value_var_name, 
-              ylab = value_var_name, xlab = cond_var_name, add = "jitter") + 
-    stat_pvalue_manual(stat_test, tip.length = 0) +
-    labs(subtitle = get_test_label(stat_test, detailed = TRUE))
-  
-  bx_plot
-  }
-  
-}  
+cat("## PRE-POST Comparisons by Cond: CTRL")
+Data_unif_long %>%
+  dplyr::filter(Cond == "CTRL") %>% 
+  rstatix::wilcox_test(s1.count ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
 
+cat("## POST-vars Comparisons by Cond")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  rstatix::wilcox_test(s1.count ~ Cond, paired = FALSE) %>%
+  rstatix::add_significance()
 
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>% 
+    rstatix::t_test(s1.count ~ Cond, paired = FALSE) %>%
+    rstatix::add_significance()
 
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  rstatix::wilcox_test(voluntary ~ Cond, paired = FALSE) %>%
+  rstatix::add_significance()                   
 
-# ttestMannU_func(Data_post_new, cond_var = Cond, value_var = spontan)
-  
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+    rstatix::t_test(voluntary ~ Cond, paired = FALSE) %>%
+    rstatix::add_significance()
+
+cat("## Correlation - whole sample")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
+
+cat("## Correlation - TR")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
+
+cat("## Correlation - CTRL")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
 ```
 
-## Results
+# Data in wide format
 
-```{r res_onlypostvars, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
-
-ttestMannU_func(Data_post_new, cond_var = Cond, value_var = spontan)
-ttestMannU_func(Data_post_new, cond_var = Cond, value_var = voluntar)
-ttestMannU_func(Data_post_new, cond_var = Cond, value_var = vise)
+```{r}
+Data_unif_wide2 %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
 
 ```
 
