@@ -84,7 +84,7 @@ theme_set(theme_apa())
 ## Read files
 
 # Read current Data
-folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior"
+folder <- "C:/Users/claud/Desktop/o1b-report-behavior"
 file <- "DATE o1b A.xlsx"
 setwd(folder)
 
@@ -220,6 +220,9 @@ df_zi3[13, 126] <- 1
 df_zi3[14, 126] <- 1
 df_zi3[15, 126] <- 1
 
+df_zi3[29, 40] <- 1
+df_zi3[29, 41] <- 2
+  
 ## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
 colstonumeric <- function(df){
   tryCatch({
@@ -297,10 +300,10 @@ df_zi3[, indexitemIRI_df_zi3_post][c(3,4,7,12,13,14,15,18,19)] <- 4 - colstonume
 
 
 
-## Scoring scales
+## Scoring scales  -- GRESEALA StaiS_post index 170:189
 # Zi 2
 df_zi2$StaiS_pre <- ScoreLikert(df_zi2[, 40:59], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
-df_zi2$StaiS_post <- ScoreLikert(df_zi2[, 181:200], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
+df_zi2$StaiS_post <- ScoreLikert(df_zi2[, 170:189], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
 
 df_zi2$PA_pre <- ScoreLikert(df_zi2[, 4:23][c(1,3,5,9,10,12,14,16,17,19)], tonumeric = TRUE,)
 df_zi2$NA_pre <- ScoreLikert(df_zi2[, 4:23][c(2,4,6,7,8,11,13,15,18,20)], tonumeric = TRUE,)
@@ -325,6 +328,8 @@ df_zi2$IRI_PD_post<- ScoreLikert(df_zi2[, 208:235][c(6,10,13,17,19,24,27)], nape
 
 
 # Zi 3
+df_zi3[, 162]
+
 df_zi3$StaiS_pre <- ScoreLikert(df_zi3[, 40:59], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
 df_zi3$StaiS_post <- ScoreLikert(df_zi3[, 161:180], reversecols = c(1,2,5,8,10,11,15,16,19,20), tonumeric = TRUE, min = 1, max = 4)
 
@@ -482,6 +487,394 @@ func_t_box(es_df, "ID", "IRI_PT_pre", "IRI_PT_post")
 func_t_box(es_df, "ID", "IRI_F_pre", "IRI_F_post")
 func_t_box(es_df, "ID", "IRI_PD_pre", "IRI_PD_post")
 ```
+
+
+# JRAD - Prez
+
+```{r}
+plot_STAI_jrad <- 
+  jrad_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Anxiety",
+      xlab = "Time",
+      ylab = "Anxiety",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_STAI_jrad, 
+       filename = "StaiS JRAD.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_PA_jrad <- 
+  jrad_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Positive Emotions",
+      xlab = "Time",
+      ylab = "Positive Emotions",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_PA_jrad, 
+       filename = "PA JRAD.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_NA_jrad <- 
+  jrad_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Negative Emotions",
+      xlab = "Time",
+      ylab = "Negative Emotions",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_NA_jrad, 
+       filename = "NA JRAD.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_APS_jrad <- 
+  jrad_df %>%
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Prosocial Attitudes",
+      xlab = "Time",
+      ylab = "Prosocial Attitudes",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_APS_jrad, 
+       filename = "APS JRAD.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+```
+
+# ES - Prez
+
+```{r}
+plot_STAI_es <- 
+  es_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Anxiety",
+      xlab = "Time",
+      ylab = "Anxiety",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_STAI_es, 
+       filename = "StaiS ES.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_PA_es <- 
+  es_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Positive Emotions",
+      xlab = "Time",
+      ylab = "Positive Emotions",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_PA_es, 
+       filename = "PA ES.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_NA_es <- 
+  es_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Negative Emotions",
+      xlab = "Time",
+      ylab = "Negative Emotions",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_NA_es, 
+       filename = "NA ES.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_APS_es <- 
+  es_df %>%
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Prosocial Attitudes",
+      xlab = "Time",
+      ylab = "Prosocial Attitudes",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_APS_es, 
+       filename = "APS ES.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+```
+
+
+
+
+
 
 
 # Only POST variables

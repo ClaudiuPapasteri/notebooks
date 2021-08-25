@@ -1,0 +1,296 @@
+---
+title: "<br> O1B Report - oxy" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode, Merge
+
+```{r red_clean_recode_merge, warning=FALSE, message=FALSE, results='hide',}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+
+# Read current Data
+folder <- "C:/Users/claud/Desktop/o1b-report-behavior"
+file <- "OXT decodificare_O1b_subiecti.xlsx"
+setwd(folder)
+
+suppressMessages({                                   # some columns are renamed and the warning breaks pandoc
+df_oxy <- rio::import(file.path(folder, file),
+                           which = "Aranjate",
+                           skip = 0)
+})
+
+Data <-
+  df_oxy %>%
+  tidyr::separate(ID, c("ID", "O1b"), sep = "/") %>%
+  tidyr::separate(O1b, c("O1b", "PrePost"), sep = "-") %>%
+  dplyr::mutate(PrePost = 
+                  dplyr::case_when(PrePost %in% c("A", "C") ~ "Pre",
+                                   PrePost %in% c("B", "D") ~ "Post",
+                                   TRUE                     ~ NA_character_)) %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post"))) %>%
+  dplyr::rename(Oxy = `Pg_oxitocina/ml`) %>%
+  dplyr::filter(!(ID %in% c("3", "23", "34"))) %>%
+  tibble::rowid_to_column() %>%
+  dplyr::filter(rowid < 157) %>%                    # exclude second Oxy values of id 18 ????
+  dplyr::select(-c(rowid, Data, Obs))
+    
+Data_wide <-
+  Data %>%
+  tidyr::pivot_wider(values_from = Oxy, names_from = PrePost)
+```
+
+
+# Define Function
+
+```{r def_func, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  vars <- c(ind, pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), as.factor) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+
+# Initial Analyses
+
+```{r t_test, fig.width=5, fig.height=7, results='asis', warning=FALSE}
+cat("### JRAD")
+Data_wide %>%
+  dplyr::filter(Cond == "JRAD") %>%
+  # dplyr::filter(ID != "18") %>%
+  func_t_box(., "ID", "Pre", "Post")
+         
+
+cat("### ES")
+Data_wide %>%
+  dplyr::filter(Cond == "ES") %>%
+  # dplyr::filter(ID != "18") %>%
+  func_t_box(., "ID", "Pre", "Post")
+
+```
+
+# For Prez
+
+```{r}
+plot_OX_jrad <- 
+  Data_wide %>%
+    dplyr::select(ID, Cond, Pre, Post) %>%
+    tidyr::pivot_longer(cols = c(Pre, Post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    dplyr::filter(Cond == "JRAD") %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Oxytocin",
+      xlab = "Time",
+      ylab = "Salivary OXT (pg/mg total protein)",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_OX_jrad, 
+       filename = "OXT JRAD.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+
+plot_OX_es <- 
+  Data_wide %>%
+    dplyr::select(ID, Cond, Pre, Post) %>%
+    tidyr::pivot_longer(cols = c(Pre, Post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    dplyr::filter(Cond == "ES") %>%
+    group_by(ID) %>%
+    ggstatsplot::ggwithinstats(
+      x = Time,
+      y = value,
+      title = "Oxytocin",
+      xlab = "Time",
+      ylab = "Salivary OXT (pg/mg total protein)",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      outlier.tagging = FALSE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+
+ggsave(plot_OX_es, 
+       filename = "OXT ES.png", 
+       height = 8, width = 8, dpi = 300, 
+       units = "in", device = "png"
+       )
+
+```
+
+
+# Only POST
+
+```{r t_test_post, fig.width=5, fig.height=7, results='asis', warning=FALSE}
+
+Data_wide %>%
+  group_by(Cond) %>%
+  rstatix::get_summary_stats(Post)
+
+Data_wide %>%
+  rstatix::t_test(Post ~ Cond)
+
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
