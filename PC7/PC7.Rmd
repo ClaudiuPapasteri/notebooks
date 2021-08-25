@@ -1,0 +1,213 @@
+---
+title: "<br> PC7" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang",
+  "pwr"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Read data
+
+```{r}
+# fac parte din grup experimental 1,2,4,5,6,7,9,10,19,20
+df <- rio::import("met PC7 - fMRI.xlsx", skip = 1)
+df <- df[1:16,]   # empty rows
+df <- df %>% tidyr::unite(NR.CRT., Intrebarea, col = Intrebarea)
+
+item_names <- df$Intrebarea
+df$Intrebarea <- paste0("item_", 1:length(item_names))
+
+df <- 
+  as.data.frame(t(df)) %>%
+  tibble::rownames_to_column()
+
+names(df) <- df[1, ]
+names(df)[1] <- "ID"
+df <- df[-1, ]
+rownames(df) <- 1:nrow(df)
+
+df <- 
+  df %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, "ID"),
+                ID = stringr::str_remove(ID, "A10")) %>%
+  dplyr::mutate(Cond = dplyr::case_when(ID %in% c(1, 2, 4, 5, 6, 7, 9, 10, 19, 20) ~ "TR",
+                                        TRUE ~ "CTRL")) %>%
+  dplyr::mutate(across(contains("item"), ~as.numeric(.x)))
+
+df <- 
+  df %>%
+  dplyr::filter(ID != "13")   # participant with no data
+```
+
+# Quick ggbetweenstats function
+
+```{r}
+my_ggbetweenstats <- function(data, x, y, outlier.label, xlab = NULL, ylab = NULL, title = NULL) {
+  x_enq <- rlang::enquo(x)
+  y_enq <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(is.null(xlab)) xlab <- deparse(substitute(x)) 
+  if(is.null(ylab)) ylab <- deparse(substitute(y))
+  if(is.null(title)) title <- ylab
+  
+  data %>%
+    ggstatsplot::ggbetweenstats(
+      x = !!x_enq,
+      y = !!y_enq,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE, # whether outliers need to be tagged
+      outlier.label = !!outlier.label, # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "np",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+```
+
+
+# Individual items
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.keep='all'}
+## ex run
+# df %>%
+#   my_ggbetweenstats(x = Cond, y = item_1, outlier.label = ID)
+
+map_my_ggbetweenstats <- purrr::partial(my_ggbetweenstats, data = df, x = Cond, outlier.label = ID)
+
+vars <- 
+  df %>%
+  dplyr::select(contains("item")) %>%
+  names() %>%
+  rlang::set_names()
+
+vars %>%
+  map(
+    ~ map_my_ggbetweenstats(y = !!.x, ylab = .x)
+  )
+
+
+
+## equivalent using for loop
+# for(var in vars){
+#   map_my_ggbetweenstats(y = !!var, ylab = var)
+# }
+              
+
+```
+
+# Full Scale
+
+```{r}
+df %>%
+  dplyr::mutate(Total = rowSums(dplyr::select(., contains("item")), na.rm = TRUE)) %>%
+  my_ggbetweenstats(x = Cond, y = Total, outlier.label = ID)
+```
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
