@@ -1,0 +1,303 @@
+---
+title: "<br> M2" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read, Clean, Recode
+
+```{r read_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M2-report"
+file_df <- "M2 wide_format_3.RDS"
+file_rmn <- "Valori_BOLD_task_ALL_PRE_M1M3-M2_complet.xlsx"
+
+setwd(folder)
+
+Data_df <- readRDS(file.path(folder, file_df))
+
+Data_df <- 
+  Data_df %>% 
+  dplyr::mutate(ID = stringr::str_remove(ID, "M2"),
+                ID = stringr::str_remove_all(ID, "\\s")) %>%
+  dplyr::select(-c("spontaneous_Pre", "voluntary_Pre", "dreams_Pre", "Cond_Pre", "Cond_Post")) 
+
+Data_rmn <- rio::import(file.path(folder, file_rmn), skip = 0)
+
+Data_rmn <- 
+  Data_rmn %>% 
+  dplyr::mutate(ID = stringr::str_remove(ID, "-"),
+                ID = stringr::str_remove_all(ID, "\\s")) %>%
+  dplyr::rename_at(vars(contains("Valori")), janitor::make_clean_names) %>%
+  dplyr::select(-starts_with("Nr"))
+
+Data <- dplyr::left_join(Data_df, Data_rmn, by = "ID")    # two subjects that are not M2 are excluded
+
+Data <- 
+  Data %>%
+  dplyr::rename("bold" = valori_cresteri_percent_bold_m1m3_m2) %>%
+  dplyr::rename_at(vars(contains("Valori")), ~str_remove(., pattern = "valori_cresteri_percent_bold_m1m3_m2_"))
+```
+
+
+# Significant correlations (Pearson)
+
+```{r}
+cor_rmn_p <- 
+  Data %>%
+    dplyr::select_if(is.numeric) %>%
+    dplyr::select(-c(s2.count_Pre, s3.count_Pre, s2.count_Post, s3.count_Post)) %>%    # s1.count is perfectly correlated with cu s2.count si s3.count
+    dplyr::select(bold, contains("cluster"), everything()) %>%                                # bring RMN clusters in front of table
+    correlation::correlation(method = "pearson", p_adjust = "none") %>%
+    dplyr::filter(p < .05)
+
+cor_rmn_p
+```
+
+
+## Figures for significant correlations (Pearson)
+
+```{r, fig.height=8, fig.width=8}
+Data %>%
+  dplyr::select(bold, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation()
+
+Data %>%
+  dplyr::select(cluster_34, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation()
+
+Data %>%
+  dplyr::select(cluster_35, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation()
+
+Data %>%
+  dplyr::select(cluster_36, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation()
+
+Data %>%
+  dplyr::select(cluster_37, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation()
+```
+
+<!--
+# Significant correlations (Spearman)
+
+```{r}
+cor_rmn_s <- 
+  Data %>%
+    dplyr::select_if(is.numeric) %>%
+    dplyr::select(-c(s2.count_Pre, s3.count_Pre, s2.count_Post, s3.count_Post)) %>%    # s1.count is perfectly correlated with cu s2.count si s3.count
+    dplyr::select(bold, contains("cluster"), everything()) %>%                                # bring RMN clusters in front of table
+    correlation::correlation(method = "spearman", p_adjust = "none") %>%
+    dplyr::filter(p < .05)
+
+cor_rmn_s
+```
+
+
+## Figures for significant correlations (Spearman)
+
+```{r, fig.height=8, fig.width=8}
+Data %>%
+  dplyr::select(bold, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation(method = "spearman")
+
+Data %>%
+  dplyr::select(cluster_34, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation(method = "spearman")
+
+Data %>%
+  dplyr::select(cluster_35, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation(method = "spearman")
+
+Data %>%
+  dplyr::select(cluster_36, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation(method = "spearman")
+
+Data %>%
+  dplyr::select(cluster_37, s1.count_Pre, voluntary_Post, spontaneous_Post) %>%
+  PerformanceAnalytics::chart.Correlation(method = "spearman")
+```
+-->
+
+<!--
+# NfKB
+```{r nfkb_ttest}
+func_t_box(Data_nfkb_TR, ind = "ID", pre_var = "NFkB_Pre", post_var = "NFkB_Post")
+
+Data_nfkb_TR %>%
+  tidyr::pivot_longer(cols = c(NFkB_Pre, NFkB_Post), names_to = "PrePost", values_to = "NFkB") %>%
+  rstatix::wilcox_test(NFkB ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
+
+func_t_box(Data_nfkb_CTRL, ind = "ID", pre_var = "NFkB_Pre", post_var = "NFkB_Post")
+
+Data_nfkb_CTRL %>%
+  tidyr::pivot_longer(cols = c(NFkB_Pre, NFkB_Post), names_to = "PrePost", values_to = "NFkB") %>%
+  rstatix::wilcox_test(NFkB ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
+```
+
+## New Ideas: Correlations Number of memories & remembering
+
+```{r cor_memory, fig.height=5, fig.height=6}
+cat("PRE-POST Comparisons by Cond: TR")
+Data_unif_long %>%
+  dplyr::filter(Cond == "TR") %>% 
+  rstatix::wilcox_test(s1.count ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
+
+cat("## PRE-POST Comparisons by Cond: CTRL")
+Data_unif_long %>%
+  dplyr::filter(Cond == "CTRL") %>% 
+  rstatix::wilcox_test(s1.count ~ PrePost, paired = TRUE) %>%
+  rstatix::add_significance()
+
+cat("## POST-vars Comparisons by Cond")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  rstatix::wilcox_test(s1.count ~ Cond, paired = FALSE) %>%
+  rstatix::add_significance()
+
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>% 
+    rstatix::t_test(s1.count ~ Cond, paired = FALSE) %>%
+    rstatix::add_significance()
+
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  rstatix::wilcox_test(voluntary ~ Cond, paired = FALSE) %>%
+  rstatix::add_significance()                   
+
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+    rstatix::t_test(voluntary ~ Cond, paired = FALSE) %>%
+    rstatix::add_significance()
+
+cat("## Correlation - whole sample")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
+
+cat("## Correlation - TR")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
+
+cat("## Correlation - CTRL")
+Data_unif_long %>%
+  dplyr::filter(PrePost == "Post") %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::select(s1.count, spontaneous, voluntary, dreams) %>% 
+  PerformanceAnalytics::chart.Correlation()
+```
+
+# Data in wide format
+
+```{r}
+Data_unif_wide2 %>%
+  dplyr::select(-c(Nume_subiect, Cond)) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+
+```
+-->
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;

@@ -2,3 +2,5 @@ Data exports/
 Reports/
 *.xlsx
 *.Rhistory
+*.ods
+*.RDS
