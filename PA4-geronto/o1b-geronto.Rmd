@@ -1,0 +1,742 @@
+---
+title: "<br> O1B Report - Geriatric" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define scoring functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+
+# Quick ggwithinstats function
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              type = "parametric", 
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = type,
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    scale_y_continuous(...)
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "png", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+```
+
+
+
+
+
+## Behavioral scales
+
+```{r}
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-geronto"
+file_beh_pre <- "Set teste zi 1 pre grup vârstnici.xlsx"
+file_beh_post <- "Set teste zi 5 post grup vârstnici.xlsx"
+
+
+### Pre
+behav_pre <- rio::import(file.path(folder, file_beh_pre))
+behav_pre <- behav_pre[-1,]
+names(behav_pre)[6] <- "id"
+behav_pre[behav_pre$id == "CU16PA1",]$id <- "CN16PA1"     # typo, should be "CN_16" instead of "CU-16" -- in vas its "CN_16"
+behav_pre <- behav_pre %>% 
+  janitor::clean_names() %>%
+  dplyr::mutate(id = stringr::str_remove(id, "PA1"),
+                id = gsub('^(.{2})(.*)$', '\\1_\\2', id)) %>%        # insert "_" afeter code
+  tidyr::separate(id, into = c("forma", "ID_no"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(forma = gsub('^(.{1})(.*)$', '\\1_\\2', id)) %>%
+  tidyr::separate(forma, into = c("Cond", "Cog_imp"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(Cond = dplyr::case_when(Cond == "C" ~ "CTRL",
+                                        Cond == "E" ~ "TR",
+                                        TRUE ~ NA_character_)) %>%
+  dplyr::mutate(id = stringr::str_replace(id, "O", "0"),
+                id = stringr::str_replace(id, "o", "0")) %>%
+  dplyr::mutate(ID_no = stringr::str_replace(ID_no, "O", "0"),
+                ID_no = stringr::str_replace(ID_no, "o", "0"),
+                ID_no = as.numeric(ID_no))
+
+## Post
+behav_post <- rio::import(file.path(folder, file_beh_post))
+behav_post <- behav_post[-1,]
+behav_post <- behav_post[,-c(6:9)]
+names(behav_post)[6] <- "id"
+behav_post <- behav_post %>% 
+  janitor::clean_names() %>%
+  dplyr::mutate(id = stringr::str_remove(id, "PA1"),
+                id = gsub('^(.{2})(.*)$', '\\1_\\2', id)) %>%        # insert "_" afeter code
+  tidyr::separate(id, into = c("forma", "ID_no"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(forma = gsub('^(.{1})(.*)$', '\\1_\\2', id)) %>%
+  tidyr::separate(forma, into = c("Cond", "Cog_imp"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(Cond = dplyr::case_when(Cond == "C" ~ "CTRL",
+                                        Cond == "E" ~ "TR",
+                                        TRUE ~ NA_character_)) %>%
+  dplyr::mutate(id = stringr::str_replace(id, "O", "0"),
+                id = stringr::str_replace(id, "o", "0")) %>%
+  dplyr::mutate(ID_no = stringr::str_replace(ID_no, "O", "0"),
+                ID_no = stringr::str_replace(ID_no, "o", "0"),
+                ID_no = as.numeric(ID_no))
+
+
+
+# checks
+bla <- data.frame(Pre = names(behav_pre), Post = names(behav_post))
+
+behav_pre %>%
+  dplyr::count(id) %>%  # 40 x 1
+  dplyr::arrange(id) %>%
+  dplyr::pull(id) -> behav_pre_ids
+ 
+  
+behav_post %>%
+  dplyr::count(id) %>%  # 40 x 1
+  dplyr::arrange(id) %>%
+  dplyr::pull(id) -> behav_post_ids
+
+identical(behav_pre_ids, behav_post_ids)    # one has CU_16, the other CN_16
+
+
+
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.  
+index_item_panas <- 11:30
+colnames(behav_pre)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+colnames(behav_post)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+
+behav_pre[, index_item_panas] <- data.frame(lapply(behav_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_panas] <- data.frame(lapply(behav_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_panas] <- data.frame(lapply(behav_pre[, index_item_panas], 
+                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_panas] <- data.frame(lapply(behav_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_panas] <- data.frame(lapply(behav_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+
+behav_post[, index_item_panas] <- data.frame(lapply(behav_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_panas] <- data.frame(lapply(behav_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_panas] <- data.frame(lapply(behav_post[, index_item_panas], 
+                                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_panas] <- data.frame(lapply(behav_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_panas] <- data.frame(lapply(behav_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+
+# Scoring
+behav_pre$PA_Total <- ScoreLikert(behav_pre[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+behav_pre$NA_Total <- ScoreLikert(behav_pre[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+behav_post$PA_Total <- ScoreLikert(behav_post[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+behav_post$NA_Total <- ScoreLikert(behav_post[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+
+
+
+## PSS-SF 14 (likert 0-4). Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+index_item_pss <- 31:44
+index_item_revPSS <- c(4, 5, 6, 7, 9, 10, 13)
+colnames(behav_pre)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+colnames(behav_post)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+
+behav_pre[, index_item_pss] <- data.frame(lapply(behav_pre[, index_item_pss], 
+                                      function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_pss] <- data.frame(lapply(behav_pre[, index_item_pss], 
+                                      function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_pss] <- data.frame(lapply(behav_pre[, index_item_pss], 
+                                      function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_pss] <- data.frame(lapply(behav_pre[, index_item_pss], 
+                                      function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+behav_pre[, index_item_pss] <- data.frame(lapply(behav_pre[, index_item_pss], 
+                                      function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+behav_post[, index_item_pss] <- data.frame(lapply(behav_post[, index_item_pss], 
+                                                    function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_pss] <- data.frame(lapply(behav_post[, index_item_pss], 
+                                                    function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_pss] <- data.frame(lapply(behav_post[, index_item_pss], 
+                                                    function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_pss] <- data.frame(lapply(behav_post[, index_item_pss], 
+                                                    function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+behav_post[, index_item_pss] <- data.frame(lapply(behav_post[, index_item_pss], 
+                                                    function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+# Score
+behav_pre[, index_item_pss] <- colstonumeric(behav_pre[, index_item_pss])
+behav_post[, index_item_pss] <- colstonumeric(behav_post[, index_item_pss])
+
+behav_pre[, index_item_pss][index_item_revPSS] <- ReverseCode(behav_pre[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+behav_post[, index_item_pss][index_item_revPSS] <- ReverseCode(behav_post[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+
+behav_pre$PSS_Total <- ScoreLikert(behav_pre[, index_item_pss], napercent = .11)
+behav_post$PSS_Total <- ScoreLikert(behav_post[, index_item_pss], napercent = .11)
+
+
+
+## PS int
+index_item_PSint <- 45:48    # 45:55
+colnames(behav_pre)[index_item_PSint] <- sprintf("PSint_%d", 1:4)
+colnames(behav_post)[index_item_PSint] <- sprintf("PSint_%d", 1:4)
+
+
+behav_pre[, sprintf("PSint_%d", 1:4)] <-
+  behav_pre[, sprintf("PSint_%d", 1:4)] %>%
+    dplyr::mutate_all(readr::parse_number)
+
+
+behav_post[, sprintf("PSint_%d", 1:4)] <-
+  behav_post[, sprintf("PSint_%d", 1:4)] %>%
+    dplyr::mutate_all(readr::parse_number)
+
+
+# Score
+behav_pre$PSint_Total <- ScoreLikert(behav_pre[, index_item_PSint], tonumeric = TRUE, napercent = .33)
+behav_post$PSint_Total <- ScoreLikert(behav_post[, index_item_PSint], tonumeric = TRUE, napercent = .33)
+
+
+
+## PS mot
+index_item_PSmot <- 49:52      
+colnames(behav_pre)[index_item_PSmot] <- sprintf("PSmot_%d", 1:4)
+colnames(behav_post)[index_item_PSmot] <- sprintf("PSmot_%d", 1:4)
+
+
+behav_pre[, sprintf("PSmot_%d", 1:4)] <-
+  behav_pre[, sprintf("PSmot_%d", 1:4)] %>%
+    dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                                 stringr::str_detect(., "dezacord") ~ 2,
+                                 stringr::str_detect(., "neutru") ~ 3,
+                                 stringr::str_detect(., "acord") ~ 4,
+                                 stringr::str_detect(., "acord puternic") ~ 5,
+                                TRUE ~ NA_real_))
+
+
+behav_post[, sprintf("PSmot_%d", 1:4)] <-
+  behav_post[, sprintf("PSmot_%d", 1:4)] %>%
+    dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                              TRUE ~ NA_real_))
+
+
+# Score
+behav_pre$PSmot_Total <- ScoreLikert(behav_pre[, index_item_PSmot], tonumeric = TRUE, napercent = .33)
+behav_post$PSmot_Total <- ScoreLikert(behav_post[, index_item_PSmot], tonumeric = TRUE, napercent = .33)
+
+
+
+## PS iden
+index_item_PSiden <- 53:55     
+colnames(behav_pre)[index_item_PSiden] <- sprintf("PSiden_%d", 1:3)
+colnames(behav_post)[index_item_PSiden] <- sprintf("PSiden_%d", 1:3)
+
+
+behav_pre[, sprintf("PSiden_%d", 1:3)] <-
+  behav_pre[, sprintf("PSiden_%d", 1:3)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+
+behav_post[, sprintf("PSiden_%d", 1:3)] <-
+  behav_post[, sprintf("PSiden_%d", 1:3)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+
+# Score
+behav_pre$PSiden_Total <- ScoreLikert(behav_pre[, index_item_PSiden], tonumeric = TRUE, napercent = .33)
+behav_post$PSiden_Total <- ScoreLikert(behav_post[, index_item_PSiden], tonumeric = TRUE, napercent = .33)
+
+
+## IOS
+colnames(behav_pre)[56] <- "IOS"
+colnames(behav_post)[56] <- "IOS"
+
+behav_pre$IOS <- as.numeric(behav_pre$IOS)
+behav_post$IOS <- as.numeric(behav_post$IOS) 
+
+
+
+## Add some columns
+behav_pre <- behav_pre %>%
+  dplyr::mutate(PrePost = rep("Pre", nrow(.)))
+
+behav_post <- behav_post %>%
+  dplyr::mutate(PrePost = rep("Post", nrow(.)))
+
+# Long format
+behav_long <- dplyr::bind_rows(behav_pre, behav_post) %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post")))
+```
+
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+# PSS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Stress",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Stress",
+                   title = "TR")
+
+
+# NA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Negative Affect",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Negative Affect",
+                   title = "TR")
+
+# PA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Positive Affect",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Positive Affect",
+                   title = "TR")
+
+# Psint
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial intention",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial intention",
+                   title = "TR")
+
+# Psmot
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial motivation",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial motivation",
+                   title = "TR")
+
+# IOS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Closeness",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Closeness",
+                   title = "TR")
+```
+
+## VAS Stress
+
+```{r read_clean_recode_merge_oxt, warning=FALSE, message=FALSE, results='hide'}
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-geronto"
+file_pre <- "date VAS STRES PRE varstnici - modif.xls"
+file_post <- "date VAS STRES POST varstnici.xls"
+
+stres_pre <- rio::import(file.path(folder, file_pre))
+stres_pre <- stres_pre[-1, c(3:5, 10:11)]
+
+stres_pre <- stres_pre[-37,]  # Sofi notebook: on 31-07 id 19 wanted 0 but put 25 ... he has two recodings with 25 and 0 ... delete the one with 25
+#stres_pre <- stres_pre[-122,]   # no data
+names(stres_pre)[4:5] <- c("id", "vas_stres")
+stres_pre[stres_pre$id == "EN08PA1",]$id <- "EU08PA1"    # typo "EN_08", should be "EU_08"
+stres_pre <- stres_pre %>% 
+  janitor::clean_names() %>%
+  dplyr::mutate(id = stringr::str_remove(id, "PA1"),
+                id = gsub('^(.{2})(.*)$', '\\1_\\2', id)) %>%        # insert "_" after code
+  tidyr::separate(id, into = c("forma", "ID_no"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(forma = gsub('^(.{1})(.*)$', '\\1_\\2', id)) %>%
+  tidyr::separate(forma, into = c("Cond", "Cog_imp"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(Cond = dplyr::case_when(Cond == "C" ~ "CTRL",
+                                        Cond == "E" ~ "TR",
+                                        TRUE ~ NA_character_)) %>%
+  dplyr::mutate(vas_stres = as.numeric(vas_stres)) %>%
+  dplyr::mutate(id = stringr::str_replace(id, "O", "0"),
+                id = stringr::str_replace(id, "o", "0")) %>%
+  dplyr::mutate(ID_no = stringr::str_replace(ID_no, "O", "0"),
+                ID_no = stringr::str_replace(ID_no, "o", "0"),
+                ID_no = as.numeric(ID_no))
+
+
+stres_post <- rio::import(file.path(folder, file_post))
+stres_post <- stres_post[-1, c(3:5, 10:11)]
+names(stres_post)[4:5] <- c("id", "vas_stres")
+stres_post[stres_post$id == "CN12PA1",]$id <- "CU12PA1"    # typo "CN_12", should be "CU_12"
+stres_post <- stres_post %>% 
+  janitor::clean_names() %>%
+  dplyr::mutate(id = stringr::str_remove(id, "PA1"),
+                id = gsub('^(.{2})(.*)$', '\\1_\\2', id)) %>%        # insert "_" after code
+  tidyr::separate(id, into = c("forma", "ID_no"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(forma = gsub('^(.{1})(.*)$', '\\1_\\2', id)) %>%
+  tidyr::separate(forma, into = c("Cond", "Cog_imp"), remove = FALSE, sep = "_") %>%
+  dplyr::mutate(Cond = dplyr::case_when(Cond == "C" ~ "CTRL",
+                                        Cond == "E" ~ "TR",
+                                        TRUE ~ NA_character_)) %>%
+  dplyr::mutate(vas_stres = as.numeric(vas_stres)) %>%
+  dplyr::mutate(id = stringr::str_replace(id, "O", "0"),
+                id = stringr::str_replace(id, "o", "0")) %>%
+  dplyr::mutate(ID_no = stringr::str_replace(ID_no, "O", "0"),
+                ID_no = stringr::str_replace(ID_no, "o", "0"),
+                ID_no = as.numeric(ID_no))
+
+  
+
+# retrasi
+retrasi_post <- c(1, 6, 7)
+
+# check
+stres_pre %>%
+  dplyr::count(id) %>%
+  dplyr::pull(id) -> stres_pre_ids
+setdiff(stres_pre_ids, behav_pre_ids)   
+
+stres_post %>%
+  dplyr::count(id) %>%
+  dplyr::pull(id) -> stres_post_ids
+setdiff(stres_post_ids, behav_pre_ids)  
+setdiff(stres_pre_ids, stres_post_ids)
+
+# Add variable Time
+# its: pre-post x4 + pre-post-post => pre = 1,3,5,7,9  post = 2,4,6,8,10,11
+# in pre EN_19 have 6 instead of 5 data -- fixed now; EN_04 fixed in excel file
+
+stres_pre_time <- 
+  stres_pre %>%
+  dplyr::mutate(row_numb = dplyr::row_number()) %>%
+  dplyr::arrange(desc(row_numb)) %>%                     # order of rows needs to be inverted to be in chronological order
+  dplyr::select(-row_numb) %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(Time = dplyr::row_number()) %>%
+  dplyr::mutate(Time = dplyr::case_when(Cond == "CTRL" & Time == 1 ~ 1,
+                                        Cond == "TR" & Time == 1 ~ 1,
+                                        Cond == "TR" & Time == 2 ~ 3,
+                                        Cond == "TR" & Time == 3 ~ 5,
+                                        Cond == "TR" & Time == 4 ~ 7,
+                                        Cond == "TR" & Time == 5 ~ 9,
+                                        TRUE ~ NA_real_)) %>%
+  dplyr::ungroup()                    
+
+stres_post_time <- 
+  stres_post %>%
+  tidyr::drop_na(vas_stres) %>%                      # there is one NA that ruins the flow
+  dplyr::mutate(row_numb = dplyr::row_number()) %>%
+  dplyr::arrange(desc(row_numb)) %>%                     # order of rows needs to be inverted to be in chronological order
+  dplyr::select(-row_numb) %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(Time = dplyr::row_number()) %>%
+  dplyr::mutate(Time = dplyr::case_when(Cond == "CTRL" & Time == 1 ~ 10,
+                                        Cond == "CTRL" & Time == 2 ~ 11,
+                                        Cond == "TR" & Time == 1 ~ 2,
+                                        Cond == "TR" & Time == 2 ~ 4,
+                                        Cond == "TR" & Time == 3 ~ 6,
+                                        Cond == "TR" & Time == 4 ~ 8,
+                                        Cond == "TR" & Time == 5 ~ 10,
+                                        Cond == "TR" & Time == 6 ~ 11,
+                                        TRUE ~ NA_real_)) %>%
+  dplyr::ungroup()
+
+
+# check
+stres_pre_time %>%
+  dplyr::group_by(id) %>%
+  filter(Time == max(Time)) %>% 
+  print(n = Inf)               # all are 1 and 9 -- good
+
+stres_post_time %>%
+  dplyr::group_by(id) %>%
+  filter(Time == max(Time)) %>% 
+  print(n = Inf)              # all are 11 -- good because last post is same in TR and CTRL
+
+# Long data
+stres_time_long <- dplyr::bind_rows(stres_pre_time, stres_post_time) %>%
+  dplyr::mutate(Time = factor(Time, levels = c(1:11)))
+```
+
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+stres_time_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  ggstatsplot::ggwithinstats(x = Time, y = vas_stres, outlier.label = id, 
+                type = "np")
+```
+
+```{r, message=FALSE, fig.height=10, fig.width=12}
+stres_time_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  ggstatsplot::ggwithinstats(x = Time, y = vas_stres, outlier.label = id, 
+                type = "np")
+```
+
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
