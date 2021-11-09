@@ -1,5 +1,5 @@
 ---
-title: "<br> O1B Report - Geriatric" 
+title: "<br> PA4 Report - Geriatric" 
 subtitle: "Initial Analysis"
 author: "<br> Claudiu Papasteri"
 date: "`r format(Sys.time(), '%d %m %Y')`"
@@ -719,8 +719,215 @@ stres_time_long %>%
 ```
 
 
+## Only for Normal Cognition
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+# deficienta cognitiva (N-normal, U-usor deficit cognitiv)
+
+# PSS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Stress",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Stress",
+                   title = "TR")
 
 
+# NA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Negative Affect",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Negative Affect",
+                   title = "TR")
+
+# PA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Positive Affect",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Positive Affect",
+                   title = "TR")
+
+# Psint
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial intention",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial intention",
+                   title = "TR")
+
+# Psmot
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial motivation",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Prosocial motivation",
+                   title = "TR")
+
+# IOS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Closeness",
+                   title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "N") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                   xlab = "", ylab = "Closeness",
+                   title = "TR")
+```
+
+
+## Only for Light Cognitive Deficit
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+# deficienta cognitiva (N-normal, U-usor deficit cognitiv)
+
+# PSS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Stress",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Stress",
+                    title = "TR")
+
+
+# NA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Negative Affect",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Negative Affect",
+                    title = "TR")
+
+# PA
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Positive Affect",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Positive Affect",
+                    title = "TR")
+
+# Psint
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Prosocial intention",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Prosocial intention",
+                    title = "TR")
+
+# Psmot
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Prosocial motivation",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Prosocial motivation",
+                    title = "TR")
+
+# IOS
+behav_long %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Closeness",
+                    title = "CTRL")
+
+behav_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Cog_imp == "U") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = ID_no, type = "np", 
+                    xlab = "", ylab = "Closeness",
+                    title = "TR")
+```
+
+
+# Test VAS Stress differences in response to Bucharest Stress Task 
+## see  Brunner et al. (2002)
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+# experiment has the F1-LD-F1 designstructure with treatment being the whole-plot factor. (p. 13 art R Journal)
+
+stres_f1ldf1 <- 
+  stres_time_long %>%
+    dplyr::filter(Time %in% c(10, 11)) %>%
+    dplyr::mutate(Time = factor(Time, levels = c(10, 11))) 
+
+nparLD::f1.ld.f1(y = stres_f1ldf1$vas_stres, time = stres_f1ldf1$Time, group = stres_f1ldf1$Cond, subject = stres_f1ldf1$id)
+```
 
 
 
