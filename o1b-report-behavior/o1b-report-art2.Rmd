@@ -228,6 +228,12 @@ file <- "DATE o1b A.xlsx"
 setwd(folder)
 
 suppressMessages({                                   # some columns are renamed and the warning breaks pandoc
+df_zi1 <- rio::import(file.path(folder, file),
+                           which = "zi1",
+                           skip = 0)
+})
+
+suppressMessages({                                   # some columns are renamed and the warning breaks pandoc
 df_zi2 <- rio::import(file.path(folder, file),
                            which = "zi2",
                            skip = 1)
@@ -293,6 +299,14 @@ df_zi3 <-
   df_zi3 %>%
   filter(!is.na(`ZI 3`))
 
+
+
+# Clean zi1
+demo_df <-
+  df_zi1 %>%
+  dplyr::mutate(ID = stringr::str_remove(ID, "O1b"),
+                ID = stringr::str_remove(ID, "\\s")) %>%
+  dplyr::select(-c(2, 5:ncol(.)))
 ```
 
 
@@ -562,7 +576,7 @@ es_df <-
                 ID = stringr::str_remove_all(ID, "[[:space:]]"))
 ```
 
-
+<!--
 ### only people with StaiS
 
 ```{r}
@@ -580,7 +594,7 @@ es_anx_ids <-
 
 anx_ids <- union(jrad_anx_ids, es_anx_ids)
 ```
-
+-->
 
 ## Merge OXT
 
@@ -593,6 +607,8 @@ jrad_df_oxt <-
   dplyr::select(-O1b, -Cond) %>%
   dplyr::left_join(jrad_df, ., by = "ID")
 
+jrad_df_oxt <- dplyr::left_join(jrad_df_oxt, demo_df, by = "ID")
+
 es_df_oxt <- 
   oxy_data_wide %>%
   dplyr::filter(Cond == "ES") %>%
@@ -600,7 +616,12 @@ es_df_oxt <-
                 OX_post = Post) %>%
   dplyr::select(-O1b, -Cond) %>%
   dplyr::left_join(es_df, ., by = "ID")
+
+es_df_oxt <- dplyr::left_join(es_df_oxt, demo_df, by = "ID")
 ```
+
+
+## Diff scores
 
 ```{r}
 es_df_oxt <-
@@ -616,30 +637,43 @@ jrad_df_oxt <-
               Diff_PA = PA_post - PA_pre,
               Diff_NA = NA_post - NA_pre,
               Diff_APS = APS_post - APS_pre)
-
-lm(Diff_PA ~ PA_pre + StaiS_pre, data = jrad_df_oxt) %>% summary()
-lm(Diff_PA ~ PA_pre + StaiS_pre, data = es_df_oxt) %>% summary()
-
-jrad_df_oxt %>%
-  dplyr::select(-c(1, 2)) %>%
-  correlation::correlation(p_adjust = "none") %>%
-  dplyr::filter(p < .05) 
 ```
 
 ```{r}
-long_df <- rbind(es_df_oxt, jrad_df_oxt)
+long_df_all <- rbind(es_df_oxt, jrad_df_oxt)
+# saveRDS(long_df_all, "O1b data.RDS")
 
-long_df_nona <- 
-  long_df %>%
-  group_by(ID) %>%
-  tidyr::drop_na(PA_pre:APS_post, IOS:OX_post) %>%
-  ungroup()
+ids_single_Cond <- 
+  long_df_all %>%
+  dplyr::count(ID) %>%
+  dplyr::filter(n < 2) %>%
+  dplyr::pull(ID)
 
-ids_na <- 
-  long_df_nona %>% 
-    dplyr::count(ID) %>%
-    dplyr::filter(n < 2) %>%
-    dplyr::pull(ID)
+## Exclude?
+# jrad_df_oxt <- 
+#   jrad_df_oxt %>% 
+#   dplyr::filter(!ID %in% ids_single_Cond)
+# 
+# es_df_oxt <- 
+#   es_df_oxt %>% 
+#   dplyr::filter(!ID %in% ids_single_Cond)
+
+long_df <- 
+  long_df_all %>%
+  dplyr::filter(!ID %in% ids_single_Cond)
+
+## Probably leave NAs in
+# long_df_nona <- 
+#   long_df %>%
+#   group_by(ID) %>%
+#   tidyr::drop_na(PA_pre:APS_post, IOS:OX_post) %>%
+#   ungroup()
+# 
+# ids_na <- 
+#   long_df_nona %>% 
+#     dplyr::count(ID) %>%
+#     dplyr::filter(n < 2) %>%
+#     dplyr::pull(ID)
 
 # EXCLUDING PARTICIPANTS THAT HAVE SOME MISSING ISNT GOOD
 # jrad_df <- 
@@ -660,6 +694,43 @@ ids_na <-
 #   dplyr::filter(!ID %in% ids_na)
 ```
 
+# Demografics
+
+```{r}
+jrad_df_oxt %>%
+  dplyr::group_by(Gen) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(freq = n / sum(n))
+
+ggplot(data = jrad_df_oxt, aes(x = Varsta)) + geom_histogram(aes(fill = Gen))
+
+t.test(jrad_df_oxt$Varsta ~ jrad_df_oxt$Gen) %>% broom::tidy()
+
+es_df_oxt %>%
+  dplyr::group_by(Gen) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(freq = n / sum(n))
+
+ggplot(data = es_df_oxt, aes(x = Varsta)) + geom_histogram(aes(fill = Gen))
+
+t.test(es_df_oxt$Varsta ~ es_df_oxt$Gen) %>% broom::tidy()
+```
+
+
+# Some new resutls
+
+```{r}
+lm(Diff_PA ~ PA_pre + StaiS_pre, data = jrad_df_oxt) %>% summary()
+lm(Diff_PA ~ PA_pre + StaiS_pre, data = es_df_oxt) %>% summary()
+
+jrad_df_oxt %>%
+  dplyr::select(-c(1, 2)) %>%
+  correlation::correlation(p_adjust = "none") %>%
+  dplyr::filter(p < .05) 
+```
+
+
+# OXT 
 
 ```{r}
 jrad_df_oxt %>%
@@ -906,15 +977,16 @@ add_index(withinmed_es)
 ```
 
 
-
+<!--
 # Med new
 
 ```{r}
+source("C:/Users/Mihai/Desktop/LCS mediation/Function LCS ANCOVA mediation.R")
 mod <- lcs_ancova_med(df = long_df, x = Conditie, y1 = APS_pre, y2 = APS_post, m1 = OX_pre, m2 = OX_post)
 summary(mod)
 semPlot::semPaths(mod, layout = "spring",  nCharNodes = 0, nCharEdges = 0, what = "path", whatLabels = "path", edge.label.cex = 0.8)
 ```
-
+-->
 
 
 <!-- Session Info and License -->

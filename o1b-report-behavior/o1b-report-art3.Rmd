@@ -1,0 +1,781 @@
+---
+title: "<br> O1B Report - behavioral" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Quick ggwithinstats function
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    scale_y_continuous(...)
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "png", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+```
+
+
+
+
+# Read data
+
+```{r read_clean_recode_merge_oxt, warning=FALSE, message=FALSE, results='hide'}
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior"
+file <- "O1b data.RDS"
+
+savefolder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior/Art"
+
+# Data with all Participants
+long_df_all <- readRDS(file.path(folder, file))
+
+
+# Correct a typo on participant 11
+long_df_all[(long_df_all$ID == 11 & long_df_all$Conditie == "JRAD"), "APS_post"] <- 28
+long_df_all <- 
+  long_df_all %>% 
+  dplyr::mutate(Diff_APS = APS_post - APS_pre)   # need to redo this because of correction
+
+# Remove a participant with odd data and no OXT data
+long_df_all <-
+  long_df_all %>%
+  dplyr::filter(ID != 23)
+
+# Data only with participants with both Cond 
+ids_single_Cond <- 
+  long_df_all %>%
+  dplyr::count(ID) %>%
+  dplyr::filter(n < 2) %>%
+  dplyr::pull(ID)
+
+long_df <- 
+  long_df_all %>%
+  dplyr::filter(!ID %in% ids_single_Cond)
+
+## Probably leave NAs in
+# long_df_nona <- 
+#   long_df %>%
+#   group_by(ID) %>%
+#   tidyr::drop_na(PA_pre:APS_post, IOS:OX_post) %>%
+#   ungroup()
+
+jrad_df <-
+  long_df_all %>%
+  dplyr::filter(Conditie == "JRAD")
+
+es_df <-
+  long_df_all %>%
+  dplyr::filter(Conditie == "ES")
+```
+
+
+# Demografics
+
+```{r}
+length(unique(long_df_all$ID))  # 41 + id 21 twice in JRAD
+
+gender_stat <- 
+  long_df_all %>%
+    pivot_wider(id_cols = ID, values_from = Gen, names_from = Conditie) %>%    # here is a problem because participant 21 is in JRAD twice
+    unnest(ES, JRAD) %>%
+    dplyr::mutate(Gen = coalesce(JRAD, ES))
+
+gender_stat %>%
+  dplyr::group_by(ID) %>%
+  dplyr::summarise(n = n()) %>%          # 41 particpants but id 21 appears twice in JRAD
+  dplyr::summarise(n_subj = sum(n))
+
+gender_stat %>%
+  dplyr::group_by(Gen) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(freq = n / sum(n))
+ 
+
+age_stat <- 
+  long_df_all %>%
+    pivot_wider(id_cols = ID, values_from = Varsta, names_from = Conditie) %>%    # here is a problem because participant 21 is in JRAD twice
+    unnest(ES, JRAD) %>%
+    dplyr::mutate(Age = coalesce(JRAD, ES))
+age_stat %>%
+  rstatix::get_summary_stats(Age, type = "common")
+
+
+
+
+jrad_df %>%
+  dplyr::group_by(Gen) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(freq = n / sum(n))
+
+jrad_df %>%
+  rstatix::get_summary_stats(Varsta, type = "common")
+
+ggplot(data = jrad_df, aes(x = Varsta)) + geom_histogram(aes(fill = Gen))
+
+t.test(jrad_df$Varsta ~ jrad_df$Gen) %>% broom::tidy()
+
+es_df %>%
+  dplyr::group_by(Gen) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(freq = n / sum(n))
+
+es_df %>%
+  rstatix::get_summary_stats(Varsta, type = "common")
+
+ggplot(data = es_df, aes(x = Varsta)) + geom_histogram(aes(fill = Gen))
+
+t.test(es_df$Varsta ~ es_df$Gen) %>% broom::tidy()
+```
+
+
+# Some new resutls
+
+```{r}
+lm(Diff_PA ~ PA_pre + StaiS_pre, data = jrad_df) %>% summary()
+lm(Diff_PA ~ PA_pre + StaiS_pre, data = es_df) %>% summary()
+
+lm(Diff_PA ~ PA_pre + OX_post, data = jrad_df) %>% summary()
+lm(Diff_PA ~ PA_pre + OX_post, data = es_df) %>% summary()
+
+# lm(Diff_APS ~ APS_pre + OX_post, data = jrad_df) %>% summary()
+# lm(Diff_PA ~ PA_pre + OX_post, data = es_df) %>% summary()
+
+# lm(Diff_NA ~ NA_pre + StaiS_pre, data = jrad_df) %>% summary()
+# lm(Diff_NA ~ NA_pre + StaiS_pre, data = es_df) %>% summary()
+
+
+jrad_df %>%
+  dplyr::select(-c(ID, Conditie, contains("IRI"))) %>%
+  correlation::correlation(p_adjust = "none") %>%
+  dplyr::filter(p < .05) 
+
+es_df %>%
+  dplyr::select(-c(ID, Conditie, contains("IRI"))) %>%
+  correlation::correlation(p_adjust = "none") %>%
+  dplyr::filter(p < .05)
+
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("APS_pre", "APS_post", "Diff_APS", "OX_pre", "OX_post", "Diff_OX")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("PA_pre", "PA_post", "Diff_PA", "OX_pre", "OX_post", "Diff_OX")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("NA_pre", "NA_post", "Diff_NA", "OX_pre", "OX_post", "Diff_OX")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("NA_pre", "NA_post", "Diff_NA", "APS_pre", "APS_post", "Diff_APS")])
+
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("StaiS_pre", "StaiS_post", "OX_pre", "OX_post", "Diff_OX")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("StaiS_pre", "StaiS_post", "APS_pre", "APS_post", "Diff_APS")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("StaiS_pre", "StaiS_post", "PA_pre", "PA_post", "Diff_PA")])
+PerformanceAnalytics::chart.Correlation(jrad_df[, c("StaiS_pre", "StaiS_post", "NA_pre", "NA_post", "Diff_NA")])
+```
+
+```{r}
+library(MASS)
+
+bla <- jrad_df %>%
+  dplyr::select(-c(ID, Conditie, contains("IRI"), NA_pre, NA_post))
+
+full_model <- lm(Diff_NA ~., data = bla)
+
+step_model <- stepAIC(full_model, direction = "both", trace = FALSE)
+summary(step_model)
+```
+
+
+# OXT 
+
+```{r}
+jrad_df %>%
+  rstatix::get_summary_stats(OX_pre, OX_post, type = "common")
+
+# Difference in results for OXT is caused by subject excluded in left_join (they had OXT data but not in psychological data)
+jrad_ox_p <- 
+  jrad_df %>%
+    dplyr::select(ID, OX_pre, OX_post) %>%
+    tidyr::pivot_longer(cols = c(OX_pre, OX_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "JRAD",
+      ylab = "OXT",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = .8, to = 1.3, by = .1),
+      limits = c(.75, 1.32)
+    )
+jrad_ox_p
+# fast_ggsave(jrad_ox_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(OX_pre, OX_post, type = "common")
+
+es_ox_p <- 
+  es_df %>%
+    dplyr::select(ID, OX_pre, OX_post) %>%
+    tidyr::pivot_longer(cols = c(OX_pre, OX_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "ES",
+      ylab = "OXT",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = .8, to = 1.3, by = .1),
+      limits = c(.75, 1.32)
+    )
+es_ox_p
+# fast_ggsave(es_ox_p, path = savefolder)
+```
+
+
+
+
+# Behavioral  
+
+```{r, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+# STAI
+jrad_df %>%
+  rstatix::get_summary_stats(StaiS_pre, StaiS_post, type = "common")
+
+jrad_stai_p <- 
+  jrad_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "JRAD",
+      ylab = "Anxiety",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 65, by = 5),
+      limits = c(19, 65)
+    )
+jrad_stai_p
+# fast_ggsave(jrad_stai_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(StaiS_pre, StaiS_post, type = "common")
+
+es_stai_p <-
+  es_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "ES",
+      ylab = "Anxiety",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 65, by = 5),
+      limits = c(19, 65)
+    )
+es_stai_p
+# fast_ggsave(es_stai_p, path = savefolder)
+  
+# PA
+jrad_df %>%
+  rstatix::get_summary_stats(PA_pre, PA_post, type = "common")
+
+jrad_pa_p <- 
+  jrad_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "JRAD",
+      ylab = "Positive Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 50, by = 5),
+      limits = c(17, 51)
+    )
+jrad_pa_p
+# fast_ggsave(jrad_pa_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(PA_pre, PA_post, type = "common")
+
+es_pa_p <- 
+  es_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "ES",
+      ylab = "Positive Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 50, by = 5),
+      limits = c(17, 51)
+    )
+es_pa_p
+# fast_ggsave(es_pa_p, path = savefolder)
+
+
+# NA  
+jrad_df %>%
+  rstatix::get_summary_stats(NA_pre, NA_post, type = "common")
+
+jrad_na_p <- 
+  jrad_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "JRAD",
+      ylab = "Negative Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 10, to = 30, by = 5),
+      limits = c(8, 30)
+    ) 
+jrad_na_p
+# fast_ggsave(jrad_na_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(NA_pre, NA_post, type = "common")
+
+es_na_p <- 
+  es_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "ES",
+      ylab = "Negative Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 10, to = 30, by = 5),
+      limits = c(8, 30)
+    )
+es_na_p
+# fast_ggsave(es_na_p, path = savefolder)
+  
+# APS
+jrad_df %>%
+  rstatix::get_summary_stats(APS_pre, APS_post, type = "common")
+
+jrad_aps_p <- 
+  jrad_df %>%
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "JRAD",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    ) 
+jrad_aps_p
+# fast_ggsave(jrad_aps_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(APS_pre, APS_post, type = "common")
+
+es_aps_p <- 
+  es_df %>%                                        # id 28 is a clear outlier
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "ES",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    ) 
+es_aps_p
+# fast_ggsave(es_aps_p, path = savefolder)
+
+
+es_df %>%                                        # id 28 is a clear outlier
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    dplyr::filter(ID != 28) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "ES APS - Excluded outlier 28",
+      xlab = "ES",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = FALSE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    )
+```
+
+
+
+
+
+
+
+
+
+# Within-participant mediation APS
+## JRAD
+
+
+```{r}
+library(JSmediation)
+
+set.seed(101)
+withinmed_jrad <- 
+  mdt_within_wide(data = jrad_df,
+                  DV_B = APS_pre, DV_A = APS_post,     # mdt_within_wide uses M_A - M_B and DV_A - DV_B in these models
+                  M_B = PA_pre, M_A = PA_post)
+add_index(withinmed_jrad)
+```
+
+## ES
+
+```{r}
+set.seed(101)
+# remember that id 28 is outlier on aps ... mediation does not hold even when 28 is excluded
+withinmed_es <- 
+  mdt_within_wide(data = es_df,   # %>% dplyr::filter(ID != 28)
+                  DV_B = APS_pre, DV_A = APS_post, 
+                  M_B = PA_pre, M_A = PA_post)
+add_index(withinmed_es) 
+```
+
+<!--
+# Sequential mediation
+
+```{r}
+library(lavaan)
+library(semPlot)
+
+# model=
+# "
+#   # Regressions
+#   m1 ~ a*iv
+#   m2 ~ b*m1 + iv
+#   dv ~ c*m2 + m1 + d*iv + cv1 + cv2
+#   
+#   # Defined Parameters:
+#   ie := a*b*c
+#   de := d
+# "
+
+
+model <- "
+  # Regressions
+  PA_pre ~ a*OX_post
+  PA_post ~ b*PA_pre + OX_post
+  APS_post ~ c*PA_post + PA_pre + d*OX_post + StaiS_post
+  
+  # Defined Parameters:
+  ie := a*b*c
+  de := d
+"
+
+fit <- lavaan::sem(model, data = jrad_df)  # long_df_all %>% dplyr::filter(ID != 28)
+summary(fit)
+
+lavaanPlot::lavaanPlot(model = fit, 
+                       graph_options = list(layout = "dot", rankdir = "LR"), 
+                       node_options = list(shape = "box", fontname = "Helvetica"), 
+                       edge_options = list(color = "grey"), 
+                       coefs = TRUE, stand = TRUE, covs = TRUE, 
+                       sig = 0.05, stars = c("regress", "cov"))  # unstandardized: sig = 1.00 
+```
+-->
+
+<!--
+# Med new
+
+```{r}
+source("C:/Users/Mihai/Desktop/LCS mediation/Function LCS ANCOVA mediation.R")
+mod <- lcs_ancova_med(df = long_df_all, x = Conditie, y1 = APS_pre, y2 = APS_post, m1 = PA_pre, m2 = PA_post)
+summary(mod)
+semPlot::semPaths(mod, layout = "spring",  nCharNodes = 0, nCharEdges = 0, what = "path", whatLabels = "path", edge.label.cex = 0.8)
+```
+-->
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
