@@ -658,7 +658,7 @@ stres_pre_time <-
   dplyr::select(-row_numb) %>%
   dplyr::group_by(id) %>%
   dplyr::mutate(Time = dplyr::row_number()) %>%
-  dplyr::mutate(Time = dplyr::case_when(Cond == "CTRL" & Time == 1 ~ 1,
+  dplyr::mutate(Time = dplyr::case_when(Cond == "CTRL" & Time == 1 ~ 9,
                                         Cond == "TR" & Time == 1 ~ 1,
                                         Cond == "TR" & Time == 2 ~ 3,
                                         Cond == "TR" & Time == 3 ~ 5,
@@ -703,10 +703,21 @@ stres_time_long <- dplyr::bind_rows(stres_pre_time, stres_post_time) %>%
   dplyr::mutate(Time = factor(Time, levels = c(1:11)))
 ```
 
+### CTRL
 
 ```{r, message=FALSE, fig.height=6, fig.width=8}
 stres_time_long %>%
   dplyr::filter(Cond == "CTRL") %>%
+  ggstatsplot::ggwithinstats(x = Time, y = vas_stres, outlier.label = id, 
+                type = "np")
+```
+
+### TR
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+stres_time_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(Time %in% c(9, 10, 11)) %>%
   ggstatsplot::ggwithinstats(x = Time, y = vas_stres, outlier.label = id, 
                 type = "np")
 ```
@@ -923,8 +934,8 @@ behav_long %>%
 
 stres_f1ldf1 <- 
   stres_time_long %>%
-    dplyr::filter(Time %in% c(10, 11)) %>%
-    dplyr::mutate(Time = factor(Time, levels = c(10, 11))) 
+    dplyr::filter(Time %in% c(9, 10, 11)) %>%
+    dplyr::mutate(Time = factor(Time, levels = c(9, 10, 11))) 
 
 nparLD::f1.ld.f1(y = stres_f1ldf1$vas_stres, time = stres_f1ldf1$Time, group = stres_f1ldf1$Cond, subject = stres_f1ldf1$id)
 ```
