@@ -1,4 +1,7 @@
+/Report
+*.Rmd
 *.Rhistory
 *.xlsx
 *.docx
 *.pdf
+*.png

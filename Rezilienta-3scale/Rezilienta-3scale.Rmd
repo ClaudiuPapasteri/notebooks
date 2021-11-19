@@ -245,7 +245,9 @@ Data$cIS <- ScoreLikert(Data[, c("c3", "c9")], tonumeric = TRUE)
 ```{r desc}
 Data %>%
   dplyr::select(Totala, Totalb, Totalc) %>%
-  rstatix::get_summary_stats(type = "full")
+  rstatix::get_summary_stats(type = "full") %>%
+  kableExtra::kbl(caption = "Descriptives", digits = 2) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
 ```
 
 # Correlations
@@ -254,13 +256,114 @@ Data %>%
 Data %>%
   dplyr::select(Totala, Totalb, Totalc) %>%
   PerformanceAnalytics::chart.Correlation()
+
+Data %>%
+  dplyr::select(Totala, Totalb, Totalc) %>%
+  corstars(., result = "none") %>%
+  kableExtra::kbl(caption = "Inter-scale correlations", digits = 2) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
 ```
 
 
 ```{r results='asis', rows.print = 20}
-corstars(Data[, c(103:118)], result = "none")
+# corstars(Data[, c(103:118)], result = "none")
+
+Data[, c(103:118)] %>%
+  corstars(., result = "none") %>%
+  kableExtra::kbl(caption = "Inter-scale correlations", digits = 2) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
 ```
 
+<!--
+```{r}
+Data %>%
+  dplyr::select(Totala, Totalb, Totalc) %>%
+  tabplot::tableplot(., sortCol = Totala)
+```
+-->
+
+## Top and bottom values
+
+```{r, fig.height=8, fig.width=9}
+Data_p <- 
+  Data[, c(1, 103:118)] %>%
+  dplyr::rename(id = Numar) %>%
+  select(id, dplyr::everything())
+
+##
+max_a <-
+  Data_p %>%
+    dplyr::slice_max(Totala_check, n = 5)
+max_a %>%   
+  kableExtra::kbl(caption = "Max a", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+max_a <- max_a %>% dplyr::pull(id)
+
+min_a <-
+Data_p %>%
+  dplyr::slice_min(Totala_check, n = 5)
+min_a %>% 
+  kableExtra::kbl(caption = "Min a", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+min_a <- min_a %>% dplyr::pull(id)
+##
+
+##
+max_b <-
+Data_p %>%
+  dplyr::slice_max(Totalb_check, n = 5)
+max_b %>%
+  kableExtra::kbl(caption = "Max b", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+max_b <- max_b %>% dplyr::pull(id)
+
+min_b <-
+Data_p %>%
+  dplyr::slice_min(Totalb_check, n = 5)
+min_b %>% 
+  kableExtra::kbl(caption = "Min b", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+min_b <- min_b %>% dplyr::pull(id)
+##
+
+##
+max_c <-
+Data_p %>%
+  dplyr::slice_max(Totalc_check, n = 5)
+max_c %>% 
+  kableExtra::kbl(caption = "Max c", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+max_c <- max_c %>% dplyr::pull(id)
+
+min_c <-
+Data_p %>%
+  dplyr::slice_min(Totalc_check, n = 5)
+min_c %>% 
+  kableExtra::kbl(caption = "Min c", digits = 0) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+min_c <- min_c %>% dplyr::pull(id)
+##
+
+mins <- unique(c(min_a, min_b, min_c))
+maxs <- unique(c(max_a, max_b, max_c))
+
+Data_p$min_max <- dplyr::case_when(Data_p$id %in% maxs ~ "red",
+                                   Data_p$id %in% mins ~ "green",
+                                   TRUE ~ "darkgrey")
+                                    
+Data_p_long <-
+  Data_p %>%
+  dplyr::select(id, min_max, Totala_check, Totalb_check, Totalc_check) %>%
+  tidyr::pivot_longer(cols = c(Totala_check, Totalb_check, Totalc_check), names_to = "variable", values_to = "value")
+
+Data_p_long %>%
+  ggplot(aes(x = variable, y = value)) +
+    geom_violin() +
+    geom_point(size = 1, alpha = 0.6, colour = Data_p_long$min_max) +
+    geom_line(aes(group = id), linetype = "11", colour = Data_p_long$min_max) +
+    scale_colour_identity() + 
+    theme_classic()
+```
 
 
 # CFA
