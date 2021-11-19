@@ -729,6 +729,15 @@ stres_time_long %>%
                 type = "np")
 ```
 
+```{r, message=FALSE, fig.height=10, fig.width=12}
+stres_time_long %>%
+  dplyr::filter(Cond == "TR") %>%
+  dplyr::filter(!Time %in% c(9, 10, 11)) %>%
+  ggstatsplot::ggwithinstats(x = Time, y = vas_stres, outlier.label = id, 
+                type = "np")
+```
+
+
 
 ## Only for Normal Cognition
 
