@@ -1,0 +1,1109 @@
+---
+title: "<br> PA4 - Only Females" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggpubr", "rstatix", "broom", "emmeans", "rlang",
+  "pwr"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r def_func_ttest, hide=TRUE}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var){
+  vars <- c(ind, pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectos
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), as.factor) %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  stat_comp <- ggpubr::compare_means(value ~ Cond, data = df_modif, method = "t.test", paired = TRUE)
+  
+  stat_comp2 <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$Cond,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "Cond", y = "value", id = ind, 
+                     color = "Cond", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none") +
+      stat_summary(fun.data = mean_se,  colour = "darkred") +
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$Cond)-0.4, label.y = max(df_modif$value)+0.5) + 
+      ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  cat(paste0("#### ", pre_var, " ", post_var, "\n", "\n"))
+  print(stat_comp)
+  print(stat_comp2)
+  print(plot)
+}
+```
+
+
+```{r samplesize_idepttest}
+samplesize_pairedttest <- function(df, pre_var, post_var){
+  vars <- c(pre_var, post_var)                # to avoid new tidyverse error of ambiguity due to external vectors
+  df_modif <-
+    df %>%
+    dplyr::select(tidyselect::all_of(vars)) %>% 
+    tidyr::drop_na() %>%
+    gather(tidyselect::all_of(pre_var), tidyselect::all_of(post_var), key = "Cond", value = "value") %>% 
+    mutate(Cond = factor(Cond, levels = c(pre_var, post_var))) 
+  
+  cat("## Cohen's d \n")
+  eff_size_table <-
+    df_modif %>%
+    cohens_d(value ~ Cond, paired = TRUE) %>%
+    print()
+  eff_size <- as.numeric(eff_size_table$effsize)
+
+  cat("## Sample Size estimation \n")
+  sample_size_table <-
+    pwr::pwr.t.test(d = eff_size, sig.level = .05, power = .8, type = "paired", alternative = "two.sided") 
+  sample_size_table %>% broom::tidy() %>% print()
+
+  plot(sample_size_table)
+}  
+```
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-report"
+old_file <- "Date_pt_analiza_PA4online.xlsx"
+file <- "Date_pt_analiza_PA4online - Final2.xlsx"
+
+setwd(folder)
+
+# ID df
+id_df <- rio::import(file.path(folder, file),
+                               skip = 1, which = "ID-uri atribuite")   
+id_df <- 
+  id_df %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), ""))     # remove white spaces
+all(id_df$ID == toupper(id_df$ID))                                     # check if all are upper case
+id_df[, "e-mail"] <- tolower(id_df[, "e-mail"])
+id_df <- id_df[!duplicated(id_df),]                   # 36 duplicated, 115 unique
+
+firstform_df <- rio::import(file.path(folder, file),
+                               skip = 0, which = "Formular de înscriere și consim")
+firstform_df <- firstform_df[, -length(firstform_df)]                  # a column "work" was added to the end 
+old_file_firstform_df <- rio::import(file.path(folder, old_file),
+                               skip = 0, which = "Formular de înscriere și consim") 
+if(all.equal(colnames(firstform_df), colnames(old_file_firstform_df))) {rm(old_file_firstform_df)}
+
+
+colnames(firstform_df)[7] <- "e-mail"
+firstform_df[, "e-mail"] <- tolower(firstform_df[, "e-mail"])
+
+baseline_df <- dplyr::left_join(id_df, firstform_df, by = "e-mail")
+baseline_df <- 
+  baseline_df %>%
+  dplyr::select(colnames(firstform_df), everything())     # move cols from id_df to back so we have matching cols index for baseline_df & firstform_df
+all.equal(colnames(baseline_df)[1:172], colnames(firstform_df)[1:172])             # check if colnames match, except ID and name that where added
+
+table(baseline_df$ID) # some IDs are doubled
+```
+
+
+```{r dasd}
+## Settings
+cutoffPCL <- 32   # literature: 31-33 or 38 
+algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+algPCL_subclin <- data.frame(B = 1, C = 1, D = 1, E = 1)
+
+cutoffMBI_Ex <- 2.20  
+cutoffMBI_Cy <- 2
+##
+
+## Data
+Data <- baseline_df
+##
+
+# Define column index:  index = col index; itemindex = index of item in questionnaire
+indexSIG <- 60:67 - 10    # modified in new table by 10
+indexMBI <- 68:83 - 10
+indexPCL <- 159:178 - 10
+itemindexMBI_Ex <- c(1, 3, 5, 11, 14)
+itemindexMBI_Cy <- c(2, 7, 8, 13, 15)
+itemindexMBI_Pe <- c(4, 6, 9, 10, 12, 16)
+
+# Rename columns
+# names(Data)[1:12] <- stringr::str_replace_all(names(Data)[1:12], "[[:blank:]]", "_")
+# names(Data)[17] <- "Real_Email"
+# names(Data)[18] <- "Real_Tel"
+# names(Data)[19] <- "Real_Name"
+# names(Data)[50] <- "Real_Age_categ"
+
+names(Data)[9] <- "nume"
+names(Data)[40] <- "Age_categ"
+names(Data)[41] <- "Sex"
+
+names(Data)[names(Data) %in% names(Data[, indexSIG])]  <- c(sprintf("SIG_%01d", seq(1, 8)))
+names(Data)[names(Data) %in% names(Data[, indexMBI])]  <- c(sprintf("MBI_%01d", seq(1, 16)))
+names(Data)[names(Data) %in% names(Data[, indexPCL])]  <- c(sprintf("PCL_%01d", seq(1, 20)))
+
+
+# Data <-
+#   Data %>%
+#   dplyr::filter(Response_Status == "completed")                          # select only complete cases
+ 
+
+# Recode 
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+
+# lapply(Data[,indexPCL], unique)
+Data[ ,indexPCL][ Data[ ,indexPCL] == "deloc"] <- "0"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "puțin"] <- "1"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "moderat"] <- "2"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "mult"] <- "3"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "foarte mult"] <- "4"
+Data[ ,indexPCL][ Data[ ,indexPCL] == "Not Answered"] <- NA
+
+Data[ ,indexSIG][ Data[ ,indexSIG] == "NU"] <- "0"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "?"] <- "1.5"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "DA"] <- "3"
+Data[ ,indexSIG][ Data[ ,indexSIG] == "Not Answered"] <- NA
+
+Data[ ,indexMBI] <- data.frame(lapply(Data[ ,indexMBI], 
+                                      function(x) {gsub(".*Niciodat.*", "0", x)}), stringsAsFactors = FALSE)
+Data[ ,indexMBI] <- data.frame(lapply(Data[ ,indexMBI], 
+                                      function(x) {gsub(".*Zilnic.*", "6", x)}), stringsAsFactors = FALSE)
+Data[ ,indexMBI][ Data[ ,indexMBI] == "Not Answered"] <- NA
+
+
+Data[, indexSIG] <- colstonumeric(Data[, indexSIG])
+Data[, indexMBI] <- colstonumeric(Data[, indexMBI])
+Data[, indexPCL] <- colstonumeric(Data[, indexPCL])
+
+
+
+# Scores
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, stat = "sum", natozero = FALSE, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)                           
+  
+  if(natozero) df[is.na(df)] <- 0                                    # NAs to 0 can help when stat = "mean" with na.rm = T because it keeps denominator constant
+  
+  if(stat == "sum"){
+  df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                   NA,
+                   rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  if(stat == "mean"){
+    df_res <- ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+                     NA,
+                     rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0))
+  }
+  return(df_res)
+}
+##
+
+
+# Score PCL
+Data$PCL_Total <- ScoreLikert(Data[, indexPCL], napercent = .3)               # NA if NA threshold is exceeded 
+Data$PCL_B <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 1:5))], napercent = 1)    # do nothing if NA threshold is exceeded
+Data$PCL_C <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 6:7))], napercent = 1) 
+Data$PCL_D <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 8:14))], napercent = 1)  
+Data$PCL_E <- ScoreLikert(Data[, c(sprintf("PCL_%01d", 15:20))], napercent = 1)
+
+# Score SIG
+Data$SIG_Total <- ScoreLikert(Data[, indexSIG], napercent = .3)
+
+# Score MBI
+Data$MBI_Total <- ScoreLikert(Data[, indexMBI], napercent = .3, stat = "mean", natozero = TRUE)
+Data$MBI_Ex <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Ex))], napercent = 1, stat = "mean", natozero = TRUE)
+Data$MBI_Cy <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Cy))], napercent = 1, stat = "mean", natozero = TRUE)
+Data$MBI_Pe <- ScoreLikert(Data[, c(sprintf("MBI_%01d", itemindexMBI_Pe))], napercent = 1, stat = "mean", natozero = TRUE)
+
+
+# PCL Diagnostic Algorithm
+itemsPCL_B <- c(sprintf("PCL_%01d", 1:5))
+itemsPCL_C <- c(sprintf("PCL_%01d", 6:7))
+itemsPCL_D <- c(sprintf("PCL_%01d", 8:14))
+itemsPCL_E <- c(sprintf("PCL_%01d", 15:20))
+
+DataPCLAlg <-  
+  Data %>% 
+  dplyr::select(tidyselect::all_of(indexPCL)) %>% 
+  dplyr::mutate_all(
+    funs(case_when(
+      . >=2 ~ 1,
+      # . <2 ~ 0,
+      is.na(.) ~ 0,
+      TRUE  ~  0))) %>% 
+  
+  mutate(PCL_CritB = case_when(rowSums(.[,itemsPCL_B], na.rm = TRUE) >= algPCL$B ~ 1,      # algPCL <- data.frame(B = 1, C = 1, D = 2, E = 2)
+                               # rowSums(.[,itemsPCL_B], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritC = case_when(rowSums(.[,itemsPCL_C], na.rm = TRUE) >= algPCL$C ~ 1,    
+                               # rowSums(.[,itemsPCL_C], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritD = case_when(rowSums(.[,itemsPCL_D], na.rm = TRUE) >= algPCL$D ~ 1,   
+                               # rowSums(.[,itemsPCL_D], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritE = case_when(rowSums(.[,itemsPCL_E], na.rm = TRUE) >= algPCL$E ~ 1,    
+                               # rowSums(.[,itemsPCL_E], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_Alg = case_when(PCL_CritB == 1 & PCL_CritC == 1 & PCL_CritD == 1 & PCL_CritE == 1 ~ 1,
+                             TRUE  ~  0)) 
+
+Data$PCLAlg <- DataPCLAlg$PCL_Alg
+
+DataPCLAlg_subclin <-  
+  Data %>% 
+  dplyr::select(tidyselect::all_of(indexPCL)) %>% 
+  dplyr::mutate_all(
+    funs(case_when(
+      . >=2 ~ 1,
+      # . <2 ~ 0,
+      is.na(.) ~ 0,
+      TRUE  ~  0))) %>% 
+  
+  mutate(PCL_CritB = case_when(rowSums(.[,itemsPCL_B], na.rm = TRUE) >= algPCL_subclin$B ~ 1,  
+                               # rowSums(.[,itemsPCL_B], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritC = case_when(rowSums(.[,itemsPCL_C], na.rm = TRUE) >= algPCL_subclin$C ~ 1,    
+                               # rowSums(.[,itemsPCL_C], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritD = case_when(rowSums(.[,itemsPCL_D], na.rm = TRUE) >= algPCL_subclin$D ~ 1,   
+                               # rowSums(.[,itemsPCL_D], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_CritE = case_when(rowSums(.[,itemsPCL_E], na.rm = TRUE) >= algPCL_subclin$E ~ 1,    
+                               # rowSums(.[,itemsPCL_E], na.rm = TRUE) <1 ~ 0,
+                               TRUE  ~  0)) %>% 
+  mutate(PCL_Alg_subclin = case_when(PCL_CritB == 1 & PCL_CritC == 1 & PCL_CritD == 1 & PCL_CritE == 1 ~ 1,
+                                     TRUE  ~  0)) 
+
+Data$PCLAlg_subclin <- DataPCLAlg_subclin$PCL_Alg_subclin
+
+Data$MBI_Ex_cut <- ifelse(Data$MBI_Ex >= cutoffMBI_Ex, 1, 0)
+Data$MBI_Cy_cut <- ifelse(Data$MBI_Cy >= cutoffMBI_Cy, 1, 0)
+
+
+# Global Screening & Groups
+df_screening <- Data[,c("ID", "nume", "e-mail", "Age_categ", "Sex",
+                        "SIG_Total", "MBI_Ex", "MBI_Cy", "MBI_Ex_cut", "MBI_Cy_cut",
+                        "PCL_Total", "PCL_B", "PCL_C", "PCL_D", "PCL_E", "PCLAlg", "PCLAlg_subclin")]
+
+
+
+# Check same result with screening done on Google Colab 
+# check_g <- rio::import(file.path(folder, "check_screening", "PA4_Screening 2021-01-18 18_03_40CHECK.xlsx")) 
+# check_l <- df_screening
+# 
+# check_merge <- full_join(check_l, check_g, by = c("e-mail" = "Real_Email"))
+# 
+# names_l <- paste0(c("SIG_Total", "MBI_Ex_cut", "MBI_Cy_cut", "PCL_Total", "PCL_B", "PCL_C", "PCL_D", "PCL_E", "PCLAlg", "PCLAlg_subclin"), ".x")
+# names_g <- paste0(c("SIG_Total", "MBI_Ex_cut", "MBI_Cy_cut", "PCL_Total", "PCL_B", "PCL_C", "PCL_D", "PCL_E", "PCLAlg", "PCLAlg_subclin"), ".y")
+# 
+# all.equal(check_merge[, names_l], check_merge[, names_l])
+############
+
+```
+
+
+```{r clean_correcting_ids}
+df_screening <- 
+  df_screening %>%
+  dplyr::na_if("Not Answered")    # some more NAs
+
+df_screening <- 
+  df_screening %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT"))   # exclude these
+
+# ID "8A" needs to be name "S A", Age_categ "peste 65 ani"
+# ID "26X" needs to be name "boldasu liliana", Age_categ "41-65 ani"    
+df_screening <- 
+  df_screening %>%
+  dplyr::filter(!(ID == "8A" & Age_categ == "41-65 ani")) %>% 
+  dplyr::filter(!(ID == "26X" & Age_categ == "peste 65 ani")) 
+
+
+# duplicated
+df_screening$ID[duplicated(df_screening$ID)]             # duplicated IDs: "6A" "9C"
+df_screening <- 
+  df_screening %>%
+  dplyr::filter(!(ID == "6A" & is.na(Age_categ))) %>% 
+  dplyr::filter(!(ID == "9C" & is.na(Age_categ))) 
+```
+
+## Extract IDs for groups
+
+```{r extract_ids}
+
+#####
+ovelap_to_ptsd <- c("6X", "19X", "11R", "10C", "14C", "3D")
+ovelap_to_burn <- c("9X", "12X", "8R", "12B", "13B", "5C", "17R")
+ 
+  
+ids_ptsd <-
+  df_screening %>%
+    dplyr::filter(PCLAlg == 1) %>%
+    dplyr::select(ID) %>%
+    dplyr::filter(!(ID %in% ovelap_to_burn)) %>%
+    dplyr::pull()
+
+ids_burn <-
+  df_screening %>%
+    dplyr::filter(MBI_Ex_cut == 1, MBI_Cy_cut == 1) %>%
+    dplyr::select(ID) %>%
+    dplyr::filter(!(ID %in% ovelap_to_ptsd)) %>%
+    dplyr::pull()
+
+ids_old <-
+  df_screening %>%
+    dplyr::filter(Age_categ == "peste 65 ani") %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+ids_normal <-
+   df_screening %>%
+    dplyr::filter(!(ID %in% c(ids_ptsd, ids_burn, ids_old))) %>%
+    dplyr::select(ID) %>%
+    dplyr::pull()
+
+
+# CHECKS
+length(unique(ids_ptsd)); length(unique(ids_ptsd)) == length(ids_ptsd)              # no duplicate IDs
+length(unique(ids_burn)); length(unique(ids_burn)) == length(ids_burn)              # no duplicate IDs
+length(unique(ids_old)); length(unique(ids_old)) == length(ids_old)                 # no duplicate IDs
+length(unique(ids_normal)); length(unique(ids_normal)) == length(ids_normal)        # no duplicate IDs
+
+intersect(unique(ids_ptsd), unique(ids_burn))   # before: 13 common -- now: 0 
+length(unique(c(ids_ptsd, ids_burn)))      # 47 total
+setdiff(ids_ptsd, ids_burn)          # before: only ptsd   16 -- now: 22
+setdiff(ids_burn, ids_ptsd)          # before: only burn   18 -- now: 25
+intersect(ids_ptsd, ids_old)    # no old with PTSD
+intersect(ids_ptsd, ids_old)    # no old with Burn Out
+length(unique(c(ids_ptsd, ids_burn, ids_old, ids_normal))) == 106  # all good 
+
+
+
+####
+screening_ids_groups <- list(
+  ptsd = ids_ptsd,
+  burn = ids_burn,
+  ptsd_or_burn = intersect(unique(ids_ptsd), unique(ids_burn)),
+  old = ids_old,
+  normal = ids_normal
+)
+
+
+# ids_groups_df<- 
+#   Data %>%
+#   dplyr::select(173, 175:188)
+```
+
+
+## Gender matching to IDs
+```{r gender_match}
+gender_match <- 
+  Data[, c("Sex", "ID")] %>%
+  mutate_if(is.character, ~na_if(., "Not Answered"))
+
+fem_ids <- 
+  gender_match %>%
+  dplyr::filter(Sex == "Feminin") %>%
+  dplyr::pull(ID)
+
+masc_ids <- 
+  gender_match %>%
+  dplyr::filter(Sex == "Masculin") %>%
+  dplyr::pull(ID)
+```
+
+
+
+```{r izolati}
+# colnames(Data)[26] <- "Soc_Disconf"
+# 
+# Data %>%
+#   dplyr::filter(ID %in% ids_normal) %>%
+#   dplyr::select(Soc_Disconf) %>% 
+#   mutate_if(is.character, ~dplyr::na_if(., "Not Answered")) %>%
+#   mutate_if(is.character, as.logical) %>%
+#   dplyr::pull() %>% sum(., na.rm = TRUE)
+
+# izolatii ar fi: cei 9 batrani si 16 normali
+  
+```
+
+# Outcome Measures
+
+# Dictator Game
+
+```{r dg_scoring, results='hide'}
+# DG df
+dg_df_pre <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame pre")
+dg_df_pre <- 
+  dg_df_pre %>%
+  janitor::remove_empty("rows") 
+  
+colnames(dg_df_pre)[4] <- "ID"
+dg_df_pre <- 
+  dg_df_pre %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_pre$ID == toupper(dg_df_pre$ID)) 
+
+dg_df_post <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame post")
+dg_df_post <- 
+  dg_df_post %>%
+  janitor::remove_empty("rows")
+
+colnames(dg_df_post)[4] <- "ID"
+dg_df_post <- 
+  dg_df_post %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_post$ID == toupper(dg_df_post$ID)) 
+
+colnames(dg_df_pre)[5:8] <- sprintf("DG_%d", 1:4)
+colnames(dg_df_pre)[2] <- "Response_Status"
+colnames(dg_df_post)[5:8] <- sprintf("DG_%d", 1:4)
+colnames(dg_df_post)[3] <- "Response_Status"
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~na_if(., "Not Answered")) %>%
+  dplyr::filter(Response_Status == "completed") %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4RMN"))
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered")) %>%
+  dplyr::filter(Response_Status == "completed") %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4RMN"))
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Pre", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Post", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+# Transform DG 0-900 egoism to 0-9 altruism
+dg_trans_func <- function(x){trans <- 9 - x / 100}
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+# Unite DG data - Long Format
+dg_united_long <- rbind(dg_df_pre, dg_df_post)
+which(table(dg_united_long$ID)> 2 )     # IDs "3B" & "31X" have more than 2 trials
+dg_united_long[dg_united_long$ID == "3B",]  # two Pres -- keep the first
+dg_united_long <- dg_united_long[-55, ]
+dg_united_long[dg_united_long$ID == "31X",] # two Pres -- keep the first
+dg_united_long <- dg_united_long[-73, ]
+dg_united_long[dg_united_long$ID == "5E",] # two Pres -- keep the first
+dg_united_long <- dg_united_long[-106, ]
+
+dg_united_long$DG_Total <- rowSums(dg_united_long[, sprintf("DG_%d", 1:4)], na.rm = TRUE) 
+
+# Unite DG data - Wide Format
+dg_united_wide <-
+  dg_united_long %>%
+  tidyr::pivot_wider(id_cols = c(ID, Cond), names_from = Time, values_from = c("Date Modified", sprintf("DG_%d", 1:4), "DG_Total"))
+# dg_united_wide2 <- dplyr::left_join(dg_united_wide, ids_groups_df, by = "ID")     # no need to merge, already have ids for groups stored
+
+# Merge gender
+dg_united_wide <- dplyr::left_join(dg_united_wide, gender_match, by = "ID")
+```
+
+
+
+# T test Dicatator Game
+
+```{r ttest_bygroup_dg}
+# dplyr::filter(ID %in% c(ids_ptsd, ids_burn, ids_old, ids_normal)) %>%
+
+
+
+cat("## DG - PTSD TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%   
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - PTSD CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+
+cat("## DG - Burnout TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - Burnout CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+
+cat("## DG - Old TR")
+# dg_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "TR") %>%
+#   func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - Old CTRL")
+# dg_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "CTRL") %>%
+#   func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+
+cat("## DG - General Population TR")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%   dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+cat("## DG - General Population CTRL")
+dg_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%   dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "DG_Total_Pre", post_var = "DG_Total_Post")
+```
+
+
+
+
+```{r scale_scoring, results='hide'}
+# Scales df
+scale_df_pre <- rio::import(file.path(folder, file),
+                           skip = 0, which = "Set teste zi 1 pre")
+scale_df_pre <- 
+  scale_df_pre %>%
+  janitor::remove_empty("rows") 
+
+scale_df_pre <- scale_df_pre[,-2]
+colnames(scale_df_pre)[1] <- "Date"
+colnames(scale_df_pre)[2] <- "ID"
+scale_df_pre <- 
+  scale_df_pre %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                    # to upper
+all(scale_df_pre$ID == toupper(scale_df_pre$ID)) 
+
+scale_df_post <- rio::import(file.path(folder, file),
+                            skip = 0, which = "Set teste zi 5 post")
+scale_df_post <- 
+  scale_df_post %>%
+  janitor::remove_empty("rows") 
+
+scale_df_post <- scale_df_post[,-2]
+colnames(scale_df_post)[1] <- "Date"
+colnames(scale_df_post)[2] <- "ID"
+scale_df_post <- 
+  scale_df_post %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                     # to upper
+all(scale_df_post$ID == toupper(scale_df_post$ID))
+
+all.equal(colnames(scale_df_post), colnames(scale_df_pre))   # setdiff(colnames(scale_df_post), colnames(scale_df_pre))
+
+# Deal with Not Answer
+scale_df_pre <-
+  scale_df_pre %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered"))
+
+scale_df_post <-
+  scale_df_post %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered"))
+
+# Exclude subjects
+scale_df_pre <-
+  scale_df_pre %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "RMN")) 
+
+scale_df_post <-
+  scale_df_post %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "RMN")) 
+
+# Add Condition
+scale_df_pre <-
+  scale_df_pre %>%
+  dplyr::mutate(Time = rep("Pre", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR"))
+
+scale_df_post <-
+  scale_df_post %>%
+  dplyr::mutate(Time = rep("Post", nrow(.))) %>%
+    dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR"))
+
+
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.  
+index_item_panas <- 3:22
+colnames(scale_df_pre)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+colnames(scale_df_post)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+# Scoring
+scale_df_pre$PA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_pre$NA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+scale_df_post$PA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_post$NA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+
+## PSS-SF 14 (likert 0-4). Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+index_item_pss <- 23:36
+index_item_revPSS <- c(4, 5, 6, 7, 9, 10, 13)
+colnames(scale_df_pre)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+colnames(scale_df_post)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+# Score
+scale_df_pre[, index_item_pss] <- colstonumeric(scale_df_pre[, index_item_pss])
+scale_df_post[, index_item_pss] <- colstonumeric(scale_df_post[, index_item_pss])
+
+scale_df_pre[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_pre[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+scale_df_post[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_post[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+
+scale_df_pre$PSS_Total <- ScoreLikert(scale_df_pre[, index_item_pss], napercent = .11)
+scale_df_post$PSS_Total <- ScoreLikert(scale_df_post[, index_item_pss], napercent = .11)
+
+
+# Unite scale df - Long Format
+scale_united_long <- rbind(scale_df_pre, scale_df_post)
+
+# scale_united_long %>%
+#   count(ID) %>%
+#   print(n = Inf)  # ID "2B", "5E" have double record 
+
+# scale_united_long[scale_united_long$ID == "2B",]
+scale_united_long <- scale_united_long[-26,]
+# scale_united_long[scale_united_long$ID == "5E",]
+scale_united_long <- scale_united_long[-109,]
+
+# Exclude subj wiht only one observation, exclude ID NOTANSWERED
+scale_united_long <-
+  scale_united_long %>%
+  group_by(ID) %>%
+  dplyr::filter(n() > 1) %>%
+  ungroup() %>%
+  dplyr::filter(ID != "NOTANSWERED")
+
+# Unite DG data - Wide Format
+scale_united_wide <-
+  scale_united_long %>%
+  dplyr::select(ID, Date, Time, Cond, PA_Total, NA_Total, PSS_Total) %>%
+  tidyr::pivot_wider(id_cols = c(ID, Cond), names_from = Time, values_from = c("Date", "PA_Total", "NA_Total", "PSS_Total"))
+
+# Merge gender
+scale_united_wide <- dplyr::left_join(scale_united_wide, gender_match, by = "ID")
+```
+
+
+# T test PSS
+
+```{r ttest_bygroup_pss}
+# dplyr::filter(ID %in% c(ids_ptsd, ids_burn, ids_old, ids_normal)) %>%
+
+cat("## PSS - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+
+cat("## PSS - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+
+# cat("## PSS - Old TR")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "TR") %>%
+#   func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+# cat("## PSS - Old CTRL")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "CTRL") %>%
+#   func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+
+cat("## PSS - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+cat("## PSS - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PSS_Total_Pre", post_var = "PSS_Total_Post")
+```
+
+
+# T test PA
+
+```{r ttest_bygroup_pa}
+cat("## PA - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>%  dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+
+cat("## PA - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+
+# cat("## PA - Old TR")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "TR") %>%
+#   func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+# cat("## PA - Old CTRL")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "CTRL") %>%
+#   func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+cat("## PA - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+cat("## PA - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "PA_Total_Pre", post_var = "PA_Total_Post")
+
+```
+
+
+# T test NA
+
+```{r ttest_bygroup_na}
+cat("## NA - PTSD TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - PTSD CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_ptsd) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+
+cat("## NA - Burnout TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - Burnout CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_burn) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+
+# cat("## NA - Old TR")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "TR") %>%
+#   func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+# cat("## NA - Old CTRL")
+# scale_united_wide %>%
+#   dplyr::filter(ID %in% ids_old) %>%
+#   dplyr::filter(Cond == "CTRL") %>%
+#   func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+
+cat("## NA - General Population TR")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "TR") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+cat("## NA - General Population CTRL")
+scale_united_wide %>%
+  dplyr::filter(ID %in% ids_normal) %>% dplyr::filter(ID %in% fem_ids) %>%
+  dplyr::filter(Cond == "CTRL") %>%
+  func_t_box(., ind = "ID", pre_var = "NA_Total_Pre", post_var = "NA_Total_Post")
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
