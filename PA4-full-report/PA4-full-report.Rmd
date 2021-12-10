@@ -1,0 +1,1101 @@
+---
+title: "<br> PA4" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              type = "parametric", 
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = type,
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    scale_y_continuous(...)
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "png", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+```
+
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-full-report"
+file <- "Scale complete triate Sofi pa4.xlsx"
+
+setwd(folder)
+
+## ID df
+id_df <- rio::import(file.path(folder, file),
+                     skip = 0, colNames = FALSE, which = "incadrari")   
+
+id_df <- id_df[, 1:4]
+colnames(id_df) <- c("Grup", "Cond", "id", "email")
+
+id_df <- 
+  id_df %>%
+  janitor::remove_empty("rows") %>% 
+  dplyr::mutate(id = stringr::str_remove(id, "^0+"),              # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),  # remove any white space
+                id =  toupper(id)) %>%
+  dplyr::mutate(Cond = stringr::str_replace(Cond, "12CONTROL", "CONTROL"),   # fix typo
+                Grup = stringr::str_replace(Grup, "burnout", "Burnout"),
+                Grup = stringr::str_replace(Grup, "pop generala", "pop gen"),
+                Grup = stringr::str_replace(Grup, "old", "pop gen")) %>%
+  dplyr::mutate(Grup = dplyr::if_else(is.na(Grup), "pop gen", Grup))
+
+
+## Scale 
+scale_df_pre <- rio::import(file.path(folder, file),
+                            skip = 0, which = "Scale zi1") 
+scale_df_post <- rio::import(file.path(folder, file),
+                             skip = 0, which = "Scale zi5") 
+
+dif_col <- which(colnames(scale_df_pre) == setdiff(colnames(scale_df_pre), colnames(scale_df_post)))
+scale_df_pre <- scale_df_pre[, - dif_col]
+scale_df_pre <- scale_df_pre[, - c(1, 3:7)]
+scale_df_post <- scale_df_post[, - c(1, 3:7)]
+identical(colnames(scale_df_pre), colnames(scale_df_post))
+
+scale_df_pre <- scale_df_pre[-1, ]
+colnames(scale_df_pre)[1] <- "Date"
+colnames(scale_df_pre)[2] <- "id"
+scale_df_pre <- 
+  scale_df_pre %>%
+  janitor::remove_empty("rows") %>%                            # remove empty rows if any
+  dplyr::mutate(id = stringr::str_remove(id, "^0+"),              # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),  # remove any white space
+                id =  toupper(id))  %>%
+  dplyr::mutate_if(is.character, ~dplyr::na_if(., "Not Answered")) %>%
+  dplyr::mutate(Date = lubridate::as_datetime(Date)) %>%
+  dplyr::arrange(Date)
+
+
+scale_df_post <- scale_df_post[-1, ]
+colnames(scale_df_post)[1] <- "Date"
+colnames(scale_df_post)[2] <- "id"
+scale_df_post <- 
+  scale_df_post %>%
+  janitor::remove_empty("rows") %>%                            # remove empty rows if any
+  dplyr::mutate(id = stringr::str_remove(id, "^0+"),              # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),  # remove any white space
+                id =  toupper(id))  %>%
+  dplyr::mutate_if(is.character, ~dplyr::na_if(., "Not Answered")) %>%
+  dplyr::mutate(Date = lubridate::as_datetime(Date)) %>%
+  dplyr::arrange(Date)
+
+
+setdiff(id_df$id, scale_df_pre$id)
+
+# Merge with id
+scale_df_pre <- dplyr::left_join(scale_df_pre, id_df, by = "id")
+scale_df_pre$PrePost <- rep("Pre", nrow(scale_df_pre)) 
+unique(scale_df_pre$Cond)
+unique(scale_df_pre$Grup)
+table(scale_df_pre$Cond, scale_df_pre$Grup)
+scale_df_pre[, c("id", "Cond", "Grup")]
+
+
+scale_df_post <- dplyr::left_join(scale_df_post, id_df, by = "id")
+scale_df_post$PrePost <- rep("Post", nrow(scale_df_post))
+unique(scale_df_post$Cond)
+unique(scale_df_post$Grup)
+scale_df_post[, c("id", "Cond", "Grup")]
+
+```
+
+
+
+<!-- No gender data here
+## Gender matching to IDs
+```{r gender_match}
+gender_match <- 
+  Data[, c("Sex", "ID")] %>%
+  mutate_if(is.character, ~na_if(., "Not Answered"))
+
+fem_ids <- 
+  gender_match %>%
+  dplyr::filter(Sex == "Feminin") %>%
+  dplyr::pull(ID)
+
+masc_ids <- 
+  gender_match %>%
+  dplyr::filter(Sex == "Masculin") %>%
+  dplyr::pull(ID)
+```
+-->
+
+
+# Outcome Measures
+
+<!-- No Dictator in data...
+# Dictator Game
+
+```{r dg_scoring, results='hide'}
+# DG df
+dg_df_pre <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame pre")
+dg_df_pre <- 
+  dg_df_pre %>%
+  janitor::remove_empty("rows") 
+  
+colnames(dg_df_pre)[4] <- "ID"
+dg_df_pre <- 
+  dg_df_pre %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_pre$ID == toupper(dg_df_pre$ID)) 
+
+dg_df_post <- rio::import(file.path(folder, file),
+                                   skip = 0, which = "DictatorGame post")
+dg_df_post <- 
+  dg_df_post %>%
+  janitor::remove_empty("rows")
+
+colnames(dg_df_post)[4] <- "ID"
+dg_df_post <- 
+  dg_df_post %>%
+  dplyr::mutate(ID = stringr::str_replace_all(ID, fixed(" "), "")) %>%    # remove white spaces
+  dplyr::mutate(ID = toupper(ID))                                         # to upper
+all(dg_df_post$ID == toupper(dg_df_post$ID)) 
+
+colnames(dg_df_pre)[5:8] <- sprintf("DG_%d", 1:4)
+colnames(dg_df_pre)[2] <- "Response_Status"
+colnames(dg_df_post)[5:8] <- sprintf("DG_%d", 1:4)
+colnames(dg_df_post)[3] <- "Response_Status"
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~na_if(., "Not Answered")) %>%
+  dplyr::filter(Response_Status == "completed") %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4RMN"))
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate(`Date Modified` = lubridate::ymd_hms(format(`Date Modified`, "%Y-%m-%d %H:%M:%S", tz = "UTC"))) %>%
+  mutate_if(is.character, ~dplyr::na_if(., "Not Answered")) %>%
+  dplyr::filter(Response_Status == "completed") %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4OXT")) %>%
+  dplyr::filter(!stringr::str_detect(ID, "PA4RMN"))
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Pre", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), ~stringr::str_extract(., "[0-9]+")) %>%   # extracts first number (all games start with Player A, so always first number)
+  dplyr::mutate_at(vars(starts_with("DG_")), as.numeric) %>%
+  dplyr::mutate(Time = rep("Post", nrow(.))) %>%
+  dplyr::mutate(Cond = ifelse(stringr::str_detect(ID, "X"), "CTRL", "TR")) %>%
+  select(`Date Modified`, ID, starts_with("DG_"), Time, Cond)
+
+# Transform DG 0-900 egoism to 0-9 altruism
+dg_trans_func <- function(x){trans <- 9 - x / 100}
+
+dg_df_pre <-
+  dg_df_pre %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+dg_df_post <-
+  dg_df_post %>%
+  dplyr::mutate_at(vars(starts_with("DG_")), dg_trans_func) 
+
+# Unite DG data - Long Format
+dg_united_long <- rbind(dg_df_pre, dg_df_post)
+which(table(dg_united_long$ID)> 2 )     # IDs "3B" & "31X" have more than 2 trials
+dg_united_long[dg_united_long$ID == "3B",]  # two Pres -- keep the first
+dg_united_long <- dg_united_long[-55, ]
+dg_united_long[dg_united_long$ID == "31X",] # two Pres -- keep the first
+dg_united_long <- dg_united_long[-73, ]
+dg_united_long[dg_united_long$ID == "5E",] # two Pres -- keep the first
+dg_united_long <- dg_united_long[-106, ]
+
+dg_united_long$DG_Total <- rowSums(dg_united_long[, sprintf("DG_%d", 1:4)], na.rm = TRUE) 
+
+# Unite DG data - Wide Format
+dg_united_wide <-
+  dg_united_long %>%
+  tidyr::pivot_wider(id_cols = c(ID, Cond), names_from = Time, values_from = c("Date Modified", sprintf("DG_%d", 1:4), "DG_Total"))
+# dg_united_wide2 <- dplyr::left_join(dg_united_wide, ids_groups_df, by = "ID")     # no need to merge, already have ids for groups stored
+
+# Merge gender
+dg_united_wide <- dplyr::left_join(dg_united_wide, gender_match, by = "ID")
+```
+
+-->
+
+
+```{r scale_scoring, results='hide'}
+## PANAS: Positive Affect Score = sum items 1, 3, 5, 9, 10, 12, 14, 16, 17, 19. Negative Affect Score = sum items 2, 4, 6, 7, 8, 11, 13, 15, 18, 20.  
+index_item_panas <- 3:22
+colnames(scale_df_pre)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+colnames(scale_df_post)[index_item_panas] <- sprintf("PANAS_%d", 1:20)
+
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_panas] <- data.frame(lapply(scale_df_pre[, index_item_panas], 
+                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mică măsură.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mică măsură.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*într-o oarecare măsură.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în mare măsură.*", "4", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_panas] <- data.frame(lapply(scale_df_post[, index_item_panas], 
+                                                      function(x) {gsub(".*în foarte mare măsură.*", "5", x)}), stringsAsFactors = FALSE)
+# Scoring
+scale_df_pre$PA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_pre$NA_Total <- ScoreLikert(scale_df_pre[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                    tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+scale_df_post$PA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(1, 3, 5, 9, 10, 12, 14, 16, 17, 19)], 
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+scale_df_post$NA_Total <- ScoreLikert(scale_df_post[, index_item_panas][c(2, 4, 6, 7, 8, 11, 13, 15, 18, 20)],
+                                     tonumeric = TRUE, napercent = .11)                              # not more than 1 NAs for 10 items
+
+
+## PSS-SF 14 (likert 0-4). Items 4, 5, 6, 7, 9, 10, and 13 are scored in reverse direction.
+index_item_pss <- 23:36
+index_item_revPSS <- c(4, 5, 6, 7, 9, 10, 13)
+colnames(scale_df_pre)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+colnames(scale_df_post)[index_item_pss] <- sprintf("PSS_%d", 1:14)
+
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_pre[, index_item_pss] <- data.frame(lapply(scale_df_pre[, index_item_pss], 
+                                      function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*niciodată.*", "0", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*aproape niciodată.*", "1", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*uneori.*", "2", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*destul de des.*", "3", x)}), stringsAsFactors = FALSE)
+scale_df_post[, index_item_pss] <- data.frame(lapply(scale_df_post[, index_item_pss], 
+                                                    function(x) {gsub(".*foarte des.*", "4", x)}), stringsAsFactors = FALSE)
+
+# Score
+scale_df_pre[, index_item_pss] <- colstonumeric(scale_df_pre[, index_item_pss])
+scale_df_post[, index_item_pss] <- colstonumeric(scale_df_post[, index_item_pss])
+
+scale_df_pre[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_pre[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+scale_df_post[, index_item_pss][index_item_revPSS] <- ReverseCode(scale_df_post[, index_item_pss][index_item_revPSS], tonumeric = FALSE, min = 0, max = 4)
+
+scale_df_pre$PSS_Total <- ScoreLikert(scale_df_pre[, index_item_pss], napercent = .11)
+scale_df_post$PSS_Total <- ScoreLikert(scale_df_post[, index_item_pss], napercent = .11)
+
+
+
+# PS int  (Pro social scales - 37:47)
+index_item_PSint <- 37:40
+colnames(scale_df_pre)[index_item_PSint] <- sprintf("PSint_%d", 1:4)
+colnames(scale_df_post)[index_item_PSint] <- sprintf("PSint_%d", 1:4)
+
+
+scale_df_pre[, sprintf("PSint_%d", 1:4)] <-
+  scale_df_pre[, sprintf("PSint_%d", 1:4)] %>%
+  dplyr::mutate_all(readr::parse_number)
+
+
+scale_df_post[, sprintf("PSint_%d", 1:4)] <-
+  scale_df_post[, sprintf("PSint_%d", 1:4)] %>%
+  dplyr::mutate_all(readr::parse_number)
+
+scale_df_pre$PSint_Total <- ScoreLikert(scale_df_pre[, index_item_PSint], tonumeric = TRUE, napercent = .33)
+scale_df_post$PSint_Total <- ScoreLikert(scale_df_post[, index_item_PSint], tonumeric = TRUE, napercent = .33)
+
+
+
+# PS mot
+index_item_PSmot <- 41:44   
+colnames(scale_df_pre)[index_item_PSmot] <- sprintf("PSmot_%d", 1:4)
+colnames(scale_df_post)[index_item_PSmot] <- sprintf("PSmot_%d", 1:4)
+
+scale_df_pre[, sprintf("PSmot_%d", 1:4)] <-
+  scale_df_pre[, sprintf("PSmot_%d", 1:4)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+scale_df_post[, sprintf("PSmot_%d", 1:4)] <-
+  scale_df_post[, sprintf("PSmot_%d", 1:4)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+scale_df_pre$PSmot_Total <- ScoreLikert(scale_df_pre[, index_item_PSmot], tonumeric = TRUE, napercent = .33)
+scale_df_post$PSmot_Total <- ScoreLikert(scale_df_post[, index_item_PSmot], tonumeric = TRUE, napercent = .33)
+
+
+
+# PS iden
+index_item_PSiden <- 45:47
+colnames(scale_df_pre)[index_item_PSiden] <- sprintf("PSiden_%d", 1:3)
+colnames(scale_df_post)[index_item_PSiden] <- sprintf("PSiden_%d", 1:3)
+
+scale_df_pre[, sprintf("PSiden_%d", 1:3)] <-
+  scale_df_pre[, sprintf("PSiden_%d", 1:3)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+scale_df_post[, sprintf("PSiden_%d", 1:3)] <-
+  scale_df_post[, sprintf("PSiden_%d", 1:3)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "dezacord puternic") ~ 1,
+                               stringr::str_detect(., "dezacord") ~ 2,
+                               stringr::str_detect(., "neutru") ~ 3,
+                               stringr::str_detect(., "acord") ~ 4,
+                               stringr::str_detect(., "acord puternic") ~ 5,
+                               TRUE ~ NA_real_))
+
+scale_df_pre$PSiden_Total <- ScoreLikert(scale_df_pre[, index_item_PSiden], tonumeric = TRUE, napercent = .33)
+scale_df_post$PSiden_Total <- ScoreLikert(scale_df_post[, index_item_PSiden], tonumeric = TRUE, napercent = .33)
+
+
+# IOS
+colnames(scale_df_pre)[48] <- "IOS"
+colnames(scale_df_post)[48] <- "IOS"
+
+scale_df_pre$IOS <- as.numeric(scale_df_pre$IOS)
+scale_df_post$IOS <- as.numeric(scale_df_post$IOS) 
+
+
+scale_df_pre %>%
+  dplyr::count(id) %>%
+  dplyr::filter(n > 1)   # correct unique: 7RMN 01-27, 43GSR 04-23
+
+scale_df_pre <- 
+  scale_df_pre %>%
+  dplyr::filter(!(id == "7RMN" & Date == lubridate::as_datetime("2020-07-17 14:12:37"))) %>%
+  dplyr::filter(!(id == "43GSR" & Date == lubridate::as_datetime("2021-04-12 21:10:00")))
+  
+
+scale_df_post %>%
+  dplyr::count(id) %>%
+  dplyr::filter(n > 1)   # correct unique: 43GSR 05-03, 30GSR 05-20, 41GSR 04-28
+
+scale_df_post <- 
+  scale_df_post %>%
+  dplyr::filter(!(id == "43GSR" & Date == lubridate::as_datetime("2021-04-27 15:37:57"))) %>%
+  dplyr::filter(!(id == "30GSR" & Date == lubridate::as_datetime("2021-04-25 13:06:02"))) %>%
+  dplyr::filter(!(id == "41GSR" & Date == lubridate::as_datetime("2021-04-25 09:15:30")))
+
+
+# Unite scale df - Long Format
+scale_united_long <- rbind(scale_df_pre, scale_df_post)
+
+scale_united_long <- 
+  scale_united_long %>%
+  dplyr::group_by(id) %>%
+  dplyr::filter(n() > 1) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post")))
+```
+
+# Whole samples
+### PSS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSS",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSS",
+                   title = "EXPERIMENTAL")
+```
+
+### PANAS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                   xlab = "", ylab = "NA",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                   xlab = "", ylab = "NA",
+                   title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                   xlab = "", ylab = "PA",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                   xlab = "", ylab = "PA",
+                   title = "EXPERIMENTAL")
+```
+
+### Prosocial
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSint",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSint",
+                   title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSmot",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSmot",
+                   title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSiden",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                   xlab = "", ylab = "PSiden",
+                   title = "EXPERIMENTAL")
+```
+
+### IOS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                   xlab = "", ylab = "IOS",
+                   title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                   xlab = "", ylab = "IOS",
+                   title = "EXPERIMENTAL")
+```
+
+
+# By group
+
+## Normal Pop
+
+### PSS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "EXPERIMENTAL")
+```
+
+### PANAS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "EXPERIMENTAL")
+```
+
+### Prosocial
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "EXPERIMENTAL")
+```
+
+### IOS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "EXPERIMENTAL")
+```
+
+
+## PTSD
+
+### PSS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "EXPERIMENTAL")
+```
+
+### PANAS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "EXPERIMENTAL")
+```
+
+### Prosocial
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "EXPERIMENTAL")
+```
+
+### IOS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "EXPERIMENTAL")
+```
+
+
+## Burnout
+
+### PSS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "EXPERIMENTAL")
+```
+
+### PANAS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "EXPERIMENTAL")
+```
+
+### Prosocial
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "EXPERIMENTAL")
+```
+
+### IOS
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+scale_united_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "CONTROL")
+
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "EXPERIMENTAL")
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
