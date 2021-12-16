@@ -1822,6 +1822,73 @@ scale_united_long %>%
 
 
 
+# GSR, RMN & OXT
+
+## Normal Pop (has only Normal Pop and EXPERIMENTAL)
+
+### PSS
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = PSS_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSS",
+                    title = "EXPERIMENTAL")
+```
+
+### PANAS
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = NA_Total, outlier.label = id, 
+                    xlab = "", ylab = "NA",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = PA_Total, outlier.label = id, 
+                    xlab = "", ylab = "PA",
+                    title = "EXPERIMENTAL")
+```
+
+### Prosocial
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = PSint_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSint",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = PSmot_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSmot",
+                    title = "EXPERIMENTAL")
+```
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = PSiden_Total, outlier.label = id, 
+                    xlab = "", ylab = "PSiden",
+                    title = "EXPERIMENTAL")
+```
+
+### IOS
+
+```{r, message=FALSE, fig.height=5, fig.width=7}
+scale_united_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen", Exp_type %in% c("GSR", "RMN", "OXT")) %>%
+  my_ggwithinstats2(x = PrePost, y = IOS, outlier.label = id, 
+                    xlab = "", ylab = "IOS",
+                    title = "EXPERIMENTAL")
+```
 
 
 
