@@ -1,0 +1,386 @@
+---
+title: "<br> A10" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "broom", "rstatix",
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "ggstatsplot"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r def_func}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL) {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+         NA,
+         rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+  )
+}
+##
+```
+
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              type = "parametric", 
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = type,
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    scale_y_continuous(...)
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "png", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+```
+
+
+
+
+
+
+
+
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/pilotA10"
+file <- "APS A10.xlsx"
+
+setwd(folder)
+
+# Read data
+data <- rio::import(file.path(folder, file),
+                               skip = 0, which = "APS")
+
+data <- 
+  data %>%
+  dplyr::rename_with(.col = 13:29, ~ c(sprintf("APS_%d", 1:16), "id")) %>%
+    dplyr::mutate(id = stringr::str_remove(id, "^0+"),                    # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),          # remove any white space
+                id =  toupper(id)) %>% 
+  dplyr::select(13:29) %>%
+  dplyr::filter(across(all_of(c("APS_1", "APS_2", "APS_3")), ~ !is.na(.x)))    # if missing all 3 items then drop row (nonsense info)
+
+# Add PrePost Column
+data <- 
+  data %>%
+  dplyr::group_by(id) %>%                           # can do arrange on Dates column if rows are not in order, but here they are
+  dplyr::mutate(numbering = row_number()) %>%
+  dplyr::mutate(PrePost = dplyr::case_when(numbering == 1 ~ "Pre",
+                                           numbering == 2 ~ "Post",
+                                           numbering == 3 ~ "F_up",
+                                           TRUE ~ "Other")) %>% 
+  dplyr::ungroup() %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post", "F_up")))
+
+table(data$id, data$PrePost)   # check --  Sofi: F-up missing for id 6,7,13,18,19,21
+
+# Add Cond
+id_df <- rio::import(file.path(folder, file),
+                               skip = 0, which = "Iduri")
+
+id_df <- 
+  id_df %>%
+  dplyr::rename_with(.col = everything(), ~ c("Cond", "id", "email")) %>%
+    dplyr::mutate(id = stringr::str_remove(id, "ID")) %>%
+    dplyr::mutate(id = stringr::str_remove_all(id, "[[:blank:]]"),          # remove any white space
+                  id = stringr::str_remove(id, "^0+"),                     # remove leading zeros
+                  id =  toupper(id))  
+
+data <- dplyr::left_join(data, id_df, by = "id")
+```
+
+
+
+## Score APS
+```{r}
+# Recode
+# data <-
+#   data %>%
+#   dplyr::mutate_at(vars(sprintf("APS_%d", 1:16)), ~case_when(. == "niciodată / aproape niciodată adevărat" ~ 1,
+#                                                              . == "ocazional adevărat" ~ 2,
+#                                                              . == "câteodată adevărat" ~ 3,
+#                                                              . == "deseori adevărat" ~ 4,
+#                                                              . == "aproape întotdeauna/întotdeauna adevărat" ~ 5,
+#                                                              TRUE ~ NA_real_))
+
+
+# Updated because special characters were not recognized -- replaced as wild cards in regex
+data[, sprintf("APS_%d", 1:16)] <-
+  data[, sprintf("APS_%d", 1:16)] %>%
+  dplyr::mutate_all(~case_when(stringr::str_detect(., "niciodat*") ~ 1,
+                               stringr::str_detect(., "ocazional*") ~ 2,
+                               stringr::str_detect(., "c?teodat*") ~ 3,
+                               stringr::str_detect(., "deseori*") ~ 4,
+                               stringr::str_detect(., "ntotdeauna") ~ 5,
+                              TRUE ~ NA_real_))
+
+# Score
+data$APS_Total <- ScoreLikert(data[, sprintf("APS_%d", 1:16)], napercent = .13)
+```
+
+
+
+
+## APS
+
+```{r prepost}
+data %>%
+  dplyr::filter(Cond == "experimental") %>%
+  dplyr::filter(PrePost %in% c("Pre", "Post")) %>%
+  my_ggwithinstats2(x = PrePost, y = APS_Total, outlier.label = id, type = "np",  
+                    xlab = "", ylab = "APS",
+                    title = "Experimental")
+
+data %>%
+  dplyr::filter(Cond == "ctrl") %>%
+  dplyr::filter(PrePost %in% c("Pre", "Post")) %>%
+  my_ggwithinstats2(x = PrePost, y = APS_Total, outlier.label = id, type = "np",
+                    xlab = "", ylab = "APS",
+                    title = "Control")
+```
+
+```{r prepostfup, fig.height=6, fig.width=8}
+data %>%
+  dplyr::filter(Cond == "experimental") %>%
+  group_by(id) %>%
+  dplyr::filter(!n() < 3) %>%                     # filter out those without F_up
+  my_ggwithinstats2(x = PrePost, y = APS_Total, outlier.label = id, type = "np",  
+                    xlab = "", ylab = "APS",
+                    title = "Experimental")
+
+data %>%
+  dplyr::filter(Cond == "ctrl") %>%
+  group_by(id) %>%
+  dplyr::filter(!n() < 3) %>%                     # filter out those without F_up
+  my_ggwithinstats2(x = PrePost, y = APS_Total, outlier.label = id, type = "np",
+                    xlab = "", ylab = "APS",
+                    title = "Control")
+```
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
