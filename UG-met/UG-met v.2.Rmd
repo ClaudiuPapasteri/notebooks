@@ -1,0 +1,481 @@
+---
+title: "<br> Ultimatum Game" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "rstatix", "broom", 
+  "rlang",
+  "ggstatsplot", "statsExpressions"
+  # , ...
+)
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages, update = FALSE)
+
+# Themes for ggplot2 ploting (here used APA style)
+ggplot2::theme_set(papaja::theme_apa())
+```
+
+
+
+<!-- Report -->
+
+```{r info, echo=FALSE, include=FALSE}
+# INFO ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# UG 1:
+#   https://agile-river-52629.herokuapp.com/
+#   Download https://agile-river-52629.herokuapp.com/download/4twyt536wq
+# UG 2:
+#   https://tranquil-lowlands-63526.herokuapp.com/
+#   Download: https://tranquil-lowlands-63526.herokuapp.com/download/4twyt536wq
+# 
+# 
+# Analiza ANOVA 2X2 (Pre-Post X FairRate-UnfairRate)
+# Folosim doar answer.csv (fiecare om trece prin 6 fair si 6 unfair)
+# - Nu folosim alocator
+# - Decident: unfair = 17-24 (6 oferte diferite); fair = 49-54 (6 oferte diferite) 
+# - deci avem categ fair/unfair
+# - Calc acceptance rate ... cate au fost acceptate pe fair, si cate pe unfair pt fiecare om in parte (deci 100% = 6 ca 6 traieluri sunt)
+# - deci o sa avem un procentaj de acceptance pt fiecare om - una pe fair, una pe unfair
+# - Calc media feedback ... cat e media fair pe fair, si pe unfair pt fiecare om in parte 
+# - 0 = Deloc corect, 100 = Extrem de corect
+# - deci o medie feedback pt fiecare om - una pe fair, una pe unfair
+#
+# verif: 
+#   - fiecare are 6, exclus test run (bica.andreea21@gmail.com, ioana.r.podina@gmail.com, test@ro, rozetadraghici@gmail.com), 
+# - outlier missmatch acceptance rate
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```
+
+
+
+
+# Read data
+
+```{r read_data}
+# Read in data ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+setwd("C:/Users/Mihai/Desktop/R Notebooks/notebooks/UG-met")
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/UG-met"
+pre <- readr::read_csv("PRE_answers_2022.csv")
+post <- readr::read_csv("POST_answers_2022.csv")
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+## ID df
+id_df <- rio::import(file.path(folder, "Scale complete triate Sofi pa4.xlsx"),
+                     skip = 0, colNames = FALSE, which = "incadrari")   
+
+id_df <- id_df[, 1:4]
+colnames(id_df) <- c("Grup", "Cond", "id", "email")
+
+id_df <- 
+  id_df %>%
+  janitor::remove_empty("rows") %>% 
+  dplyr::mutate(id = stringr::str_remove(id, "^0+"),              # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),  # remove any white space
+                id =  toupper(id)) %>%
+  dplyr::mutate(Cond = stringr::str_replace(Cond, "12CONTROL", "CONTROL"),   # fix typo
+                Grup = stringr::str_replace(Grup, "burnout", "Burnout"),
+                Grup = stringr::str_replace(Grup, "pop generala", "pop gen"),
+                Grup = stringr::str_replace(Grup, "old", "pop gen")) %>%
+  dplyr::mutate(Grup = dplyr::if_else(is.na(Grup), "pop gen", Grup))
+
+id_df <- 
+  id_df %>%
+  tidyr::separate(id, 
+           into = c("id_num", "Exp_type"), 
+           sep = "(?<=[0-9])(?=[A-Za-z])",     # ?<= is "look behind"
+           remove = FALSE
+           ) %>%
+  dplyr::select(-id_num) %>%
+  dplyr::mutate(Exp_type = dplyr::if_else(Exp_type %in% c("A", "B", "C", "D", "E", "R", "X"), "online", Exp_type)) %>% 
+  dplyr::mutate(email = tolower(email),
+                email = stringr::str_remove_all(email, "[[:blank:]]"))
+
+```
+
+
+<!--  OLD
+# Emails and groups
+
+```{r email_df}
+# Read in data ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+setwd("C:/Users/Mihai/Desktop/R Notebooks/notebooks/UG-met")
+email_df <- rio::import("mail-grup.xlsx", skip = 3)
+
+
+gsr_df <- email_df[1:42, 1:4]
+names(gsr_df)[1:4] <- c("Group", "Cond", "ID", "email")
+
+rmn_df <- email_df[181:197, 2:4]
+names(rmn_df)[1:3] <- c("Nr_Crt", "ID", "email")
+rmn_df$Cond <- rep("EXPERIMENTAL", nrow(rmn_df))
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+```
+-->
+
+## Exclude known test-IDs
+
+```{r filter}
+# Exclude known test-IDs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+excluded_id <- c("bica.andreea21@gmail.com", "ioana.r.podina@gmail.com", "test@ro", "rozetadraghici@gmail.com", "ioana.podina@fpse.unibuc.ro",
+                 "cociaioana@gmail.com")
+varstnici_pattern <- "PA1"
+
+pre <-
+  pre %>%
+  dplyr::filter(!Username %in% excluded_id) %>%
+  dplyr::filter(!str_detect(Username, varstnici_pattern))
+
+post <-
+  post %>%
+  dplyr::filter(!Username %in% excluded_id) %>%
+  dplyr::filter(!str_detect(Username, varstnici_pattern))
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Check & Exclude IDs ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pre %>%
+  count(Username) %>%
+  print(n = Inf)   # "luciana.haloiu@invingemautismul.ro" has 24 trials instead of 12
+
+post %>%
+  count(Username) %>%
+  print(n = Inf)  
+
+pre <- 
+  pre %>%
+  dplyr::group_by(Username) %>%             # exclude last 12 trials of "luciana.haloiu@invingemautismul.ro"
+  dplyr::filter(!(Username == "luciana.haloiu@invingemautismul.ro" & dplyr::row_number() %in% 13:24)) 
+pre$Timestamp[pre$Username == "luciana.haloiu@invingemautismul.ro"]  # check: 12th trial is at "2020-11-23 16:40:59 UTC"
+
+pre_ids <- data.frame(pre = unique(pre$Username))
+post_ids <- data.frame(post = unique(post$Username))
+list_ids <- dplyr::full_join(pre_ids, post_ids, by = c("pre" = "post"), keep = TRUE)
+list_ids                   
+
+complete_ids <-
+  list_ids %>%
+  tidyr::drop_na() %>%
+  dplyr::mutate(pre = as.character(pre)) %>%
+  dplyr::pull(pre)
+  
+# Keep only IDs that have both PRE and POST
+pre <-
+  pre %>%
+  dplyr::filter(Username %in% complete_ids)
+
+post <-
+  post %>%
+  dplyr::filter(Username %in% complete_ids)
+
+
+
+
+
+
+
+### Radical exclusions (keep only the first 12 observations)
+pre <-
+  pre %>%
+  group_by(Username) %>% 
+  dplyr::filter(row_number() <= 12) 
+
+post <-
+  post %>%
+  group_by(Username) %>% 
+  dplyr::filter(row_number() <= 12)
+
+```
+
+
+
+# Join with ID table
+
+```{r}
+# some Usernames are emails, some are IDs in form of emails
+pre <-
+  pre %>%
+  dplyr::mutate(id_user = Username) %>%
+  dplyr::select(Username, id_user, everything()) %>%
+  dplyr::mutate(id_user = stringr::str_remove(id_user, "@.*")) %>%
+  dplyr::mutate(id_user = if_else(stringr::str_detect(id_user, "A10|GSR"), id_user, NA_character_)) %>%
+  dplyr::mutate(id_user = stringr::str_remove(id_user, "^0+"),              # remove leading zeros
+                id_user = stringr::str_remove_all(id_user, "[[:blank:]]"),  # remove any white space
+                id_user =  toupper(id_user)) %>%
+  dplyr::mutate(Username = tolower(Username),
+                Username = stringr::str_remove_all(Username, "[[:blank:]]"))
+
+post <-
+  post %>%
+  dplyr::mutate(id_user = Username) %>%
+  dplyr::select(Username, id_user, everything()) %>%
+  dplyr::mutate(id_user = stringr::str_remove(id_user, "@.*")) %>%
+  dplyr::mutate(id_user = if_else(stringr::str_detect(id_user, "A10|GSR"), id_user, NA_character_)) %>%
+  dplyr::mutate(id_user = stringr::str_remove(id_user, "^0+"),              # remove leading zeros
+                id_user = stringr::str_remove_all(id_user, "[[:blank:]]"),  # remove any white space
+                id_user =  toupper(id_user)) %>%
+  dplyr::mutate(Username = tolower(Username),
+                Username = stringr::str_remove_all(Username, "[[:blank:]]"))
+
+# Exclude subjects from A10 (RMN sample)
+pre <-
+  pre %>%
+  dplyr::filter(!str_detect(Username, "a10"))
+
+post <-
+  post %>%
+  dplyr::filter(!str_detect(Username, "a10"))
+
+
+# Merge
+pre_united <- dplyr::left_join(pre, id_df, by = c("Username" = "email")) %>%
+  dplyr::left_join(., id_df, by = c("id_user" = "id"), suffix = c("", ".x")) %>%
+    dplyr::mutate(Grup = dplyr::coalesce(Grup, Grup.x),
+                  Cond = dplyr::coalesce(Cond, Cond.x),
+                  Exp_type = dplyr::coalesce(Exp_type, Exp_type.x),
+                  email = dplyr::coalesce(email, email)) %>%
+  dplyr::select(!contains(".x")) %>%
+  dplyr::filter(!is.na(Grup), !is.na(Cond))
+                
+post_united <- dplyr::left_join(post, id_df, by = c("Username" = "email")) %>%
+  dplyr::left_join(., id_df, by = c("id_user" = "id"), suffix = c("", ".x")) %>%
+    dplyr::mutate(Grup = dplyr::coalesce(Grup, Grup.x),
+                  Cond = dplyr::coalesce(Cond, Cond.x),
+                  Exp_type = dplyr::coalesce(Exp_type, Exp_type.x),
+                  email = dplyr::coalesce(email, email)) %>%
+  dplyr::select(!contains(".x")) %>%
+  dplyr::filter(!is.na(Grup), !is.na(Cond))
+
+# To keep rest of code working
+pre <- pre_united
+post <- post_united
+
+merged_united <- rbind(pre_united, post_united) %>%
+  dplyr::select(Username, Grup, Cond) %>%
+  dplyr::distinct(Username, Grup, Cond, .keep_all = TRUE)
+
+```
+
+
+
+# Compute scores
+
+```{r scoring}
+# Compute scores ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# utilizam doar Decident: unfair = 17-24 (6 oferte diferite); fair = 49-54 (6 oferte diferite)
+
+# Define Fair/Unfair
+pre <-
+  pre %>%
+  dplyr::mutate(Type = cut(Decident, breaks = c(-Inf, 30, Inf), labels = c("Unfair", "Fair")))
+
+post <-
+  post %>%
+  dplyr::mutate(Type = cut(Decident, breaks = c(-Inf, 30, Inf), labels = c("Unfair", "Fair")))
+
+# Compute Percent scores
+pre_scores <-
+  pre %>%
+  dplyr::add_count(Username, Type, name = "n_Type") %>%
+  dplyr::count(Username, Type, Accepted, n_Type, name = "n_Accepted_Type", .drop = FALSE) %>%   # need .drop = FALSE for missing factor levels leading to 0% Percentages
+  dplyr::mutate(Percent = 100 * n_Accepted_Type / n_Type) %>%  
+  dplyr::ungroup() %>%
+  tidyr::complete(Username, Type, Accepted, fill = list(n_Type = 0, n_Accepted_Type = 0, Percent = 0)) %>%  # for missing factor levels leading to 0% Percentages
+  dplyr::filter(Accepted == "Y") %>%
+  dplyr::mutate(PrePost = rep("Pre", n())) %>%
+  dplyr::mutate(PrePost= factor(PrePost, levels = c("Pre", "Post"))) 
+
+post_scores <-
+  post %>%
+  dplyr::add_count(Username, Type, name = "n_Type") %>%
+  dplyr::count(Username, Type, Accepted, n_Type, name = "n_Accepted_Type", .drop = FALSE) %>%   # need .drop = FALSE for missing factor levels leading to 0% Percentages
+  dplyr::mutate(Percent = 100 * n_Accepted_Type / n_Type) %>%  
+  dplyr::ungroup() %>%
+  tidyr::complete(Username, Type, Accepted, fill = list(n_Type = 0, n_Accepted_Type = 0, Percent = 0)) %>%  # for missing factor levels leading to 0% Percentages
+  dplyr::filter(Accepted == "Y") %>%
+  dplyr::mutate(PrePost = rep("Post", n())) %>%
+  dplyr::mutate(PrePost = factor(PrePost, levels = c("Pre", "Post")))
+  
+
+merged_scores <- rbind(pre_scores, post_scores) %>%
+  dplyr::left_join(., merged_united, by = "Username")
+
+# # Merge  - OLD
+# merged_scores <- rbind(pre_scores, post_scores)
+# 
+# merged_scores$Username <- tolower(merged_scores$Username)   # emails to lower letters to match on
+# gsr_df$email <- tolower(gsr_df$email)
+# rmn_df$email <- tolower(rmn_df$email)
+# 
+# merged_scores_gsr <- dplyr::left_join(merged_scores, gsr_df, by = c("Username" = "email"))     # Merge with emails/cond
+# merged_scores_rmn <- dplyr::left_join(merged_scores, rmn_df, by = c("Username" = "email"))     # Merge with emails/cond
+# 
+# merged_scores_gsr_rmn <-
+#   dplyr::left_join(merged_scores_gsr, merged_scores_rmn, by = c("Username", "Type", "Accepted", "n_Type", "n_Accepted_Type", "Percent", "PrePost")) %>%
+#   dplyr::mutate(Cond = dplyr::coalesce(Cond.x, Cond.y)) %>%
+#   dplyr::mutate(ID = dplyr::coalesce(ID.x, ID.y))
+```
+
+
+
+
+# General pop
+
+```{r plot1, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline'), warning=FALSE}
+merged_scores %>%
+  dplyr::filter(Grup == "pop gen", Cond == "EXPERIMENTAL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "Populatie Genearala - TR"))
+
+merged_scores %>%
+  dplyr::filter(Grup == "pop gen", Cond == "CONTROL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "parametric",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "Populatie Genearala - CTRL"))
+```
+
+
+# PTSD
+
+```{r plot2, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline'), warning=FALSE}
+merged_scores %>%
+  dplyr::filter(Grup == "PTSD", Cond == "EXPERIMENTAL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "np",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "PTSD - TR"))
+
+merged_scores %>%
+  dplyr::filter(Grup == "PTSD", Cond == "CONTROL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "np",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "PTSD - CTRL"))
+```
+
+
+# Burnout
+
+```{r plot3, fig.height=7, fig.width=9, fig.sep=c('\\newline','\\newline'), warning=FALSE}
+merged_scores %>%
+  dplyr::filter(Grup == "Burnout", Cond == "EXPERIMENTAL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "np",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "Burnout - TR"))
+
+merged_scores %>%
+  dplyr::filter(Grup == "Burnout", Cond == "CONTROL") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      data = .,
+      x = PrePost,
+      y = Percent,
+      grouping.var = Type,
+      type = "np",
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      annotation.args = list(title = "Burnout - CTRL"))
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
