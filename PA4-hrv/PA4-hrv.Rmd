@@ -1,0 +1,381 @@
+---
+title: "<br> PA4 - HRV" 
+subtitle: "Report"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  error = TRUE,
+  echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",       
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "ggpubr", "scales",        
+  "rio", "ggstatsplot"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+<!-- Report -->
+
+# Define functions
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              type = "parametric", 
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = type,
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    scale_y_continuous(...)
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "png", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+```
+
+
+
+
+# Read, Clean, Recode
+
+```{r red_clean_recode_merge, results='hide', message=FALSE}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read, Clean, Recode, Unite
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Read ID data
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/PA4-full-report"
+file <- "Scale complete triate Sofi pa4.xlsx"
+setwd(folder)
+
+id_df <- xlsx::read.xlsx2(file.path(folder, file),
+                          startRow = 1, header = FALSE, sheetName = "incadrari")
+
+id_df <- id_df[, 1:8]
+colnames(id_df) <- c("Grup", "Cond", "id", "email", "gen", "dir1", "dir2", "dir3")
+
+
+
+id_df <- 
+  id_df %>%
+  dplyr::na_if("") %>%
+  janitor::remove_empty("rows") %>% 
+  dplyr::mutate(id = stringr::str_remove(id, "^0+"),              # remove leading zeros
+                id = stringr::str_remove_all(id, "[[:blank:]]"),  # remove any white space
+                id =  toupper(id)) %>%
+  dplyr::mutate(Cond = stringr::str_replace(Cond, "12CONTROL", "CONTROL"),   # fix typo
+                Grup = stringr::str_replace(Grup, "burnout", "Burnout"),
+                Grup = stringr::str_replace(Grup, "pop generala", "pop gen"),
+                Grup = stringr::str_replace(Grup, "old", "pop gen")) %>%
+  dplyr::mutate(Grup = dplyr::if_else(is.na(Grup), "pop gen", Grup))
+
+id_df <- 
+  id_df %>%
+  tidyr::separate(id, 
+                  into = c("id_num", "Exp_type"), 
+                  sep = "(?<=[0-9])(?=[A-Za-z])",     # ?<= is "look behind"
+                  remove = FALSE
+  ) %>%
+  dplyr::select(-id_num) %>%
+  dplyr::mutate(Exp_type = dplyr::if_else(Exp_type %in% c("A", "B", "C", "D", "E", "R", "X"), "online", Exp_type)) %>% 
+  dplyr::mutate(email = tolower(email),
+                email = stringr::str_remove_all(email, "[[:blank:]]"))
+
+id_df <- 
+  id_df %>%
+  dplyr::mutate(across(starts_with("dir"),  as.numeric)) %>%
+  dplyr::filter(id != "9RMN")
+
+
+# check if info in dir colums is correct
+check_ordered <- sort(c(id_df$dir1, id_df$dir2, id_df$dir3))  # 8.9,10 from 1GSR/9RMN
+check_ordered <- unique(check_ordered)
+
+hrv_all <- c(5:228, 230:257)    # 229 was skipped
+
+all.equal(check_ordered, hrv_all)  # GOOD
+
+
+# Read HRV data
+root_folder <- "E:/CINETIC diverse/PA4 HRV"
+temp_folder <- "temp_PPG"
+dir1_path <- file.path(root_folder, "dir1", temp_folder)
+# dir2_path <- file.path(root_folder, "dir2", temp_folder)
+dir3_path <- file.path(root_folder, "dir3", temp_folder)
+
+dir1_file <- paste0("IBI_", "dir1", ".csv")
+# dir2_file <- paste0("IBI_", "dir2", ".csv")
+dir3_file <- paste0("IBI_", "dir3", ".csv")
+
+
+dir1_df <- read.csv(file.path(dir1_path, dir1_file))
+names(dir1_df) <- c("rec", "base", "b_first5", "b_last5")
+dir1_df <- 
+  dir1_df %>%
+  mutate_all(~ifelse(is.nan(.), NA, .)) %>%
+  mutate(rec = stringr::str_remove(rec, "BUN_M2_Session"),
+         rec = stringr::str_remove(rec, "_idCD5C_Calibrated_PC.csv"),
+         rec = as.numeric(rec))
+
+
+dir3_df <- read.csv(file.path(dir3_path, dir3_file))
+names(dir3_df) <- c("rec", "whole", "first5", "last5")
+dir3_df <- 
+  dir3_df %>%
+  mutate_all(~ifelse(is.nan(.), NA, .)) %>%
+  mutate(rec = stringr::str_remove(rec, "BUN_M2_Session"),
+         rec = stringr::str_remove(rec, "_idCD5C_Calibrated_PC.csv"),
+         rec = as.numeric(rec))
+
+
+# Make merged dataframe
+dir_merge <- dplyr::left_join(id_df, dir1_df, by = c("dir1" = "rec"))
+dir_merge <- dplyr::left_join(dir_merge, dir3_df, by = c("dir3" = "rec"))
+
+dir_merge <-
+  dir_merge %>%
+  tidyr::drop_na(base, first5, last5)
+
+dir_merge_long <-
+  dir_merge %>%
+  dplyr::select(-c(b_first5, b_last5, whole)) %>%
+  tidyr::pivot_longer(cols = c(base, first5, last5), names_to = "Time", values_to = "HRV" )
+
+```
+
+
+# Whole sample
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+dir_merge_long %>%
+  dplyr::filter(Cond == "CONTROL") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+                    xlab = "", ylab = "HRV",
+                    title = "CONTROL")
+
+dir_merge_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+                    xlab = "", ylab = "HRV",
+                    title = "EXPERIMENTAL")
+```
+
+
+# By group
+
+## Normal Pop
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+dir_merge_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+                    xlab = "", ylab = "HRV",
+                    title = "CONTROL")
+
+dir_merge_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "pop gen") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+                    xlab = "", ylab = "HRV",
+                    title = "EXPERIMENTAL")
+```
+
+## PTSD 
+
+- only 1 CONTROL with PTSD had HRV data
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+# dir_merge_long %>%
+#   dplyr::filter(Cond == "CONTROL", Grup == "PTSD") %>%
+#   my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+#                     xlab = "", ylab = "HRV",
+#                     title = "CONTROL")
+
+dir_merge_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "PTSD") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, type = "np",
+                    xlab = "", ylab = "HRV",
+                    title = "EXPERIMENTAL")
+```
+
+## Burnout
+
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+dir_merge_long %>%
+  dplyr::filter(Cond == "CONTROL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, 
+                    xlab = "", ylab = "HRV",
+                    title = "CONTROL")
+
+dir_merge_long %>%
+  dplyr::filter(Cond == "EXPERIMENTAL", Grup == "Burnout") %>%
+  my_ggwithinstats2(x = Time, y = HRV, outlier.label = id, type = "np",
+                    xlab = "", ylab = "HRV",
+                    title = "EXPERIMENTAL")
+```
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
