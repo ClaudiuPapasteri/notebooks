@@ -1,0 +1,128 @@
+---
+title: "<br> STAD - Demo and Imitation Metrics" 
+subtitle: "Preliminary Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",      
+  "psych",          
+  "broom", "rstatix",
+  "summarytools",            
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Run demoimitMetrics_cleantable script
+
+```{r}
+script_folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/STAD-demoimitMetrics/STAD_behavioral_scrips" 
+script_name <- "demoimitMetrics_to_cleantable.R"
+source(file.path(script_folder, script_name))
+```
+
+
+# Data
+
+## Info:
+Demo scores
+1st row for start 
+2nd row for flag
+
+Imitation scores
+1st row for start 
+2nd row for flag 
+3rd row = first object response by navigator (individual score)
+4th row = suggestion marker by observer (observer score)     
+entry 5 = 2nd object response by navigator (collaborative score)
+
+
+```{r}
+full_data_output %>%
+      DT::datatable(                                  # excel downloadable  DT table
+      extensions = 'Buttons',
+      options = list(pageLength = 20,
+                     scrollX = '500px', 
+                     dom = 'Bfrtip', 
+                     buttons = c('excel', "csv")))
+```
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
