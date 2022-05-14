@@ -85,16 +85,16 @@ source(file.path(script_folder, script_name))
 # Data
 
 ## Info:
-Demo scores
-1st row for start 
-2nd row for flag
+* Demo scores
+    + 1st row for start 
+    + 2nd row for flag
 
-Imitation scores
-1st row for start 
-2nd row for flag 
-3rd row = first object response by navigator (individual score)
-4th row = suggestion marker by observer (observer score)     
-entry 5 = 2nd object response by navigator (collaborative score)
+* Imitation scores
+    + 1st row for start 
+    + 2nd row for flag 
+    + 3rd row = first object response by navigator (individual score)
+    + 4th row = suggestion marker by observer (observer score)     
+    + 5th row = 2nd object response by navigator (collaborative score)
 
 
 ```{r}
