@@ -77,7 +77,7 @@ theme_set(theme_apa())
 
 ```{r}
 script_folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/STAD-demoimitMetrics/STAD_behavioral_scrips" 
-script_name <- "demoimitMetrics_to_cleantable.R"
+script_name <- "demoimitMetrics_to_cleantable_V.2.R"
 source(file.path(script_folder, script_name))
 ```
 
@@ -128,20 +128,21 @@ full_data_output_clean2 <-
     + 4th row = suggestion marker by observer (observer score) (GameState 17)       
     + 5th row = 2nd object response by navigator (collaborative score) (GameState 18)
     
-Variables:
-* id categorical - unique identifier
-* condition categorical - "social" or "bot"
+* Variables:
+    + id categorical - unique identifier
+    + condition categorical - "social" or "bot"
+    + order categorical - 1 or 2 the order of conditions
 
-* newGameState_f categorical - codes for GameStates (5-11 are Demo, 12-20 are Imit)
-* demoimitState categorical - "Demo" or "Imit" depending on state
-* playerType categorical - 1 or 2 - player that goes first
-* markerType categorical - codes for the object (see documentation), but it actually follows the the above Info (dependes on GameState)
-* score continuous - follows the the above Info (dependes on GameState)
+    + newGameState_f categorical - codes for GameStates (5-11 are Demo, 12-20 are Imit)
+    + demoimitState categorical - "Demo" or "Imit" depending on state
+    + playerType categorical - 1 or 2 - player that goes first
+    + markerType categorical - codes for the object (see documentation), but it actually follows the the above Info (dependes on GameState)
+    + score continuous - follows the the above Info (dependes on GameState)
 
 
 
 ```{r}
-full_data_output %>%
+full_data_output_clean2 %>%
       DT::datatable(                                  # excel downloadable  DT table
       extensions = 'Buttons',
       options = list(pageLength = 20,
