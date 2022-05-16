@@ -116,7 +116,7 @@ new_names <- c("conditie_1", "partener_1", "fisier_obtinut_1", "conditie_2", "pa
 
 full_data_output_nest <- 
   full_data_output %>% 
-  dplyr::rename_at(vars(old_names), ~ new_names) %>%
+  dplyr::rename_at(all_of(old_names), ~ new_names) %>%
   tidyr::pivot_longer(cols = -id, names_to = c(".value", "order"), names_pattern = "(.*)_(\\d+)$", values_to = "data")
   
 

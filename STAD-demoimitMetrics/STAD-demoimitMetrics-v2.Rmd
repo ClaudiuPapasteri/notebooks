@@ -110,6 +110,9 @@ full_data_output_clean2 <-
   dplyr::mutate(playerType = dplyr::coalesce(demoMetrics_playerType, imitMetrics_playerType),
                 markerType = dplyr::coalesce(demoMetrics_markerType, imitMetrics_markerType),
                 score = dplyr::coalesce(demoMetrics_score, imitMetrics_score)) %>%
+  dplyr::mutate(who = dplyr::case_when(stringr::str_detect(fisier_obtinut, "PLAYER_1") ~ 1L,
+                                       stringr::str_detect(fisier_obtinut, "PLAYER_2") ~ 2L,
+                                       TRUE ~ NA_integer_)) %>%
   dplyr::select(-c(demoMetrics_playerType, imitMetrics_playerType, demoMetrics_markerType, imitMetrics_markerType, demoMetrics_score, imitMetrics_score))
 
 ```
@@ -132,10 +135,11 @@ full_data_output_clean2 <-
     + id categorical - unique identifier
     + condition categorical - "social" or "bot"
     + order categorical - 1 or 2 the order of conditions
+    + who catergorical - 1 or 2 codes for who's recording it is (data only for current id is when: _who == playerType_)
 
     + newGameState_f categorical - codes for GameStates (5-11 are Demo, 12-20 are Imit)
     + demoimitState categorical - "Demo" or "Imit" depending on state
-    + playerType categorical - 1 or 2 - player that goes first
+    + playerType categorical - 1 or 2 depending on GameState (should be used together with var _who_)
     + markerType categorical - codes for the object (see documentation), but it actually follows the the above Info (dependes on GameState)
     + score continuous - follows the the above Info (dependes on GameState)
 
@@ -151,6 +155,22 @@ full_data_output_clean2 %>%
                      buttons = c('excel', "csv")))
 ```
 
+
+
+## Insights for Sabin on Player1/Player2 recordings
+Some GameStates (e.g. 10 Demo and 17 Imit) with corresponding Metrics are logged only for one of the subject within social condition.
+The GameStates that are logged for both participants have identical data (including Metrics).
+
+```{r}
+id3_soc <- full_data_output_clean2 %>%
+  dplyr::filter(id == "ID3", conditie == "SOCIAL")
+
+id4_soc <- full_data_output_clean2 %>%
+  dplyr::filter(id == "ID4", conditie == "SOCIAL")
+
+# rio::export(id3_soc, "id3_soc.xlsx")
+# rio::export(id4_soc, "id4_soc.xlsx")
+```
 
 
 
