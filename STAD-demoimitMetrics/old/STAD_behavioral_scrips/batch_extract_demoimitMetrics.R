@@ -85,33 +85,33 @@ extract_botrec <- function(file, path) {
   
   frames_df_wide_2 <- 
     frames_df_wide %>%
-    fuzzyjoin::difference_left_join(demoMetrics_df, by = "timeStamp", max_dist = 10^-4) %>%
+    fuzzyjoin::difference_left_join(demoMetrics_df, by = "timeStamp", max_dist = 10^-1) %>%    # changed from max_dist = 10^-4
     dplyr::rename(timeStamp = timeStamp.x, timeStamp_demo = timeStamp.y) %>%
-    fuzzyjoin::difference_left_join(imitationMetrics_df, by = "timeStamp", max_dist = 10^-4) %>%
+    fuzzyjoin::difference_left_join(imitationMetrics_df, by = "timeStamp", max_dist = 10^-1) %>%  # changed from max_dist = 10^-4
     dplyr::rename(timeStamp = timeStamp.x, timeStamp_imit = timeStamp.y) 
   
   
-  # Check
+  # Check -- checks are fine but dont add much
   # sum(!is.na(frames_df_wide_2$timeStamp_demo)) == length(unique(demoMetrics_df$timeStamp))
   # sum(!is.na(frames_df_wide_2$timeStamp_imit)) == length(unique(imitationMetrics_df$timeStamp))
   
-  idx_demo <- which(!is.na(frames_df_wide_2$timeStamp_demo) & frames_df_wide_2$demoMetrics_playerType == 1)  
-  check_1 <-
-    all.equal(
-      frames_df_wide_2[idx_demo, c("xPos", "yPos", "zPos")],
-      frames_df_wide_2[idx_demo, c("demoMetrics_playerPosition_x", "demoMetrics_playerPosition_y", "demoMetrics_playerPosition_z")],
-      check.names = FALSE
-    )
-  if(is.logical(check_1) && check_1) cat("Check 1 completed succesfully ") else cat(check_1)
-  
-  idx_imit <- which(!is.na(frames_df_wide_2$timeStamp_imit) & frames_df_wide_2$imitMetrics_playerType == 1 & frames_df_wide_2$newGameState != 18) 
-  check_2 <- 
-    all.equal(
-      frames_df_wide_2[idx_imit, c("xPos", "yPos", "zPos")],
-      frames_df_wide_2[idx_imit, c("imitMetrics_playerPosition_x", "imitMetrics_playerPosition_y", "imitMetrics_playerPosition_z")],
-      check.names = FALSE
-    )    # in GameState 18 the playerPosition is the SugestionMarker position; this can also be seen in "imitMetrics_playerPosition_y" that is 0.05 (not 0.08)
-  if(is.logical(check_2) && check_2) cat("Check 2 completed succesfully ", "\n") else cat(check_2, "\n")
+  # idx_demo <- which(!is.na(frames_df_wide_2$timeStamp_demo) & frames_df_wide_2$demoMetrics_playerType == 1)  
+  # check_1 <-
+  #   all.equal(
+  #     frames_df_wide_2[idx_demo, c("xPos", "yPos", "zPos")],
+  #     frames_df_wide_2[idx_demo, c("demoMetrics_playerPosition_x", "demoMetrics_playerPosition_y", "demoMetrics_playerPosition_z")],
+  #     check.names = FALSE
+  #   )
+  # if(is.logical(check_1) && check_1) cat("Check 1 completed succesfully ") else cat(check_1)
+  # 
+  # idx_imit <- which(!is.na(frames_df_wide_2$timeStamp_imit) & frames_df_wide_2$imitMetrics_playerType == 1 & frames_df_wide_2$newGameState != 18) 
+  # check_2 <- 
+  #   all.equal(
+  #     frames_df_wide_2[idx_imit, c("xPos", "yPos", "zPos")],
+  #     frames_df_wide_2[idx_imit, c("imitMetrics_playerPosition_x", "imitMetrics_playerPosition_y", "imitMetrics_playerPosition_z")],
+  #     check.names = FALSE
+  #   )    # in GameState 18 the playerPosition is the SugestionMarker position; this can also be seen in "imitMetrics_playerPosition_y" that is 0.05 (not 0.08)
+  # if(is.logical(check_2) && check_2) cat("Check 2 completed succesfully ", "\n") else cat(check_2, "\n")
   
   
   # Keep only necesary stuff --- this will probably need changing
@@ -126,6 +126,8 @@ extract_botrec <- function(file, path) {
                   folder = rep(folder_name, nrow(.))) %>%
     dplyr::relocate(file, folder)
 
+  cat("File completed:", file_name, "\n")
+  
   frames_df_wide_2
 }
 
@@ -134,6 +136,11 @@ extract_botrec <- function(file, path) {
 # test_path <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/test runs 28.04.2022"
 # test_file <- dir(test_path)[grep("*.botrec$", dir(test_path))][1]
 # test_df <- extract_botrec(test_file, test_path)
+
+# test_path <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Example for Sabin"
+# test_file <- "TestSession_10.11.2021_19.08_ROG_LAPTOP_PLAYER_2_True_.botrec"
+# test_df <- extract_botrec(test_file, test_path)
+
 ##################################################################################################################
 ##################################################################################################################
 
@@ -172,16 +179,41 @@ folder_names <- basename(folder_paths)
 folder_names[1]
 fisier_obtinut1 <- batch_extract(folder_paths[1])
 
-saveRDS(fisier_obtinut1, file = file.path(main_folder, "fisier_obtinut1.RDS"))
+# saveRDS(fisier_obtinut1, file = file.path(main_folder, "fisier_obtinut1.RDS"))
 
 folder_names[2]
 fisier_obtinut2 <- batch_extract(folder_paths[2])
 
-saveRDS(fisier_obtinut2, file = file.path(main_folder, "fisier_obtinut2.RDS"))
+# saveRDS(fisier_obtinut2, file = file.path(main_folder, "fisier_obtinut2.RDS"))
 
 folder_names[4]
 fisier_obtinut3 <- batch_extract(folder_paths[4])
 
-saveRDS(fisier_obtinut3, file = file.path(main_folder, "fisier_obtinut3.RDS"))
+# saveRDS(fisier_obtinut3, file = file.path(main_folder, "fisier_obtinut3.RDS"))
+
+##################################################################################################################
+# Using new selection for FENS conf
+sessions_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions"
+sessions_folder_FENS <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_Clean_FENS"
+setwd(sessions_folder_FENS)
+
+# Get botrec filenames and copy them to folder
+# files_df <- rio::import(file.path(sessions_folder_FENS, "sorted_session_FENS.xlsx"))
+# 
+# for(i in seq_len(length(files_df$fisier_obtinut1))){
+#   file.copy(from = file.path(sessions_folder, files_df$fisier_obtinut1[i]), to = file.path(sessions_folder_FENS, "fisier_obtinut1"))
+# }
+# 
+# for(i in seq_len(length(files_df$fisier_obtinut2))){
+#   file.copy(from = file.path(sessions_folder, files_df$fisier_obtinut2[i]), to = file.path(sessions_folder_FENS, "fisier_obtinut2"))
+# }
+
+
+fisier_obtinut1_FENS <- batch_extract(file.path(sessions_folder_FENS, "fisier_obtinut1"))
+# saveRDS(fisier_obtinut1_FENS, file = file.path(sessions_folder_FENS, "fisier_obtinut1_FENS.RDS"))
+
+fisier_obtinut2_FENS <- batch_extract(file.path(sessions_folder_FENS, "fisier_obtinut2"))
+# saveRDS(fisier_obtinut2_FENS, file = file.path(sessions_folder_FENS, "fisier_obtinut2_FENS.RDS"))
+
 ##################################################################################################################
 ##################################################################################################################

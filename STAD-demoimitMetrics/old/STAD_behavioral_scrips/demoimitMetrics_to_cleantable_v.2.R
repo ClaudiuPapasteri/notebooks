@@ -94,12 +94,12 @@ fisier_obtinut1_df <- dplyr::bind_rows(fisier_obtinut1_df, fisier_obtinut3_df)
 rm(fisier_obtinut3_df)   # this was incorporated in fisier_obtinut3 in clean table and also in nested dataframe of sessions
 
 # Merge nested data frames into clean table
-full_data <- 
+full_data <-
   data_clean2 %>%
   dplyr::left_join(fisier_obtinut1_df, by = c("fisier_obtinut1" = "file")) %>%
   dplyr::rename(data_fisier_obtinut1 = data) %>%
   dplyr::left_join(fisier_obtinut2_df, by = c("fisier_obtinut2" = "file")) %>%
-  dplyr::rename(data_fisier_obtinut2 = data) 
+  dplyr::rename(data_fisier_obtinut2 = data)
 
 
 
@@ -114,13 +114,15 @@ full_data_output <- full_data %>%
 old_names <- c("conditie1", "partener1", "fisier_obtinut1", "conditie2", "partener2", "fisier_obtinut2", "data_fisier_obtinut1", "data_fisier_obtinut2")
 new_names <- c("conditie_1", "partener_1", "fisier_obtinut_1", "conditie_2", "partener_2", "fisier_obtinut_2", "data_fisier_obtinut_1", "data_fisier_obtinut_2")
 
-full_data_output_nest <- 
-  full_data_output %>% 
+full_data_output_nest <-
+  full_data_output %>%
   dplyr::rename_at(all_of(old_names), ~ new_names) %>%
   tidyr::pivot_longer(cols = -id, names_to = c(".value", "order"), names_pattern = "(.*)_(\\d+)$", values_to = "data")
-  
+
 
 full_data_output_clean <-
   full_data_output_nest %>%
-  unnest(cols = data_fisier_obtinut) 
+  unnest(cols = data_fisier_obtinut)
+
+
 

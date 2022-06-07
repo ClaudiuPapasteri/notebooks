@@ -1,0 +1,436 @@
+---
+title: "<br> STAD - Demo and Imitation Metrics" 
+subtitle: "Preliminary Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+<!-- Setup -->
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+options(dplyr.summarise.inform = FALSE)   # annoying summarize messages pass throught message=FALSE
+
+# General R options and info
+Sys.setenv(`_R_S3_METHOD_REGISTRATION_NOTE_OVERWRITES_` = "false") # suppress "S3 method overwritten" before loading packages
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",      
+  "psych",          
+  "broom", "rstatix",
+  "summarytools",            
+  "ggplot2", "ggpubr", "scales", "splines", "cowplot", "ggstatsplot",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+<!-- Report -->
+
+# Run demoimitMetrics_cleantable script
+
+```{r, message=FALSE, warning=FALSE}
+script_folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/STAD-demoimitMetrics/Scripts" 
+script_name <- "demoimitMetrics_to_cleantable.R"
+source(file.path(script_folder, script_name))
+```
+
+# Data
+
+## Info:
+
+-   Demo scores
+
+    -   object response by navigator (individual score) (GameState 9 =\> newGameState 10)
+
+-   Imitation scores
+
+    -   1st row for start (GameState 14 =\> newGameState 15)
+    -   2nd row for flag (GameState 15 =\> newGameState 16)
+    -   3rd row = first object response by navigator (individual score) (GameState 16 =\> newGameState 17)
+    -   4th row = suggestion marker by observer (observer score) (GameState 17 =\> newGameState 18)
+    -   5th row = 2nd object response by navigator (collaborative score) (GameState 18 =\> newGameState 19)
+
+-   Variables:
+
+    -   id categorical - unique identifier
+    -   condition categorical - "social" or "bot"
+    -   order categorical - 1 or 2 the order of conditions
+    -   who catergorical - 1 or 2 codes for who's recording it is (data only for current id is when: *who == playerType*)
+
+    <!-- + newGameState_f categorical - codes for GameStates (5-11 are Demo, 12-20 are Imit) -->
+
+    <!-- + demoimitState categorical - "Demo" or "Imit" depending on state -->
+
+    -   newGameState_clean categorical - codes for GameStates (5-11 are Demo, 12-20 are Imit)
+    -   demoimitState_clean categorical - "Demo" or "Imit" depending on state
+    -   playerType categorical - 1 or 2 depending on GameState (should be used together with var *who*)
+    -   markerType categorical - codes for the object (see documentation), but it actually follows the the above Info (dependes on GameState)
+    -   score continuous - follows the the above Info (depends on GameState)
+
+```{r}
+full_data_output_clean %>%
+  DT::datatable(                                  # excel downloadable  DT table
+  extensions = 'Buttons',
+  options = list(pageLength = 5,
+                 scrollX = '500px', 
+                 dom = 'Bfrtip', 
+                 buttons = c('excel', "csv"))) %>%
+  DT::formatStyle(names(full_data_output_clean),lineHeight = "60%")    # slimmer rows
+```
+
+# Preliminary Analyses
+
+### Functions
+
+```{r}
+plot_growth_state_id <- function(data, cond, gamestate, time_lim = 20){
+  data %>%
+  dplyr::filter(condition == cond, newGameState_clean == gamestate) %>%
+  group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+  dplyr::filter(time < time_lim) %>%  
+    ggplot(aes(x = time, y = score)) +
+    geom_line() +
+    facet_wrap(~id) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle(paste0("Condition: ", cond, ", ", "Game state: ", gamestate))
+}
+
+# e.g.
+# full_data_output_clean %>%
+#   dplyr::filter(condition == "bot", newGameState_clean == "10") %>%
+#   group_by(id) %>%
+#   dplyr::mutate(time = dplyr::row_number()) %>%
+#   ggplot(aes(x = time, y = score)) +
+#   geom_line() +
+#   facet_wrap(~id)
+
+plot_growth_state_loess <- function(data, cond, gamestate, time_lim = 20){
+  data %>%
+  dplyr::filter(condition == cond, newGameState_clean == gamestate) %>%
+  group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+  dplyr::filter(time < time_lim) %>%   
+    ggplot(aes(x = time, y = score)) +
+    geom_line(aes(color = as.factor(id)), alpha = .5) +
+    geom_smooth(method = "loess", formula = "y ~ x", color = "red", fill = "red") +
+    geom_smooth(method = "lm", formula = y ~ splines::bs(x, knots = seq(2 , 16, by = 2), degree = 1), 
+                se = FALSE, color = "black", fill = "gray", alpha = 0.8) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle(paste0("Condition: ", cond, ", ", "Game state: ", gamestate)) +
+    labs(color = "id")  
+}
+  
+# e.e.
+# full_data_output_clean %>%
+# dplyr::filter(condition == "bot", newGameState_clean == "10") %>%
+# group_by(id) %>%
+# dplyr::mutate(time = dplyr::row_number()) %>%
+# ggplot(aes(x = time, y = score)) +
+# geom_line(aes(color = as.factor(id)), alpha = .5) +
+# geom_smooth(method = "loess", formula = "y ~ x")
+
+
+my_ggwithinstats2 <- function(data, title = NULL, x, y, gamestate, time_lim = 20, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              type = "parametric", 
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(is.null(title)) {
+    title <- paste0("Game state: ", gamestate)
+  }
+  
+  data <-
+    data %>%
+    dplyr::select(!!outlier.label, !!x, !!y, newGameState_clean) %>%      # newGameState_clean is hardcoded here
+    dplyr::filter(newGameState_clean == gamestate) %>%
+    group_by(!!outlier.label, !!x) %>%
+    dplyr::mutate(time = dplyr::row_number()) %>%
+    dplyr::filter(time < time_lim) %>%   
+    dplyr::summarise(mean_score = mean(!!y, na.rm = TRUE))
+    
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = mean_score,              # here we have the mean score for id, not !!y
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+      outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "all",
+      results.subtitle = results.subtitle,
+      type = type,
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = point.path,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "parameteric",
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = centrality.label.args,
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+    ylim(0, 100) +
+    scale_y_continuous(...)
+}
+
+# e.g.
+# my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 10,
+#                   time_lim = 20, xlab = "Condition", ylab = "score")
+                   
+```
+
+## Individual growth (object not considered)
+
+Notes:
+
+1.  Variability is the norm
+
+2.  Trend is not easily discernible
+
+```{r, fig.height=8, fig.width=10}
+plot_growth_state_id(full_data_output_clean, "bot", "10")
+plot_growth_state_id(full_data_output_clean, "social", "10")
+
+plot_growth_state_id(full_data_output_clean, "bot", "15")
+plot_growth_state_id(full_data_output_clean, "social", "15")
+
+plot_growth_state_id(full_data_output_clean, "bot", "16")
+plot_growth_state_id(full_data_output_clean, "social", "16")
+
+plot_growth_state_id(full_data_output_clean, "bot", "17")
+plot_growth_state_id(full_data_output_clean, "social", "17")
+
+plot_growth_state_id(full_data_output_clean, "bot", "18")
+plot_growth_state_id(full_data_output_clean, "social", "18")
+
+plot_growth_state_id(full_data_output_clean, "bot", "19")
+plot_growth_state_id(full_data_output_clean, "social", "19")
+```
+
+## Individual growth (object not considered)
+
+Red = Loess
+
+Black = Spline regression (1st degree polynomial), knots = every second time point
+
+Notes:
+
+1.  Some participants have more trials than others
+
+2.  There is a large dip in performance after a somewhat consistent number of trials
+
+```{r, fig.height=8, fig.width=8}
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "10") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "10") + theme(legend.position="none"),
+  nrow = 2
+)
+
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "15") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "15") + theme(legend.position="none"),  
+  nrow = 2
+)
+
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "16") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "16") + theme(legend.position="none"),  
+  nrow = 2
+)
+
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "17") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "17") + theme(legend.position="none"),  
+  nrow = 2
+)
+
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "18") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "18") + theme(legend.position="none"), 
+  nrow = 2
+)
+  
+cowplot::plot_grid(
+  plot_growth_state_loess(full_data_output_clean, "bot", "19") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean, "social", "19") + theme(legend.position="none"), 
+  nrow = 2
+)
+```
+
+## Individual average scores (mean)
+
+Notes:
+
+1.  These are trial-limited (limit is set at 5 trials)
+
+2.  But: do not take condition order or markerType into consideration
+
+```{r, message=FALSE, warning=FALSE}
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 10,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 15,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 16,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 17,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 18,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+my_ggwithinstats2(full_data_output_clean, x = condition, y = score, outlier.label = id, gamestate = 19,
+                  time_lim = 5, xlab = "Condition", ylab = "score") %>%
+  suppressMessages()
+
+```
+
+### GameState 19, only first object, individual level average
+
+Order is not accounted for
+
+```{r, fig.height=17, fig.width=7, message=FALSE, warning=FALSE}
+plot_gs19_fisrt <- 
+  full_data_output_clean %>%
+  dplyr::select(id, condition, score, newGameState_clean, markerType) %>%      
+  dplyr::filter(newGameState_clean == "19") %>%
+  dplyr::group_by(id, condition) %>%  
+  dplyr::mutate(first_marker = dplyr::if_else(markerType == dplyr::first(markerType), "yes", "no")) %>%  
+  dplyr::filter(first_marker == "yes") %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+    ggplot(aes(x = time, y = score)) +
+    geom_line() +
+    # facet_wrap(score ~ condition, strip.position = "top") +
+    # facet_grid(condition ~ id) +    
+    facet_grid(rows = vars(id), cols = vars(condition)) + 
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:16) +
+    ggtitle(paste0("Game state: ", "19")) +
+    theme_bw() 
+
+suppressMessages(print(plot_gs19_fisrt))
+```
+
+```{r, fig.height=7, fig.width=7}
+full_data_output_clean %>%
+dplyr::select(id, condition, score, newGameState_clean, markerType) %>%      
+dplyr::filter(newGameState_clean == "19") %>%
+dplyr::group_by(id, condition) %>%  
+dplyr::mutate(first_marker = dplyr::if_else(markerType == dplyr::first(markerType), "yes", "no")) %>%  
+dplyr::filter(first_marker == "yes") %>%
+dplyr::summarise(mean_score = mean(score, na.rm = TRUE)) %>%
+  ggstatsplot::ggwithinstats(
+    x = condition,
+    y = mean_score,
+    outlier.tagging = TRUE,                   
+    outlier.label = id, 
+    title = "GameState: 19"
+  )
+```
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+
+ 
+
+<hr />
+
+<p style="text-align: center;">
+
+A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a>
+
+</p>
+
+<p style="text-align: center;">
+
+<em>[claudiu.papasteri\@gmail.com](mailto:claudiu.papasteri@gmail.com){.email}</em>
+
+</p>
+
+ 
