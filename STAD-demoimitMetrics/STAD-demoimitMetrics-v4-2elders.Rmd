@@ -1,0 +1,339 @@
+---
+title: "<br> STAD - Demo and Imitation Metrics" 
+subtitle: "Test Two Elderly"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+<!-- Setup -->
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+options(dplyr.summarise.inform = FALSE)   # annoying summarize messages pass throught message=FALSE
+
+# General R options and info
+Sys.setenv(`_R_S3_METHOD_REGISTRATION_NOTE_OVERWRITES_` = "false") # suppress "S3 method overwritten" before loading packages
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse",      
+  "psych",          
+  "broom", "rstatix",
+  "summarytools",            
+  "ggplot2", "ggpubr", "scales", "splines", "cowplot", "ggstatsplot",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+<!-- Report -->
+
+# Run demoimitMetrics_cleantable script
+
+```{r, message=FALSE, warning=FALSE}
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/STAD-demoimitMetrics"
+setwd(folder)
+
+
+########################################################
+
+# Read clean table
+sessions_clean_data <- readRDS("sessions_clean2batrani.RDS")
+
+# Define function
+list_to_nested <- function(list, group_var){
+  list %>%
+    do.call(dplyr::bind_rows, .) %>%
+    dplyr::group_by( {{ group_var }} ) %>%
+    tidyr::nest()
+}
+
+# Lists of recordings to nested data frames
+sessions_clean_data_df <- list_to_nested(sessions_clean_data, file)
+
+sessions_clean_data_df <-
+  sessions_clean_data_df %>%
+  dplyr::ungroup() %>%       # careful, the df is already grouped
+  dplyr::mutate(id = dplyr::row_number())
+
+full_data_output <- sessions_clean_data_df %>%
+  dplyr::relocate(id) %>%
+  tidyr::unnest(data)
+
+
+# Some additional tidying
+vars_exclude <- c(
+  # General    
+  "InputY", "InputX", "xPos", "yPos", "zPos", "xRot", "yRot", "zRot", "wRot", "markerX", "markerY", "markerZ",
+  # Demo
+  "demoMetrics_playerPosition_x", "demoMetrics_playerPosition_y", "demoMetrics_playerPosition_z", "demoMetrics_markerPosition_x",  
+  "demoMetrics_markerPosition_y", "demoMetrics_markerPosition_z", "demoMetrics_distanceFromMarker", 
+  # Imit
+  "imitMetrics_playerPosition_x", "imitMetrics_playerPosition_y", "imitMetrics_playerPosition_z", "imitMetrics_markerPosition_x", 
+  "imitMetrics_markerPosition_y", "imitMetrics_markerPosition_z", "imitMetrics_distanceFromMarker", 
+  # syncKey
+  "syncKey"
+)
+
+full_data_output_clean <- 
+  full_data_output %>%
+  dplyr::select(-any_of(vars_exclude))
+
+
+full_data_output_clean <- 
+  full_data_output_clean %>%
+  dplyr::mutate(demoimitState = dplyr::case_when(newGameState_f %in% 5:11 ~ "Demo",
+                                                 newGameState_f %in% 12:20 ~ "Imit",
+                                                 TRUE ~ NA_character_)) %>%
+  dplyr::mutate(timeStamp_demoimit = dplyr::coalesce(timeStamp_demo, timeStamp_imit), 
+                playerType = dplyr::coalesce(demoMetrics_playerType, imitMetrics_playerType),
+                markerType = dplyr::coalesce(demoMetrics_markerType, imitMetrics_markerType),
+                score = dplyr::coalesce(demoMetrics_score, imitMetrics_score)) %>% 
+  dplyr::mutate(who = dplyr::case_when(stringr::str_detect(file, "PLAYER_1") ~ 1L,     # changes output_file_clean to file
+                                       stringr::str_detect(file, "PLAYER_2") ~ 2L,   
+                                       TRUE ~ NA_integer_)) %>%
+  dplyr::select(-c(demoMetrics_playerType, imitMetrics_playerType, demoMetrics_markerType, imitMetrics_markerType, demoMetrics_score, imitMetrics_score,
+                   timeStamp_demo, timeStamp_imit))
+
+
+# Keep only data from the actual player (where playerType == who)
+full_data_output_clean <-
+  full_data_output_clean %>%
+  dplyr::filter(playerType == who)
+
+
+# Exclude multiple timpeStamp_demoimit per timeStamp match (only adjusting tolerance will lose data as matches are not exact)
+full_data_output_clean <-
+  full_data_output_clean %>%
+  dplyr::mutate(timeStamp_diff = abs(timeStamp - timeStamp_demoimit)) %>%
+  dplyr::group_by(id, timeStamp_demoimit) %>%
+  dplyr::slice_min(timeStamp_diff) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(id, timeStamp) %>%
+  dplyr::slice_min(timeStamp_diff) %>%
+  dplyr::ungroup()
+
+# Make newGameState_clean --- a bit hacky 
+full_data_output_clean <-
+  full_data_output_clean %>%
+  dplyr::mutate(
+    newGameState_clean = 
+      dplyr::case_when(newGameState_f == "9" ~ 10L,             # is 9 or 14 when it should be 10 or 15
+                       newGameState_f == "14" ~ 15L,
+                       newGameState_f %in% as.character(c(10, 15:19)) ~ as.integer(newGameState_f),
+                       TRUE ~ NA_integer_
+      ),
+    newGameState_clean =                                 # some matched the previous frame so GameStates repeat
+      dplyr::if_else(newGameState_clean == dplyr::lag(newGameState_clean) & !is.na(dplyr::lag(newGameState_clean)), 
+                     newGameState_clean + 1L, 
+                     newGameState_clean
+     ),
+    newGameState_clean =                                 # GameState 10 following another 10 now became 11
+      dplyr::if_else(newGameState_clean == 11L, 10L, newGameState_clean)
+  ) %>%                                          # !CAREFUL columns computed based on newGameState_f like demoimitState now may be wrong
+  dplyr::mutate(demoimitState_clean = dplyr::case_when(newGameState_clean %in% 5:11 ~ "Demo",
+                                                       newGameState_clean %in% 12:20 ~ "Imit",
+                                                       TRUE ~ NA_character_))
+
+# Check GameStates
+check_df <-
+  full_data_output_clean %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(grp = as.integer(gl(n(), 6, n()))) %>%    # group every 6 rows
+  dplyr::group_by(id, grp) %>%
+  dplyr::summarise(pattern = paste0(newGameState_f, collapse = " "),
+                   pattern_clean = paste0(newGameState_clean, collapse = " "))
+```
+
+## Check GamesStates
+
+```{r}
+check_df
+```
+
+
+# Data
+
+```{r}
+full_data_output_clean %>%
+  DT::datatable(                                  # excel downloadable  DT table
+  extensions = 'Buttons',
+  options = list(pageLength = 5,
+                 scrollX = '500px', 
+                 dom = 'Bfrtip', 
+                 buttons = c('excel', "csv"))) %>%
+  DT::formatStyle(names(full_data_output_clean),lineHeight = "60%")    # slimmer rows
+```
+
+# Preliminary Analyses
+
+### Functions
+
+```{r}
+plot_growth_state_id <- function(data, gamestate, time_lim = 20) {
+  data %>%
+  dplyr::filter(newGameState_clean == gamestate) %>%
+  group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+  dplyr::filter(time < time_lim) %>%  
+    ggplot(aes(x = time, y = score)) +
+    geom_line() +
+    facet_wrap(~id) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle(paste0("Game state: ", gamestate))
+}
+
+
+plot_growth_state_loess <- function(data, gamestate, time_lim = 20) {
+  data %>%
+  dplyr::filter(newGameState_clean == gamestate) %>%
+  group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+  dplyr::filter(time < time_lim) %>%   
+    ggplot(aes(x = time, y = score)) +
+    geom_line(aes(color = as.factor(id)), alpha = .5) +
+    geom_smooth(method = "loess", formula = "y ~ x", color = "red", fill = NA) +
+    # geom_smooth(method = "lm", formula = y ~ splines::bs(x, knots = seq(2 , 16, by = 2), degree = 1), 
+    #             se = FALSE, color = "black", fill = "gray", alpha = 0.8) +
+    # tidyquant::geom_ma(ma_fun = SMA, n = 1, color = "black") +
+    stat_summary(fun = mean, geom = "line", colour = "black", lty = "dashed") +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle(paste0("Game state: ", gamestate)) +
+    labs(color = "id")  
+}
+
+```
+
+
+## Individual growth (object not considered)
+
+Notes:
+
+1.  Variability is the norm
+
+2.  Trend is not easily discernible
+
+```{r, fig.height=6, fig.width=8}
+plot_growth_state_id(full_data_output_clean, "10")
+
+plot_growth_state_id(full_data_output_clean, "15")
+plot_growth_state_id(full_data_output_clean, "16")
+plot_growth_state_id(full_data_output_clean, "17")
+plot_growth_state_id(full_data_output_clean, "18")
+plot_growth_state_id(full_data_output_clean, "19")
+```
+
+## Individual growth (object not considered)
+
+Red = Loess
+Black dashed = Simple Mean
+
+```{r, fig.height=6, fig.width=7}
+plot_growth_state_loess(full_data_output_clean, "10") + theme(legend.position = "none")
+
+plot_growth_state_loess(full_data_output_clean, "15") + theme(legend.position = "none")
+plot_growth_state_loess(full_data_output_clean, "16") + theme(legend.position = "none")
+plot_growth_state_loess(full_data_output_clean, "17") + theme(legend.position = "none")
+plot_growth_state_loess(full_data_output_clean, "18") + theme(legend.position = "none")
+plot_growth_state_loess(full_data_output_clean, "19") + theme(legend.position = "none")
+```
+
+
+## Alternating GameStates 10 and 17 for each participant by condition
+
+
+```{r, message=FALSE, warning=FALSE, fig.height=6, fig.width=10}
+full_data_output_clean %>%
+  dplyr::filter(newGameState_clean %in% c("10", "17")) %>%
+  dplyr::mutate(newGameState_clean = as.factor(newGameState_clean)) %>%  
+  dplyr::group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+    ggplot(aes(x = time, y = score)) +
+    geom_line() +
+    geom_point(aes(shape = newGameState_clean)) +
+    facet_wrap(~id) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle("Alternating GameState 10 and 17") + 
+    theme(legend.position = "right")
+```
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+
+ 
+
+<hr />
+
+<p style="text-align: center;">
+
+A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a>
+
+</p>
+
+<p style="text-align: center;">
+
+<em>[claudiu.papasteri\@gmail.com](mailto:claudiu.papasteri@gmail.com){.email}</em>
+
+</p>
+
+ 
