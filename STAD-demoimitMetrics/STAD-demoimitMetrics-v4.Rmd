@@ -127,7 +127,7 @@ full_data_output_clean %>%
 ### Functions
 
 ```{r}
-plot_growth_state_id <- function(data, cond, gamestate, time_lim = 20){
+plot_growth_state_id <- function(data, cond, gamestate, time_lim = 20) {
   data %>%
   dplyr::filter(condition == cond, newGameState_clean == gamestate) %>%
   group_by(id) %>%
@@ -150,7 +150,7 @@ plot_growth_state_id <- function(data, cond, gamestate, time_lim = 20){
 #   geom_line() +
 #   facet_wrap(~id)
 
-plot_growth_state_loess <- function(data, cond, gamestate, time_lim = 20){
+plot_growth_state_loess <- function(data, cond, gamestate, time_lim = 20) {
   data %>%
   dplyr::filter(condition == cond, newGameState_clean == gamestate) %>%
   group_by(id) %>%
@@ -175,6 +175,24 @@ plot_growth_state_loess <- function(data, cond, gamestate, time_lim = 20){
 # ggplot(aes(x = time, y = score)) +
 # geom_line(aes(color = as.factor(id)), alpha = .5) +
 # geom_smooth(method = "loess", formula = "y ~ x")
+
+plot_growth_state1017_id <- function(data, conds = c("social", "bot"), time_lim = 20) {
+  data %>%
+  dplyr::filter(condition %in% conds, newGameState_clean %in% c("10", "17")) %>%
+  dplyr::mutate(newGameState_clean = as.factor(newGameState_clean)) %>%  
+  dplyr::group_by(id, condition) %>%
+  dplyr::mutate(time = dplyr::row_number()) %>%
+  dplyr::filter(time < time_lim) %>% 
+    ggplot(aes(x = time, y = score, color = condition)) +
+    geom_line() +
+    geom_point(aes(shape = newGameState_clean)) +
+    facet_wrap(~id) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle("Alternating GameState 10 and 17") + 
+    theme(legend.position = "right")
+}
+
 
 
 my_ggwithinstats2 <- function(data, title = NULL, x, y, gamestate, time_lim = 20, outlier.label, xlab, ylab, 
@@ -247,6 +265,46 @@ my_ggwithinstats2 <- function(data, title = NULL, x, y, gamestate, time_lim = 20
 #                   time_lim = 20, xlab = "Condition", ylab = "score")
                    
 ```
+
+## Check balance
+
+### All participants
+
+```{r}
+counts_id_condord <-
+  full_data_output_clean %>%
+  dplyr::count(id, condition, order)
+
+counts_id_condord %>%      # Participant 41 has 2 bot conditions: order = 1 and 1bis
+  print(n = Inf)
+
+counts_id_condord %>%
+  dplyr::select(condition, order) %>%
+  table() %>%
+  knitr::kable(caption = "Order")
+```
+
+### Participants with both conditions
+
+```{r}
+# Participant 41 has 2 bot conditions: order = 1 and 1bis
+ids_full_subj <-
+  full_data_output_clean %>%
+  dplyr::filter(order != "1bis") %>%   # exclude subj 41
+  group_by(id, condition) %>%
+  summarise(count = n()) %>%
+  dplyr::filter(n() > 1) %>%
+  dplyr::pull(id) %>%
+  unique()
+
+full_data_output_clean %>%
+  dplyr::filter(id %in% ids_full_subj) %>%
+  dplyr::count(id, condition, order) %>%
+  dplyr::select(condition, order) %>%
+  table() %>%
+  knitr::kable(caption = "Order")
+```
+
 
 ## Individual growth (object not considered)
 
@@ -326,13 +384,31 @@ cowplot::plot_grid(
 )
 ```
 
+
+## Alternating GameStates 10 and 17 for each participant by condition
+
+### All participans
+
+```{r, message=FALSE, warning=FALSE, fig.height=12, fig.width=12}
+plot_growth_state1017_id(full_data_output_clean)
+```
+
+### Partcipants with both conditions
+
+```{r, message=FALSE, warning=FALSE, fig.height=10, fig.width=11}
+full_data_output_clean %>%
+  dplyr::filter(id %in% ids_full_subj) %>%
+  plot_growth_state1017_id()
+```
+
+
 ## Individual average scores (mean)
 
 Notes:
 
 1.  These are trial-limited (limit is set at 5 trials)
 
-2.  But: do not take condition order or markerType into consideration
+2.  But: do not take condition order or markerType into consideration. Also, n refers to gamestate observations not ids.
 
 ```{r, message=FALSE, warning=FALSE}
 
@@ -404,6 +480,9 @@ dplyr::summarise(mean_score = mean(score, na.rm = TRUE)) %>%
     title = "GameState: 19"
   )
 ```
+
+
+
 
 <!-- Session Info and License -->
 
