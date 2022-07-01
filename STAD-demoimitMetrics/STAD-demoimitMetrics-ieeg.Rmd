@@ -81,7 +81,7 @@ source(file.path(script_folder, script_name))
 ```{r}
 full_data_output_clean <-
   full_data_output_clean %>%
-  tidyr::separate(id, into = c("id", "code"), "(?<=[0-9])(?=[a-zA-Z])") %>%
+  tidyr::separate(id, into = c("num_id", "code"), "(?<=[0-9])(?=[a-zA-Z])", remove = FALSE) %>%
   dplyr::mutate(id = as.factor(id),
                 code = as.factor(code)
   )
@@ -107,7 +107,7 @@ full_data_output_clean <-
 -   Variables:
 
     -   id categorical - unique identifier
-    -   code categorical - 
+    -   code categorical - IC = pacient / PIC = instructor
     -   condition categorical - "social" or "bot"
     -   order categorical - 1 or 2 the order of conditions
     -   who catergorical - 1 or 2 codes for who's recording it is (data only for current id is when: *who == playerType*)
@@ -126,7 +126,7 @@ full_data_output_clean <-
 full_data_output_clean %>%
   DT::datatable(                                  # excel downloadable  DT table
   extensions = 'Buttons',
-  options = list(pageLength = 5,
+  options = list(pageLength = 10,
                  scrollX = '500px', 
                  dom = 'Bfrtip', 
                  buttons = c('excel', "csv"))) %>%
@@ -160,6 +160,26 @@ plot_growth_state_id <- function(data, cond, gamestate, time_lim = 20) {
 #   ggplot(aes(x = time, y = score)) +
 #   geom_line() +
 #   facet_wrap(~id)
+
+plot_growth_state_id_by <- function(data, cond, col_by = c("order", "code"), gamestate, time_lim = 20) {
+  data %>%
+  dplyr::filter(condition == cond, newGameState_clean == gamestate) %>%
+  group_by(id) %>%
+  dplyr::mutate(time = dplyr::row_number(),
+                order = as.factor(order),
+                code = as.factor(code)) %>%
+  dplyr::filter(time < time_lim) %>%  
+    ggplot(aes(x = time, y = score)) +
+    geom_line(aes_string(color = col_by)) +
+    geom_point(aes_string(color = col_by)) +
+    facet_wrap(~id) +
+    ylim(0, 100) +
+    scale_x_continuous(breaks = 1:14) +
+    ggtitle(paste0("Condition: ", cond, ", ", "Game state: ", gamestate))
+}
+
+
+
 
 plot_growth_state_loess <- function(data, cond, gamestate, time_lim = 20) {
   data %>%
@@ -317,66 +337,73 @@ full_data_output_clean %>%
 
 ## Individual growth (object not considered)
 
-```{r, fig.height=8, fig.width=10}
-plot_growth_state_id(full_data_output_clean, "bot", "10")
-plot_growth_state_id(full_data_output_clean, "social", "10")
+```{r, warning=FALSE, message=FALSE, fig.height=8, fig.width=10}
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "10")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "10") %>% print() %>% suppressMessages()
 
-plot_growth_state_id(full_data_output_clean, "bot", "15")
-plot_growth_state_id(full_data_output_clean, "social", "15")
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "15")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "15") %>% print() %>% suppressMessages()
 
-plot_growth_state_id(full_data_output_clean, "bot", "16")
-plot_growth_state_id(full_data_output_clean, "social", "16")
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "16")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "16") %>% print() %>% suppressMessages()
 
-plot_growth_state_id(full_data_output_clean, "bot", "17")
-plot_growth_state_id(full_data_output_clean, "social", "17")
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "17")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "17") %>% print() %>% suppressMessages()
 
-plot_growth_state_id(full_data_output_clean, "bot", "18")
-plot_growth_state_id(full_data_output_clean, "social", "18")
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "18")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "18") %>% print() %>% suppressMessages()
 
-plot_growth_state_id(full_data_output_clean, "bot", "19")
-plot_growth_state_id(full_data_output_clean, "social", "19")
+plot_growth_state_id_by(full_data_output_clean, "bot", "order", "19")  
+plot_growth_state_id_by(full_data_output_clean, "social", "code", "19") %>% print() %>% suppressMessages()
+
+# plot_growth_state_id(full_data_output_clean, "bot", "19")
+# plot_growth_state_id(full_data_output_clean, "social", "19")
 ```
 
-## Individual growth (object not considered)
+## Individual growth (object not considered) - instructors excluded
 
 Red = Loess
 
 Black = Spline regression (1st degree polynomial), knots = every second time point
 
 ```{r, fig.height=8, fig.width=8}
+full_data_output_clean_ic <-
+  full_data_output_clean %>%
+  dplyr::filter(code == "IC")
+
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "10") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "10") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "10") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "10") + theme(legend.position="none"),
   nrow = 2
 )
 
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "15") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "15") + theme(legend.position="none"),  
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "15") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "15") + theme(legend.position="none"),  
   nrow = 2
 )
 
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "16") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "16") + theme(legend.position="none"),  
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "16") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "16") + theme(legend.position="none"),  
   nrow = 2
 )
 
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "17") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "17") + theme(legend.position="none"),  
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "17") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "17") + theme(legend.position="none"),  
   nrow = 2
 )
 
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "18") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "18") + theme(legend.position="none"), 
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "18") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "18") + theme(legend.position="none"), 
   nrow = 2
 )
   
 cowplot::plot_grid(
-  plot_growth_state_loess(full_data_output_clean, "bot", "19") + theme(legend.position="none"),
-  plot_growth_state_loess(full_data_output_clean, "social", "19") + theme(legend.position="none"), 
+  plot_growth_state_loess(full_data_output_clean_ic, "bot", "19") + theme(legend.position="none"),
+  plot_growth_state_loess(full_data_output_clean_ic, "social", "19") + theme(legend.position="none"), 
   nrow = 2
 )
 ```
