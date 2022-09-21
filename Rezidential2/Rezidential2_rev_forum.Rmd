@@ -1,0 +1,699 @@
+---
+title: "<br> Rezidential" 
+subtitle: "Inferential Statistics"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+    #         toc: true
+    #         toc_depth: 2
+    #         number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include = FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  cache = TRUE, 
+  warning = FALSE, message = FALSE   # WHEN NOTEBOOK IS FINISHED ... until then leave: warning = TRUE, message = TRUE        
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "knitr", "kableExtra", "papaja",  
+  "tidyverse", "plyr",      
+  "psych", "psycho",           
+  "broom", "summarytools", "tadaatoolbox", "PerformanceAnalytics",          
+  "ggplot2", "ggpubr", "scales",        
+  "rio",
+  "Hmisc", 
+  "GGally", "corrplot", "RColorBrewer", 
+  "car"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+```{r working_directory, include = FALSE}
+# if needed
+# wd = "./Rezidential"
+# setwd(wd)
+```
+
+
+<!-- REPORT -->
+
+
+# Load data
+
+```{r rds_data, results = 'hide', cache.extra = file.info("Data_Rezidential.RDS")}
+## Read
+filename <- "Data_Rezidential.RDS"   
+
+Data <- readRDS(filename)  
+```
+
+
+<!-- Inspect Data - switched off -->
+```{r inspectdata, echo=FALSE, results="hide"}
+# names(Data[, 197:240])   # derived scores
+  # print(summarytools::dfSummary(Data[, 197:240], style = 'grid', plain.ascii = FALSE, graph.magnif = 0.85),    # suppress output
+  #       method = 'render', headings = FALSE)
+# str(Data[, 197:240], list.len=ncol(Data[, 197:240]))  # data types are fine
+```
+
+# Modify ACE Score to take into account that all are institutionalized
+```{r derived_data, cache = TRUE, dependson = "rds_data"}
+Data$CYW <- ifelse(Data$CYW == 0, 0, Data$CYW - 1) 
+```
+
+# Descriptive for ACE Score
+
+```{r desc_ace}
+## Bar Plot
+cat("### Frequencies for ACE Score")
+Data %>%
+  ggplot(aes(x = as.factor(CYW))) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  geom_text(aes(y = ((..count..)/sum(..count..)), label = scales::percent((..count..)/sum(..count..))), stat = "count", vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(title = "ACE Score frequency", y = "Percent", x = "ACE Score")
+
+
+## Is ACE Scoare Poisson distributed?
+cat("### Does ACE Scoare follow a Poisson distribution?")
+# Note that if the p value is larger than 0.05, we can not reject h0: the process is a Poisson process. 
+# Or else, it is not a Poisson process.
+gf <- vcd::goodfit(Data$CYW, type = "poisson", method = "ML")    # based on load the vcd package
+# plot(gf, main = "Poisson", shade = TRUE, legend = FALSE)
+# summary(gf)                                                    # Likelihood Ratio Test
+
+## to automatically get the pvalue
+gf.summary <- capture.output(summary(gf))[[7]]                   # if p-value is smaller pick [5] from list
+pvalue <- unlist(strsplit(gf.summary, split = " "))
+pvalue <- as.numeric(pvalue[length(pvalue)]); 
+cat("Goodness-of-fit test for poisson distribution p-value: ", round(pvalue, 3))
+if(pvalue > .05) cat("Yes, it is Poisson") else cat("No, it is not Poisson")
+
+## Rootograms
+hroot_plot1 <- plot(gf, type = "hanging", shade = TRUE, main = "Hanging Rootogram", return_grob = TRUE)       # hanging rootogram
+droot_plot1 <- plot(gf, type = "deviation", shade = TRUE, main = "Deviation Rootogram", return_grob = TRUE)   # deviation rootogram
+subtext1 <- "Left: hanging rootogram; Right: deviation rootogram. Hanging rootogram Color reflects the sign and magnitude of the contributions
+to lack of fit. moves the rootogram bars so their tops are at the expected frequencies for poisson distribution."
+vcd::mplot(hroot_plot1, droot_plot1, sub = subtext1, gp_sub = grid::gpar(fontsize = 11))
+
+## Poissonness plots
+dist_plot1 <- vcd::distplot(Data$CYW, type = "poisson", xlab = "ACE", return_grob = TRUE)
+subtext2 <- "The fitted line is not within the confidence intervals, indicating the Poisson model is not adequate for these data"
+vcd::mplot(dist_plot1, sub = subtext2, gp_sub = grid::gpar(fontsize = 11))
+
+
+## Negative Binomial?
+cat("### Does ACE Scoare follow a Negative Binomial distribution?")
+gf2 <- vcd::goodfit(Data$CYW, type = "nbinomial")
+# summary(gf2)                                                                 # Likelihood Ratio Test
+# plot(gf2, main = "Negative binomial", shade = TRUE, legend = FALSE)
+dist_plot2 <- vcd::distplot(Data$CYW, type = "nbinomial", xlab = "ACE", return_grob = TRUE)
+subtext3 <- "The fitted line is within the confidence intervals, indicating the adequacy of the Poisson model for these data"
+vcd::mplot(dist_plot2, sub = subtext3, gp_sub = grid::gpar(fontsize = 11))
+
+## Ord plots: Diagnostic slope and intercept for four discrete distributions
+vcd::Ord_plot(Data$CYW, main = "Ord plot", gp = grid::gpar(cex = 1), pch = 16)
+```
+
+
+# Test Linear Regression - ACE Scoare
+
+```{r reg_lm_step_ace, echo=FALSE, results="hide", warning=FALSE}
+## Data for Linear Regression Step
+Data_lm_step <-
+  Data %>%
+  select(CYW, varsta, gen, 9:29) %>%
+  mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0)))
+
+# find out how many rows contain NA
+# sum(rowSums(is.na(Data_lm_step)) > 0)              
+
+## Linear Regression best model automatic selection
+Data_lm_step <-
+  Data_lm_step %>%                                             # bidirectional selection doesnt work with NAs
+  drop_na()
+
+step_lm_null <- lm(CYW ~ 1, data = Data_lm_step)
+step_lm_full <- lm(CYW ~ ., data = Data_lm_step)
+
+cat("#### Bidirectional step by BIC")
+mod_lm_BIC <- step(step_lm_null, scope=list(lower=formula(step_lm_null), upper=formula(step_lm_full)), direction="both", k = log(nrow(Data_lm_step)), trace = FALSE)
+moderndive::get_regression_table(mod_lm_BIC)
+moderndive::get_regression_summaries(mod_lm_BIC)
+
+cat("#### Bidirectional step by AIC")
+mod_lm_AIC <- step(step_lm_null, scope=list(lower=formula(step_lm_null), upper=formula(step_lm_full)), direction="both", trace = FALSE)
+moderndive::get_regression_table(mod_lm_AIC) 
+moderndive::get_regression_summaries(mod_lm_AIC)
+```
+
+
+```{r reg_lm_ace}
+cat("#### Test a good liniar model")
+## Data for Linear Regression Step
+Data_lm <-
+  Data %>%    # recode v_mama_nastere to binary
+    mutate(v_mama_nastere_d = fct_recode(v_mama_nastere, "1" = "<19" , "0" = "20-25", "0" = "26?34", "0" = "35>")) %>%
+    mutate_at(vars(v_mama_nastere_d), funs(as.numeric(as.character(.)))) %>%
+    select(CYW, varsta, gen, 9:29, v_mama_nastere_d) %>%
+    mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0)))
+
+library(gvlma)
+library(olsrr)
+
+## Linear Regression for Test - full model
+mod_lm_full <- lm(CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom +  neglijare + varsta + boli, data = Data_lm)
+
+moderndive::get_regression_table(mod_lm_full) 
+moderndive::get_regression_summaries(mod_lm_full)
+par(mfrow = c(2, 2)); plot(mod_lm_full)
+
+gvlma::gvlma(mod_lm_full)
+# Influential Observations -- Cook's D plot
+# identify D values > 4/(n-k-1) 
+cutoff <- 4/((nrow(Data)-length(mod_lm_full$coefficients)-2)) 
+plot(mod_lm_full, which = 4, cook.levels=cutoff)
+# Influence Plot 
+car::influencePlot(mod_lm_full, main = "Influence Plot", sub = "Circle size is proportial to Cook's Distance")
+# Evaluate Collinearity
+olsrr::ols_coll_diag(mod_lm_full) # VIF si Tolerance din olsrr
+car::vif(mod_lm_full) # variance inflation factors 
+sqrt(vif(mod_lm_full)) > 2 # problem?
+# Evaluate Nonlinearity
+# component + residual plot 
+car::crPlots(mod_lm_full, ask = FALSE)
+# Ceres plots 
+# car::ceresPlots(mod_lm_full, ask = FALSE)
+```
+
+
+# Varsta mamei la nastere is not a predictor for ACE score
+```{r v_mama_nastere}
+Data_var_imp <-
+  Data %>%    # recode v_mama_nastere to binary
+    select(CYW, varsta, gen, 9:29, v_mama_nastere, tip_chestionar) %>%
+    mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0)))
+
+with(Data_var_imp,
+     by(CYW, INDICES = v_mama_nastere, FUN = summarytools::descr, transpose = TRUE,
+        stats = c("n.valid", "mean", "sd", "min", "med", "max", "skewness", "kurtosis"), plain.ascii = FALSE, headings = FALSE))  %>%  
+          view(method = "render", style = "rmarkdown", footnote = NA)
+
+ggplot(Data_var_imp, aes(x = v_mama_nastere, y = CYW)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             paired = FALSE, 
+                             comparisons = list(c("<19", "20-25"),
+                                                c("<19", "26?34"),
+                                                c("20-25", "26?34"),
+                                                c("20-25", "35>"),
+                                                c("26?34", "35>"))) 
+
+ggplot(Data_var_imp, aes(x = gen, y = CYW)) +
+  facet_wrap(~v_mama_nastere) + 
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             paired = FALSE, 
+                             comparisons = list(c("m", "f"))) 
+```
+
+
+# Gen is not a predictor for ACE score
+```{r gen}
+with(Data_var_imp,
+     by(CYW, INDICES = gen, FUN = summarytools::descr, transpose = TRUE,
+        stats = c("n.valid", "mean", "sd", "min", "med", "max", "skewness", "kurtosis"), plain.ascii = FALSE, headings = FALSE))  %>%  
+          view(method = "render", style = "rmarkdown", footnote = NA)
+
+# tadaatoolbox::tadaa_t.test(data = Data_var_imp,
+#                             response = CYW, group = gen, paired = FALSE)   # , print = "markdown"
+
+
+ggplot(Data_var_imp, aes(x = gen, y = CYW)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             paired = FALSE, 
+                             comparisons = list(c("f", "m")))  
+```
+
+
+# Descriptives by tip_chestionar
+```{r tip_chestionar}
+with(Data_var_imp,
+     by(CYW, INDICES = tip_chestionar, FUN = summarytools::descr, transpose = TRUE,
+        stats = c("n.valid", "mean", "sd", "min", "med", "max", "skewness", "kurtosis"), plain.ascii = FALSE, headings = FALSE))  %>%  
+          view(method = "render", style = "rmarkdown", footnote = NA)
+
+t.test(CYW ~ tip_chestionar, data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8ani", "5-8intarziere"),])
+tadaatoolbox::tadaa_t.test(data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8ani", "5-8intarziere"),],
+                            response = CYW, group = tip_chestionar, paired = FALSE)   # , print = "markdown"
+
+t.test(CYW ~ tip_chestionar, data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8intarziere", "9-18ani"),])  # this works, tadaatoolbox bug
+# tadaatoolbox::tadaa_t.test(data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8intarziere", "9-18ani"),],
+#                             response = CYW, group = tip_chestionar, paired = FALSE)   # , print = "markdown"
+# 
+t.test(CYW ~ tip_chestionar, data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8ani", "9-18ani"),])  # this works, tadaatoolbox bug
+# tadaatoolbox::tadaa_t.test(data = Data_var_imp[Data_var_imp$tip_chestionar %in% c("5-8ani", "9-18ani"),],
+#                             response = CYW, group = tip_chestionar, paired = FALSE)   # , print = "markdown"
+
+
+ggplot(Data_var_imp, aes(x = tip_chestionar, y = CYW)) +
+  geom_boxplot() +
+  stat_summary(fun.data = mean_se,  colour = "darkred") +
+  ggpubr::stat_compare_means(method = "t.test", 
+                             label = "p.signif",                                         # to avoid scientific notation of very small p-values
+                             paired = FALSE, 
+                             comparisons = list(c("5-8ani", "5-8intarziere"),
+                                                c("5-8intarziere", "9-18ani"),
+                                                c("5-8ani", "9-18ani")))  
+```
+
+
+# Poisson Regression Model
+
+```{r reg_glm_poisson_ace, fig.width=9, fig.height=8}
+## Poisson Regression Step
+step_pois_null <- glm(CYW ~ 1, family = poisson, data = Data_lm_step)
+step_pois_full <- glm(CYW ~ ., family = poisson, data = Data_lm_step)
+
+cat("#### Poisson - Bidirectional step by BIC")
+mod_pois_BIC <- step(step_pois_null, scope=list(lower=formula(step_pois_null), upper=formula(step_pois_full)), direction="both", k = log(nrow(Data_lm_step)), trace = FALSE)
+summary(mod_pois_BIC)
+# summary(step(step_pois_full, ~.^2,  direction = "both", k = log(nrow(Data_lm_step)), trace = FALSE))   # step for all terms and all interactions !!!
+
+cat("#### Poisson - Bidirectional step by AIC")
+mod_pois_AIC <- step(step_pois_null, scope=list(lower=formula(step_pois_null), upper=formula(step_pois_full)), direction="both", trace = FALSE)
+summary(mod_pois_AIC) 
+# summary(step(step_pois_full, ~.^2,  direction = "both", trace = FALSE))   # step for all terms and all interactions !!!
+
+
+## Data for GLMs
+Data_glm <-
+  Data %>%    # recode v_mama_nastere to binary
+    mutate(v_mama_nastere_d = fct_recode(v_mama_nastere, "1" = "<19" , "0" = "20-25", "0" = "26?34", "0" = "35>")) %>%
+    mutate_at(vars(v_mama_nastere_d), funs(as.numeric(as.character(.)))) %>%
+    dplyr::select(CYW, varsta, gen, 9:29, v_mama_nastere_d) %>%
+    mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0)))
+
+
+## GLM - Poisson
+cat("#### Test a good poisson model")
+# mod_pois <- glm(CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom + boli + neglijare + varsta + 
+#                       nr_frati + TCC, family = poisson, data = Data_glm)                         # fisrt decent model
+
+mod_pois <- glm(CYW ~ expunere_tox + varsta_inst +  schimb_dom + boli + varsta +
+                      nr_frati + gen + comunit + intarziere + TCC + neglijare + 
+                      scoala_spec + tulb_cond, family = poisson, data = Data_glm)                  # best possible model 
+
+summary(mod_pois) # tidy(mod_pois) %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "pois.xlsx") 
+plot(mod_pois, ask = FALSE)
+
+# pr <- sum(residuals(mod_pois, type="pearson")^2)                  # Pearson Chi2
+# pr/mod_pois$df.residual                                           # dispersion statistic
+msme:::P__disp(mod_pois)                                            # commented the 2 lines above, this function does both
+dev <- deviance(mod_pois)
+df <- df.residual(mod_pois)
+p_value <- 1-pchisq(dev,df)
+print(matrix(c("Deviance GOF"," ","D",round(dev,4),"df",df,     # the deviance GOF test, a Chi2 p < 0.05 indicates that the model is considered well fit
+     "p_value",p_value), ncol=2))
+
+# these assess the overall performance of a model in reproducing the data. The commonly used measures include the Pearson chi-square and likelihoodratio
+# deviance statistics, which can be seen as weighted sums of residuals.
+
+COUNT::modelfit(mod_pois)
+# cnt <- table(Data_lm$CYW)
+# dataf <- data.frame(prop.table(table(Data_lm$CYW) ) )
+# dataf$cumulative <- cumsum(dataf$Freq)
+# datafall <- data.frame(cnt, dataf$Freq*100, dataf$cumulative * 100)
+mod_pois$aic / (mod_pois$df.null+1)                                # AIC/n
+exp(coef(mod_pois))                                                # IRR
+exp(coef(mod_pois))*sqrt(diag(vcov(mod_pois)))                     # delta method
+exp(confint.default(mod_pois))                                     # CI of IRR
+
+## Test for overdispersion
+# Z-Score Test (assumtions: The data set on which the test is used is large. z is t-distributed.), ns = overdispersed
+mu <-predict(mod_pois, type="response")
+z <- ((Data_glm$CYW - mu)^2 - Data_glm$CYW)/ (mu * sqrt(2))
+summary(zscore <- lm(z ~ 1))         # the hypothesis of no overdispersion is rejected (i.e., that it is likely that real overdispersion exists in the data)
+# Lagrange Multiplier Test, ns = overdispersed
+obs <- nrow(Data_glm)   # continue from Table 3.2
+mmu <- mean(mu); nybar <- obs*mmu; musq <- mu*mu
+mu2 <- mean(musq)*obs
+chival <- (mu2 - nybar)^2/(2*mu2); chival 
+pchisq(chival,1,lower.tail = FALSE)      # the hypothesis of no overdispersion is again rejected
+
+# Many statisticians argue that robust standard errors should be the default standard errors for all count response regression models.
+# A robust variance estimator adjusts standard errors for correlation in the data. That is, robust standard
+# errors should be used when the data are not independent, perhaps gathered
+# over different households, hospitals, schools, cities, litters, and so forth.
+# Robust variance estimators have also been referred to as sandwich variance
+# estimators or heteroskedastic robust estimators.
+
+# Lack of fit in a GLM for count data can result either from a mis-specified model for the systematic
+# component (omitted or unmeasured predictors, nonlinear relations, etc.) or from failure of the
+# Poisson mean = variance assumption. Thus, use of these methods requires some high degree of
+# confidence that the systematic part of the model has been correctly specified, so that any lack of fit
+# can be attributed to overdispersion.
+# One way of dealing with this is to base inference on so-called sandwich covariance estimators
+# that are robust against some types of model mis-specification.
+
+require("sandwich")                      # over-dispersion is present in this data set, we re-compute the Wald tests using sandwich standard errors
+sandw_coefse <- lmtest::coeftest(mod_pois, vcov = sandwich)       # sandwich-adjusted Poisson
+sandw_coefse
+sandw_ci <- lmtest::coefci(mod_pois, vcov = sandwich)
+exp(sandw_ci)                             # CI of sandwich-adjusted IRR    
+
+library(effects)
+plot(allEffects(mod_pois), band.colors = "blue", lwd = 3, ylab = "ACE Score", main = "", rows=5, cols=3)  # plot meta-array: rows=5, cols=3
+```
+
+
+# Quasi-Poisson Regression Model
+
+```{r reg_glm_quasipoisson_ace}
+## GLM - Quasi Poisson
+# In R, Poisson models with scaled standard errors are called quasipoisson:
+# A Pearson dispersion in excess of 1.0 indicates likely Poisson model
+# overdispersion. Whether the overdispersion is significant depends on
+# (1) the value of the dispersion statistic, (2) the number of observations
+# in the model, and (3) the structure of the data; for example, if the data
+# are highly unbalanced. 
+
+# mod_qpois <- glm(CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom + boli + neglijare + varsta + 
+#                       nr_frati + TCC, family = quasipoisson, data = Data_glm)                           # first decent model
+
+mod_qpois <- glm(CYW ~ expunere_tox + varsta_inst +  schimb_dom + boli + varsta +
+                      nr_frati + gen + comunit + intarziere + TCC + neglijare + 
+                      scoala_spec + tulb_cond, family = quasipoisson, data = Data_glm)                  # best possible model 
+
+summary(mod_qpois)  # Dispersion parameter for quasipoisson family taken to be 1.976578 -- is > 1 
+                    #  over-dispersion can be confirmed by comparison of the log-likelihoods of the Poisson and negative binomial model
+# tidy(mod_qpois) %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "qpois.xlsx")
+exp(coef(mod_qpois))                                                # IRR
+exp(coef(mod_qpois))*sqrt(diag(vcov(mod_qpois)))                    # delta method
+exp(confint.default(mod_qpois))                                     # CI of IRR
+
+## Test if there is overdispersion in BIC step selected model (best fitting) --- overdispersion still present
+# mod_qpoisBIC <- glm(CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom + neglijare +
+#                           varsta + boli + comunit, family = quasipoisson, data = Data_glm)                  # best BIC
+# summary(mod_qpoisBIC)
+```
+
+
+# NB Regression Model
+
+```{r reg_glm_nb_ace}
+# Step selection NB Regression
+step_glm_nb_full <- MASS::glm.nb(CYW ~ ., data = Data_lm_step)
+
+cat("#### NB GLM - Bidirectional step by AIC")
+mod_nb_AIC <- MASS::stepAIC(step_glm_nb_full, direction = "both", trace = FALSE)
+summary(mod_nb_AIC)
+
+cat("#### NB GLM - Bidirectional step by BIC")
+mod_nb_BIC <- MASS::stepAIC(step_glm_nb_full, direction = "both", k = log(nrow(Data_lm_step)), trace = FALSE)
+summary(mod_nb_BIC)
+
+# mod_nb <- MASS::glm.nb(CYW ~ varsta + varsta_inst  +  expunere_tox + TCC  +  intarziere + 
+#                        neglijare + temperam  + scoala_spec  + schimb_dom, data = Data_glm)       # a good model on Poisson and NB          
+# summary(mod_nb)             
+
+
+## Negative Binomial GLM - a good model
+cat("#### Test a good NB model")
+# NB2
+mod_nb2 <- MASS::glm.nb(CYW ~ expunere_tox + varsta_inst + schimb_dom + 
+                              varsta + intarziere + TCC + neglijare + scoala_spec + tulb_cond,
+                              data = Data_glm)
+summary(mod_nb2) # tidy(mod_nb2) %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "mod_nb2.xlsx") 
+exp(coef(mod_nb2)); # exp(coef(mod_nb2))*sqrt(diag(vcov(mod_nb2)))    # adjust SE???, not here
+exp(confint.default(mod_nb2))
+
+mod_pois_new <- glm(formula = CYW ~ expunere_tox + varsta_inst + schimb_dom + 
+                                    varsta + intarziere + TCC + neglijare + scoala_spec + tulb_cond,
+                                    family = poisson, data = Data_glm)
+summary(mod_pois_new) # tidy(mod_pois_new) %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "mod_pois_new.xlsx") 
+exp(coef(mod_pois_new))
+exp(confint.default(mod_pois_new))
+
+lmtest::lrtest(mod_pois_new, mod_nb2)    #  likelihood ratio test
+
+## ATTENTION AT DISPERSION PARAM -- nbinomial has alpha (direct rel), glm.nb has theta (indirect rel) 
+# ATTENTION -- when using na.omit do it on dataset that has only the predictors and outcome from the model to not exclude other cases
+# NB2 with alpha dispersion param instead of theta
+    # mod_nb2 <- msme::nbinomial(CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom + boli + neglijare + varsta +
+    #                       nr_frati + TCC, data = na.omit(Data_glm))
+    # summary(mod_nb2)
+
+## NB1
+# library(gamlss)
+# mod_nb1 <- gamlss::gamlss(formula = CYW ~ expunere_tox + varsta_inst + tras_dez + schimb_dom + boli + neglijare + varsta +
+#                       nr_frati + TCC, family = NBI, data = na.omit(Data_glm))
+# summary(mod_nb1); plot(mod_nb1)
+# lmtest::lrtest(mod_nb1, mod_nb2)    #  likelihood ratio test
+
+
+
+
+
+
+
+# https://data.library.virginia.edu/getting-started-with-negative-binomial-regression-modeling/
+
+
+
+
+# install.packages("countreg", repos="http://R-Forge.R-project.org")       # Zeileis and Kleiber, 2014  not on CRAN
+library(countreg)
+countreg::rootogram(mod_pois_new, ylim = c(-7, 18), main = "Poisson")     # rootogram on the fitted model objects (not possible in vcd::rootogram)
+countreg::rootogram(mod_nb2, ylim = c(-7, 18), main = "Negative Binomial") 
+# For the negativebinomial the underfitting of the count for 0 and overfitting for counts 1?2 is characteristic of data with excess zeros.
+
+```
+
+
+# ZIP and Hurdle Regression Models
+
+```{r reg_hurdle_zeroninfl_ace}
+# Data without NA for functions that dont exclude NAs by default
+Data_glm_nona <- 
+  Data_glm %>%
+  dplyr::select(CYW, expunere_tox, varsta_inst, schimb_dom, varsta,
+          intarziere, TCC, neglijare, scoala_spec, tulb_cond) %>%
+  drop_na()
+
+# Formlula for 9 prector best model (Poisson and NB)
+formula_model <- as.formula("CYW ~ expunere_tox + varsta_inst + schimb_dom + 
+                                   varsta + intarziere + TCC + neglijare + scoala_spec + tulb_cond")
+
+
+library(pscl)
+mod_hurd_pois <- hurdle(formula_model, data = Data_glm , dist = "poisson")
+mod_hurd_nb <- hurdle(formula_model, data = Data_glm , dist = "negbin")
+mod_zip <- zeroinfl(formula_model, data = Data_glm , dist = "poisson")
+mod_znb <- zeroinfl(formula_model, data = Data_glm , dist = "negbin")
+mod_zpig <- gamlss::gamlss(formula_model, data = Data_glm_nona , family = "ZIPIG")
+
+countreg::rootogram(mod_hurd_pois, max = 50, main = "Hurdle Poisson")
+countreg::rootogram(mod_hurd_nb, max = 50, main = "Hurdle Negative Binomial")
+countreg::rootogram(mod_zip, max = 50, main = "Zero-inflated Poisson")
+countreg::rootogram(mod_znb, max = 50, main = "Zero-inflated Negative Binomial")
+
+vcdExtra::LRstats(mod_pois_new, mod_nb2, mod_hurd_pois, mod_hurd_nb, mod_zip, mod_znb, mod_zpig, sortby = "AIC") #%>% xlsx::write.xlsx(., file = "LRtest.xlsx")
+lmtest::lrtest(mod_hurd_nb, mod_znb)       
+
+# Very Best Model - Zero-inflated Negative Binomial
+summary(mod_znb)  
+exp(coef(mod_znb)) #  %>% as.data.frame() %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "mod_znb.xlsx")
+exp(confint.default(mod_znb)) #  %>% as.data.frame() %>% mutate_if(is.numeric, round, 2)  %>% xlsx::write.xlsx(., file = "mod_znb.xlsx")
+pred <- round(colSums(predict(mod_znb, type="prob")[,1:18])) # expected counts
+obs <- table(Data_glm$CYW)[1:18]                           # observed counts        
+rbind(obs, pred)
+
+
+# Other Tests
+mod_znb2 <- zeroinfl(CYW ~ expunere_tox + varsta_inst + schimb_dom + 
+                           varsta + intarziere + TCC + neglijare + scoala_spec + tulb_cond |  neglijare , data = Data_glm , dist = "negbin")
+summary(mod_znb2)
+lmtest::lrtest(mod_znb, mod_znb2)   # isnt better if zero counts predicted just by neglijare
+```
+
+
+```{r other, eval=FALSE, results="hide"}
+# NB2 again -- nobs and results are the same as mod_nb2  --- THE DATA IS UNDERDISPERED HERE: Disp = 0.933
+mod_nbnb <- msme::nbinomial(formula_model, data = Data_glm_nona)
+summary(mod_nbnb)
+
+# HNB
+mod_hnb <- msme::nbinomial(formula1 = formula_model, 
+                            formula2 =~ expunere_tox + varsta_inst + schimb_dom + varsta +          # modelling predictors of dispersion
+                                        intarziere + TCC + neglijare + scoala_spec + tulb_cond,
+                            family = "negBinomial", mean.link = "log", scale.link = "log_s",  data = Data_glm_nona)
+summary(mod_hnb)
+exp(coef(mod_hnb))
+
+
+# NB1 -- seems a little better than NB2 but not sure
+mod_nb1 <- gamlss::gamlss(formula = formula_model, family = NBI, data = Data_glm_nona)
+summary(mod_nb1); # plot(mod_nb1)
+countreg::rootogram(mod_nb1, max = 50, main = "NB1")
+vcdExtra::LRstats(mod_nb2, mod_nb1)
+
+
+```
+
+
+## ZI NB2 by tip_chestionar
+
+```{r}
+# Un pic trase incat sa iasa (nr adol si copii nu corespunde total -- unii oameni sunt numarati de 2 ori)
+
+Data_adol <- 
+    Data %>%    # recode v_mama_nastere to binary
+    mutate(v_mama_nastere_d = fct_recode(v_mama_nastere, "1" = "<19" , "0" = "20-25", "0" = "26-34", "0" = "35>")) %>%
+    mutate_at(vars(v_mama_nastere_d), funs(as.numeric(as.character(.)))) %>%
+    dplyr::select(CYW, varsta, gen, 9:29, v_mama_nastere_d, tip_chestionar) %>%
+    mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0))) %>%
+    dplyr::filter(tip_chestionar %in% c("5-8intarziere", "9-18ani"), varsta >= 9) 
+    
+# Data_adol_nona <- 
+#   Data_adol %>%
+#   dplyr::select(CYW, expunere_tox, varsta_inst, schimb_dom, varsta,
+#           intarziere, TCC, neglijare, scoala_spec, tulb_cond) %>%
+#   tidyr::drop_na()
+
+Data_child <-
+    Data %>%    # recode v_mama_nastere to binary
+    mutate(v_mama_nastere_d = fct_recode(v_mama_nastere, "1" = "<19" , "0" = "20-25", "0" = "26-34", "0" = "35>")) %>%
+    mutate_at(vars(v_mama_nastere_d), funs(as.numeric(as.character(.)))) %>%
+    dplyr::select(CYW, varsta, gen, 9:29, v_mama_nastere_d, tip_chestionar) %>%
+    mutate_at(vars(expunere_tox:comunit), funs(replace_na(., 0))) %>%
+    dplyr::filter(tip_chestionar %in% c("5-8intarziere", "5-8ani")) 
+
+# Formlula for 9 prector best model (Poisson and NB)
+formula_model <- as.formula("CYW ~ expunere_tox + varsta_inst + schimb_dom + 
+                                   varsta + intarziere + TCC + neglijare + scoala_spec + tulb_cond")
+
+
+
+library(pscl)
+mod_znb_adol <- zeroinfl(formula_model, data = Data_adol , dist = "negbin")
+summary(mod_znb_adol)  
+exp(coef(mod_znb_adol)) %>% as.data.frame() %>% mutate_if(is.numeric, round, 3)  #  %>% xlsx::write.xlsx(., file = "mod_znb.xlsx")
+exp(confint.default(mod_znb_adol))  %>% as.data.frame() %>% mutate_if(is.numeric, round, 3)  # %>% xlsx::write.xlsx(., file = "mod_znb.xlsx") 
+
+mod_znb_child <- zeroinfl(formula_model, data = Data_child , dist = "negbin")
+summary(mod_znb_child)  
+exp(coef(mod_znb_child)) %>% as.data.frame() %>% mutate_if(is.numeric, round, 3)  # %>% xlsx::write.xlsx(., file = "mod_znb.xlsx")
+exp(confint.default(mod_znb_child)) %>% as.data.frame() %>% mutate_if(is.numeric, round, 3)  # %>% xlsx::write.xlsx(., file = "mod_znb.xlsx")
+```
+
+
+## Interactions (reviewer recommendations)
+
+```{r}
+
+pred_names <- c("expunere_tox", "varsta_inst", "schimb_dom", "varsta", "intarziere", "TCC", "neglijare", "scoala_spec", "tulb_cond")
+
+# Age
+formula_interac_age <- paste0("CYW ~ ", 
+                              paste0(pred_names, collapse = " + "), 
+                              " + ", 
+                              paste0("varsta:", pred_names[pred_names != "varsta"], collapse = " + ")
+  ) %>% 
+  as.formula()
+
+
+mod_znb_interac_age <- zeroinfl(formula_interac_age, data = Data_glm, dist = "negbin")
+summary(mod_znb_interac_age)
+
+library(mpath)
+mod_znb_interac_age_best <- mpath::be.zeroinfl(mod_znb_interac_age, data = Data_glm, dist = "negbin")
+summary(mod_znb_interac_age_best)
+exp(coef(mod_znb_interac_age_best)) 
+exp(confint.default(mod_znb_interac_age_best)) 
+
+
+# Age inst
+formula_interac_ageinst <- paste0("CYW ~ ", 
+                              paste0(pred_names, collapse = " + "), 
+                              " + ", 
+                              paste0("varsta_inst:", pred_names[pred_names != "varsta_inst"], collapse = " + ")
+) %>% 
+  as.formula()
+
+
+mod_znb_interac_ageinst <- zeroinfl(formula_interac_ageinst, data = Data_glm, dist = "negbin")
+summary(mod_znb_interac_ageinst)
+
+mod_znb_interac_ageinst_best <- mpath::be.zeroinfl(mod_znb_interac_ageinst, data = Data_glm, dist = "negbin")
+summary(mod_znb_interac_ageinst_best)
+exp(coef(mod_znb_interac_ageinst_best)) 
+exp(confint.default(mod_znb_interac_ageinst_best)) 
+```
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
