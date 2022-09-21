@@ -97,6 +97,23 @@ Data$CYW <- ifelse(Data$CYW == 0, 0, Data$CYW - 1)
 ```
 
 
+# Alpha
+```{r alpha}
+Data[, c(sprintf("sec1_%d", 1:10))] %>%
+  dplyr::mutate_all(~tidyr::replace_na(., 0)) %>%
+  psych::alpha()
+
+Data[, c(sprintf("sec2_%d", 2:9))] %>%
+  dplyr::mutate_all(~tidyr::replace_na(., 0)) %>%
+  psych::alpha()
+
+Data[, c(sprintf("sec1_%d", 1:10), sprintf("sec2_%d", 2:9))] %>%
+  dplyr::mutate_all(~tidyr::replace_na(., 0)) %>%
+  psych::alpha()
+```
+
+
+
 ## Percentage of individually reported ACEs out of ACE Score
 
 ```{r perc_indivACE}
