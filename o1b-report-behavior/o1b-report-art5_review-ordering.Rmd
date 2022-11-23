@@ -1,0 +1,1221 @@
+---
+title: "<br> O1B Report - behavioral" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            #  toc_depth: 2
+            #  number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = FALSE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools",            
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+```
+
+
+
+
+
+<!-- Report -->
+
+# Define functions
+## Quick ggwithinstats function
+
+```{r}
+my_ggwithinstats <- function(data, title, x, y, outlier.label, xlab, ylab) {
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  data %>%
+    ggstatsplot::ggwithinstats(
+      x = !!x,
+      y = !!y,
+      title = title,
+      xlab = xlab,
+      ylab = ylab,
+      outlier.tagging = TRUE,            # whether outliers need to be tagged
+      outlier.label = !!outlier.label,   # variable to be used for tagging outliers
+      outlier.coef = 2,
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = TRUE,
+      type = "parametric",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(),
+      # package = "RColorBrewer",  # "ggsci",
+      # palette = "Dark",         # "default_jco",
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.point.args = list(size = 5, color = "darkred"),
+      centrality.label.args = list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7"), 
+      ggplot.component = list(
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(size = 14)
+      ))
+    ) + scale_colour_grey(start = 0.2, end = 0.2)   # hacky way to change point color
+}
+
+# For publication
+my_ggwithinstats2 <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = TRUE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              power = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 10, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggwithinstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "all",
+        results.subtitle = results.subtitle,
+        type = "parametric",
+        bf.message = FALSE, 
+        p.adjust.method = "none",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "parameteric",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  if(power) {
+    stats_df <- ggstatsplot::extract_stats(plot)$subtitle_data
+    ttest_power <- WebPower::wp.t(
+      n1 = stats_df$df.error + 1,         # it's df + 1 
+      d = stats_df$estimate,              # this is Hedges'g, very close to d, but less biased
+      type = "paired"
+    )
+    ttest_power %>% print()
+  }  
+  
+  plot
+  
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+## rmANOVA
+
+### helper for mixed type to long format
+
+```{r}
+select_to_longer <- function(data, var_prefix = NULL) {
+  var_regex <- paste0("(", var_prefix, ")_(pre|post)")
+  
+  data %>%
+    dplyr::select(ID, Conditie, dplyr::matches(var_regex)) %>%
+    tidyr::pivot_longer(cols = dplyr::matches(var_regex), 
+                 names_to = c("Variable", "PrePost"), 
+                 names_pattern = "(.*)_(pre|post)",   
+                 values_to = var_prefix
+    ) %>% 
+    dplyr::mutate(
+      ID = as.factor(ID),
+      Cond = factor(Conditie, levels = c("ES", "JRAD")),
+      PrePost = factor(PrePost, levels = c("pre", "post"))
+    ) %>%
+    dplyr::select(-c(Conditie, Variable))
+}  # select_to_longer(long_df, "IRI_PD")
+```
+
+### rmANOVA
+
+```{r}
+# Define Function for Two-way rmANOVA
+# Check with https://www.datanovia.com/en/lessons/repeated-measures-anova-in-r/
+
+tw_rmANOVA_func <- 
+  function(data, id_var, cond_var, time_var, value_var, 
+           assum_check = TRUE, p_adjust_method = "bonferroni") {
+  
+  # input dataframe needs to have columns names different from "variable" and "value" because it collides with rstatix::shapiro_test
+  # github issue was raised: https://github.com/kassambara/rstatix/issues/52
+  
+  # Dependencies    
+  library(dplyr)
+  library(rlang)
+  library(ggpubr)
+  library(ggplot2)
+  library(rstatix)
+  library(WebPower)
+  library(afex)  
+  library(effectsize)
+  
+  # Defaults    
+  posthoc_sig_interac <- FALSE
+  posthoc_ns_interac <- FALSE  
+      
+  id_var_enq <- rlang::enquo(id_var)
+  id_var_name <- rlang::as_name(id_var_enq)
+  cond_var_enq <- rlang::enquo(cond_var)
+  cond_var_name <- rlang::as_name(cond_var_enq)
+  time_var_enq <- rlang::enquo(time_var)
+  time_var_name <- rlang::as_name(time_var_enq)
+  value_var_enq <- rlang::enquo(value_var)
+  value_var_name <- rlang::as_name(value_var_enq)
+  
+  anova_formula_str <- paste0(value_var_name, " ~ ",
+                        cond_var_name, " * ", time_var_name, " + ",
+                        "Error(", id_var_name, " / ",
+                        "(", cond_var_name, " * ", time_var_name, "))") 
+  anova_formula <- as.formula(anova_formula_str)
+    
+  # Assumptions
+  if(assum_check){
+    cat("\n Outliers \n")
+    data %>%
+      dplyr::group_by(!!cond_var_enq, !!time_var_enq) %>%
+      rstatix::identify_outliers(!!value_var_enq) %>%                                  # outliers (needs to be 0)
+      print()
+    
+    cat("\n Normality assumption (p >.05) \n")
+    data %>%
+      dplyr::group_by(!!cond_var_enq, !!time_var_enq) %>%
+      rstatix::shapiro_test(!!value_var_enq) %>%                                        # normality assumption (p>.05)
+      print()
+    
+    qq_plot <- 
+      ggpubr::ggqqplot(data = data, value_var_name, ggtheme = theme_bw(), title = "QQ Plot") +
+        ggplot2::facet_grid(vars(!!time_var_enq), vars(!!cond_var_enq), labeller = "label_both")    # QQ plot
+    
+    qq_plot %>% print()
+  }
+  
+  
+  # Two-way rmANOVA - check for interaction (ex. F(2, 22) = 30.4, p < 0.0001)
+  cat("\n Two-way rmANOVA \n")
+  res_aov <- rstatix::anova_test(                             # automatically does sphericity Mauchly’s test
+    data = data, dv = !!value_var_enq, wid = !!id_var_enq,    # also could have used anova_formula                         
+    within = c(!!cond_var_enq, !!time_var_enq),
+    type = 2, effect.size = "ges", detailed = TRUE
+  )
+  
+  res_aov %>% print()
+  # DFn = Degrees of Freedom in the numerator (a.k.a. DFeffect)
+  # DFd = Degrees of Freedom in the denominator (a.k.a. DFerror)
+  # SSn = Sum of Squares in the numerator (a.k.a. SSeffect)
+  # SSd = Sum of Squares in the denominator (a.k.a. SSerror)
+  
+    # "auto": apply automatically GG correction to only within-subjects factors violating the sphericity assumption (i.e., Mauchly's test p-value is significant, p <= 0.05).
+  res_aov_table <- get_anova_table(res_aov, correction = c("auto"))
+  
+  # Get Cohen's f partial for power analysis
+  cat("\n Cohen's f (partial) \n")
+  cat("Used formula: ", anova_formula_str)
+  
+  f_cohen <- 
+    data %>%
+    afex::aov_car(anova_formula, data = ., type = 2) %>%    # aov(anova_formula, data = .) is the same but with type = 1 
+    effectsize::cohens_f(partial = TRUE) 
+  f_cohen %>% print()
+  
+  f_cohen_cond <- f_cohen$Cohens_f_partial[[1]]
+  f_cohen_time <- f_cohen$Cohens_f_partial[[2]]
+  f_cohen_interac <- f_cohen$Cohens_f_partial[[3]]
+  
+  # Sphericity tests and Sphericity Correction (e.g. GG) make sens only for factors with more than 2 levels
+  if(length(unique(data[, cond_var_name])) > 2 | length(unique(data[, time_var_name])) > 2) {
+    # res_aov$`Mauchly's Test for Sphericity`
+    # res_aov$`Sphericity Corrections`
+    gge_time <- res_aov$`Sphericity Corrections`$GGe[[1]]   # time
+    gge_interac <- res_aov$`Sphericity Corrections`$GGe[[2]]   # interaction
+  }else {
+    gge_time <- 1
+    gge_interac <- 1
+  } 
+  
+
+  # default p-value sig level for interaction term is 0.05
+  if(res_aov_table[, "p"][[4]] <= 0.05) {
+    cat("\n Following reporting procedure for significant two-way interaction \n")
+    posthoc_sig_interac <- TRUE
+  } else {
+    cat("\n Following reporting procedure for non-significant two-way interaction \n")
+    posthoc_ns_interac <- TRUE
+  }
+  
+  # Pairwise comparisons between treatment groups
+  # Compute it for plot, regardless of interaction significance, print it only for significant interaction
+  pwc <-
+    data %>%
+    dplyr::group_by(!!time_var_enq) %>%
+    rstatix::pairwise_t_test(
+      as.formula(paste0(value_var_name, " ~ ", cond_var_name)),
+      paired = TRUE,
+      p.adjust.method = p_adjust_method
+    )
+  
+  
+  #- Procedure for a significant two-way interaction -
+  if(posthoc_sig_interac) {
+    
+    cat("\n Effect of treatment at each time point \n")
+    one_way <- 
+      data %>%
+      dplyr::group_by(!!time_var_enq) %>%
+      rstatix::anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!cond_var_enq) %>%
+      rstatix::get_anova_table() %>%
+      rstatix::adjust_pvalue(method = "bonferroni")
+    one_way %>% print()
+    
+    cat("\n Pairwise comparisons between treatment groups \n")
+    pwc %>% print()
+
+    cat("\n Effect of time at each level of treatment - One-way ANOVA \n")
+    one_way2 <-
+      data %>%
+      dplyr::group_by(!!cond_var_enq) %>%
+      rstatix::anova_test(dv = !!value_var_enq, wid = !!id_var_enq, within = !!time_var_enq) %>%
+      rstatix::get_anova_table() %>%
+      adjust_pvalue(method = p_adjust_method)
+    one_way2  %>% print()
+    
+    cat("\n Pairwise comparisons between time points \n")
+    pwc2 <-
+      data %>%
+      dplyr::group_by(!!cond_var_enq) %>%
+      rstatix::pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc2  %>% print()
+    
+  }
+  
+  #- Procedure for non-significant two-way interaction- 
+  # If the interaction is not significant, you need to interpret the main effects for each of the two variables: treatment and time.
+  if(posthoc_ns_interac){
+    
+    cat("\n Comparisons for treatment variable \n")
+    pwc_cond <-
+      data %>%
+      rstatix::pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", cond_var_name)),     # paste formula, not quosure             
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc_cond %>% print()
+    
+    cat("\n Comparisons for time variable \n")
+    pwc_time <-
+      data %>% 
+      rstatix::pairwise_t_test(
+        as.formula(paste0(value_var_name, " ~ ", time_var_name)),     # paste formula, not quosure
+        paired = TRUE,
+        p.adjust.method = p_adjust_method
+      )
+    pwc_time %>% print()
+    
+  }
+  
+  # Post-hoc Power Analysis
+  cat("\n Post-hoc Power Analysis for Repeated-measures ANOVA \n")
+  pwr_rmanova_cond <-
+    WebPower::wp.rmanova(n = length(unique(data[[id_var_name]])),
+                         ng = length(unique(data[[cond_var_name]])),
+                         nm = length(unique(data[[time_var_name]])),
+                         f = f_cohen_cond,
+                         nscor = gge_time,          # don't have gge for cond, this should be close
+                         type = 1                   # for within-effect; 1 is for between-effect
+    )
+  pwr_rmanova_cond$note %>% print()
+  pwr_rmanova_cond[1:7] %>%
+    as.data.frame() %>% print()
+
+  pwr_rmanova_time <-
+    WebPower::wp.rmanova(n = length(unique(data[[id_var_name]])),
+                         ng = length(unique(data[[cond_var_name]])),
+                         nm = length(unique(data[[time_var_name]])),
+                         f = f_cohen_time,
+                         nscor = gge_time,
+                         type = 1                  # for within-effect
+    )
+  pwr_rmanova_time$note %>% print()
+  pwr_rmanova_time[1:7] %>%
+    as.data.frame() %>% print()
+
+  pwr_rmanova_interac <-
+    WebPower::wp.rmanova(n = length(unique(data[[id_var_name]])),
+                         ng = length(unique(data[[cond_var_name]])),
+                         nm = length(unique(data[[time_var_name]])),
+                         f = f_cohen_interac,
+                         nscor = gge_interac,
+                         type = 2                  # for interaction
+    )
+  pwr_rmanova_interac$note %>% print()
+  pwr_rmanova_interac[1:7] %>%
+    as.data.frame() %>% print()
+
+  
+  # Visualization
+  violin_plot <- 
+    ggpubr::ggviolin(data, x = time_var_name, y = value_var_name, color = cond_var_name, 
+                     add = c("boxplot", "mean_se", "dotplot"), 
+                     add.params = list(group = cond_var_name, fill = "white")  
+                     ) +
+    ggplot2::scale_color_grey(start = 0.7, end = 0.3) + 
+    ggplot2::theme_classic()
+  
+  pwc <- 
+    pwc %>% 
+    rstatix::add_xy_position(x = time_var_name)
+  
+  violin_plot <- 
+    violin_plot + 
+    ggpubr::stat_pvalue_manual(pwc, tip.length = 0, hide.ns = TRUE) +
+    labs(
+      subtitle = get_test_label(res_aov, detailed = TRUE),
+      caption = get_pwc_label(pwc)
+    )
+  
+    violin_plot %>% print()
+  
+}
+
+# ex. - run on long format
+# selfesteem2 <- datarium::selfesteem2
+# selfesteem2 <- selfesteem2 %>%                         # interac, within, between
+#   tidyr::gather(key = "time", value = "score", t1, t2, t3) %>%
+#   rstatix::convert_as_factor(id, time)
+# selfesteem3 <- selfesteem2 %>%         # sig interact, sig within
+#   dplyr::filter(time %in% c("t1", "t2")) %>% 
+#   dplyr::mutate(time = factor(time, levels = c("t1", "t2"))) 
+# selfesteem4 <- selfesteem2 %>%        # sig interact, sig within, sig between
+#   dplyr::filter(time %in% c("t2", "t3")) %>% 
+#   dplyr::mutate(time = factor(time, levels = c("t2", "t3"))) 
+# tw_rmANOVA_func(data = selfesteem2, id_var = id, cond_var = treatment, time_var = time, value_var = score)
+# 
+# weightloss <- datarium::weightloss
+# weightloss2 <- weightloss %>%
+#   dplyr::mutate(treatment = paste0(diet, "_diet", "/", exercises, "_exerc")) %>%
+#   dplyr::filter(treatment %in% c("yes_diet/no_exerc", "no_diet/yes_exerc")) %>%
+#   tidyr::gather(key = "time", value = "score", t1, t2, t3) %>%
+#   rstatix::convert_as_factor(id, time) 
+# weightloss3 <- weightloss2 %>%
+#   dplyr::filter(time %in% c("t1", "t2")) %>% 
+#   dplyr::mutate(time = factor(time, levels = c("t1", "t2")))
+# weightloss4 <- weightloss %>%
+#   dplyr::mutate(treatment = paste0(diet, "_diet", "/", exercises, "_exerc")) %>%
+#   dplyr::filter(treatment %in% c("no_diet/no_exerc", "yes_diet/no_exerc")) %>%
+#   tidyr::gather(key = "time", value = "score", t1, t2, t3) %>%
+#   rstatix::convert_as_factor(id, time) 
+# weightloss5 <- weightloss4 %>%
+#   dplyr::filter(time %in% c("t1", "t2")) %>% 
+#   dplyr::mutate(time = factor(time, levels = c("t1", "t2")))
+# weightloss6 <- weightloss4 %>%
+#   dplyr::filter(time %in% c("t2", "t3")) %>% 
+#   dplyr::mutate(time = factor(time, levels = c("t2", "t3")))
+# tw_rmANOVA_func(data = weightloss3, id_var = id, cond_var = treatment, time_var = time, value_var = score) # within & interac
+# tw_rmANOVA_func(data = weightloss4, id_var = id, cond_var = treatment, time_var = time, value_var = score) # between & within
+# tw_rmANOVA_func(data = weightloss5, id_var = id, cond_var = treatment, time_var = time, value_var = score) # between 
+
+```
+
+
+# Read data
+
+```{r read_clean_recode_merge_oxt, warning=FALSE, message=FALSE, results='hide'}
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior"
+# folder <- "D:/o1b-report-behavior"
+file_old <- "O1b data.RDS"
+file <- "O1b data - ordering.RDS"
+
+savefolder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/o1b-report-behavior/Art"
+
+# Data with all Participants
+old_df_all <- readRDS(file.path(folder, file_old))  # analyses were done with this
+long_df_all <- readRDS(file.path(folder, file))
+
+identical(old_df_all, long_df_all[, -which(names(long_df_all) == "Data")])   # check is OK
+
+# Correct a typo on participant 11
+long_df_all[(long_df_all$ID == 11 & long_df_all$Conditie == "JRAD"), "APS_post"] <- 28
+long_df_all <- 
+  long_df_all %>% 
+  dplyr::mutate(Diff_APS = APS_post - APS_pre)   # need to redo this because of correction
+
+# Remove a participant with odd data and no OXT data
+long_df_all <-
+  long_df_all %>%
+  dplyr::filter(ID != 23)
+
+# Data only with participants with both Cond 
+ids_single_Cond <- 
+  long_df_all %>%
+  dplyr::count(ID) %>%
+  dplyr::filter(n < 2) %>%
+  dplyr::pull(ID)
+
+long_df <- 
+  long_df_all %>%
+  dplyr::filter(!ID %in% ids_single_Cond)
+
+## Probably leave NAs in
+# long_df_nona <- 
+#   long_df %>%
+#   group_by(ID) %>%
+#   tidyr::drop_na(PA_pre:APS_post, IOS:OX_post) %>%
+#   ungroup()
+
+jrad_df <-
+  long_df_all %>%
+  dplyr::filter(Conditie == "JRAD")
+
+es_df <-
+  long_df_all %>%
+  dplyr::filter(Conditie == "ES")
+```
+
+## Fix a mistake
+
+```{r}
+# THIS WAS FOUND WHEN RUNNING RM ANOVA
+# id 21 twice in JRAD
+# set second round to "ES"
+long_df_new <- long_df
+long_df_new[long_df_new$ID == 21,]$Conditie[2] <- "ES"
+```
+
+
+# Ordering coding
+
+```{r demo}
+long_df_new <- 
+  long_df_new %>%
+  mutate(date = as.Date(Data, format = "%d.%m.%Y")) %>%  # to ISO format: long_df_new[, c("Data", "date")]
+  group_by(ID) %>%
+  arrange(date) %>%
+  mutate(order = row_number()) %>% 
+  ungroup() %>%
+  arrange(ID)   # long_df_new[, c("ID", "Data", "date", "order")]
+```
+
+
+## Balance of random allocation to order
+
+```{r}
+long_df_new %>%
+  dplyr::filter(Conditie == "JRAD") %>%
+  dplyr::count(order) %>%
+  mutate(prop = n/sum(n)) %>%
+  knitr::kable(caption = "JRAD")
+
+long_df_new %>%
+  dplyr::filter(Conditie == "ES") %>%
+  dplyr::count(order) %>%
+  mutate(prop = n/sum(n))  %>%
+  knitr::kable(caption = "ES")
+```
+
+
+## Mean time between Pre Post
+
+```{r}
+time_df <-
+  long_df_new %>%
+  group_by(ID) %>%
+  dplyr::summarise(
+    first = min(date), 
+    last = max(date), 
+    time = difftime(last, first, units = "days")
+  ) %>%
+  ungroup()
+  
+time_df %>% print(n = Inf)
+
+time_df %>% 
+  summarise(mean_time = mean(time),
+            sd_time = sd(time))
+```
+
+
+## Check ordering effects
+
+```{r, fig.height=9, fig.width=10}
+select_to_longer_ord <- function(data, var_prefix = NULL) {
+  var_regex <- paste0("(", var_prefix, ")_(pre|post)")
+  
+  data %>%
+    dplyr::select(ID, Conditie, order, dplyr::matches(var_regex)) %>%
+    tidyr::pivot_longer(cols = dplyr::matches(var_regex), 
+                 names_to = c("Variable", "PrePost"), 
+                 names_pattern = "(.*)_(pre|post)",   
+                 values_to = var_prefix
+    ) %>% 
+    dplyr::mutate(
+      ID = as.factor(ID),
+      Cond = factor(Conditie, levels = c("ES", "JRAD")),
+      Order = factor(order, levels = c("1", "2")),
+      PrePost = factor(PrePost, levels = c("pre", "post"))
+    ) %>%
+    dplyr::select(-c(Conditie, Variable, order))
+}  # select_to_longer(long_df, "IRI_PD")
+
+
+long_df_new %>%
+  select_to_longer_ord("OX") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      x = Order,
+      y = OX,
+      grouping.var = PrePost
+    ) 
+
+long_df_new %>%
+  select_to_longer_ord("StaiS") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      x = Order,
+      y = StaiS,
+      grouping.var = PrePost
+    )
+
+long_df_new %>%
+  select_to_longer_ord("PA") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      x = Order,
+      y = PA,
+      grouping.var = PrePost
+    )
+
+long_df_new %>%
+  dplyr::rename(NegAf_pre = NA_pre, NegAf_post = NA_post) %>%
+  select_to_longer_ord("NegAf") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      x = Order,
+      y = NegAf,
+      grouping.var = PrePost
+    )
+
+long_df_new %>%
+  select_to_longer_ord("APS") %>%
+    ggstatsplot::grouped_ggwithinstats(
+      x = Order,
+      y = APS,
+      grouping.var = PrePost
+    )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!--
+
+# OXT 
+
+```{r}
+jrad_df %>%
+  rstatix::get_summary_stats(OX_pre, OX_post, type = "common")
+
+# Difference in results for OXT is caused by subject excluded in left_join (they had OXT data but not in psychological data)
+jrad_ox_p <- 
+  jrad_df %>%
+    dplyr::select(ID, OX_pre, OX_post) %>%
+    tidyr::pivot_longer(cols = c(OX_pre, OX_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "RP",
+      ylab = "OXT (pg/ml total protein)",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = .8, to = 1.3, by = .1),
+      limits = c(.75, 1.32)
+    )
+jrad_ox_p
+# fast_tiffsave(jrad_ox_p, path = savefolder)
+
+
+
+es_df %>%
+  rstatix::get_summary_stats(OX_pre, OX_post, type = "common")
+
+es_ox_p <- 
+  es_df %>%
+    dplyr::select(ID, OX_pre, OX_post) %>%
+    tidyr::pivot_longer(cols = c(OX_pre, OX_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "MS",
+      ylab = "OXT (pg/ml total protein)",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = .8, to = 1.3, by = .1),
+      limits = c(.75, 1.32)
+    )
+es_ox_p
+# fast_tiffsave(es_ox_p, path = savefolder)
+```
+
+
+
+
+# Behavioral  
+
+```{r}
+# STAI
+jrad_df %>%
+  rstatix::get_summary_stats(StaiS_pre, StaiS_post, type = "common")
+
+jrad_stai_p <- 
+  jrad_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "RP",
+      ylab = "Anxiety",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 65, by = 5),
+      limits = c(19, 65)
+    )
+jrad_stai_p
+# fast_tiffsave(jrad_stai_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(StaiS_pre, StaiS_post, type = "common")
+
+es_stai_p <-
+  es_df %>%
+    dplyr::select(ID, StaiS_pre, StaiS_post) %>%
+    tidyr::pivot_longer(cols = c(StaiS_pre, StaiS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "MS",
+      ylab = "Anxiety",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 65, by = 5),
+      limits = c(19, 65)
+    )
+es_stai_p
+# fast_tiffsave(es_stai_p, path = savefolder)
+```
+
+```{r}  
+# PA
+jrad_df %>%
+  rstatix::get_summary_stats(PA_pre, PA_post, type = "common")
+
+jrad_pa_p <- 
+  jrad_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "RP",
+      ylab = "Positive Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 50, by = 5),
+      limits = c(17, 51)
+    )
+jrad_pa_p
+# fast_tiffsave(jrad_pa_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(PA_pre, PA_post, type = "common")
+
+es_pa_p <- 
+  es_df %>%
+    dplyr::select(ID, PA_pre, PA_post) %>%
+    tidyr::pivot_longer(cols = c(PA_pre, PA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "MS",
+      ylab = "Positive Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 50, by = 5),
+      limits = c(17, 51)
+    )
+es_pa_p
+# fast_tiffsave(es_pa_p, path = savefolder)
+```
+
+```{r}
+# NA  
+jrad_df %>%
+  rstatix::get_summary_stats(NA_pre, NA_post, type = "common")
+
+jrad_na_p <- 
+  jrad_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "RP",
+      ylab = "Negative Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 10, to = 30, by = 5),
+      limits = c(8, 30)
+    ) 
+jrad_na_p
+# fast_tiffsave(jrad_na_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(NA_pre, NA_post, type = "common")
+
+es_na_p <- 
+  es_df %>%
+    dplyr::select(ID, NA_pre, NA_post) %>%
+    tidyr::pivot_longer(cols = c(NA_pre, NA_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "MS",
+      ylab = "Negative Affect",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 10, to = 30, by = 5),
+      limits = c(8, 30)
+    )
+es_na_p
+# fast_tiffsave(es_na_p, path = savefolder)
+```
+
+```{r}
+# APS
+jrad_df %>%
+  rstatix::get_summary_stats(APS_pre, APS_post, type = "common")
+
+jrad_aps_p <- 
+  jrad_df %>%
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "RP",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    ) 
+jrad_aps_p
+# fast_tiffsave(jrad_aps_p, path = savefolder)
+
+es_df %>%
+  rstatix::get_summary_stats(APS_pre, APS_post, type = "common")
+
+es_aps_p <- 
+  es_df %>%                                        # id 28 is a clear outlier
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "",
+      xlab = "MS",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    ) 
+es_aps_p
+# fast_tiffsave(es_aps_p, path = savefolder)
+
+
+es_df %>%                                        # id 28 is a clear outlier
+    dplyr::select(ID, APS_pre, APS_post) %>%
+    dplyr::filter(ID != 28) %>%
+    tidyr::pivot_longer(cols = c(APS_pre, APS_post), names_to = "Time", values_to = "value") %>%
+    dplyr::mutate(
+      Time = stringr::str_replace(Time, "pre", "Pre"),
+      Time = stringr::str_replace(Time, "post", "Post"), 
+      Time = stringr::str_remove(Time, ".*_"),
+      Time = stringr::str_remove(Time, "_"), 
+      Time = factor(Time, levels = c("Pre", "Post"))) %>%
+    group_by(ID) %>%
+    my_ggwithinstats2(
+      x = Time,
+      y = value,
+      outlier.label = ID, 
+      title = "ES APS - Excluded outlier 28",
+      xlab = "MS",
+      ylab = "Prosocial Attitudes",
+      results.subtitle = TRUE,
+      centrality.label.args = TRUE,
+      breaks = seq(from = 20, to = 80, by = 10),
+      limits = c(22, 80)
+    )
+```
+
+
+
+
+
+
+
+
+
+# Within-participant mediation APS
+## JRAD
+
+
+```{r}
+library(JSmediation)
+
+set.seed(101)
+withinmed_jrad <- 
+  mdt_within_wide(data = jrad_df,
+                  DV_B = APS_pre, DV_A = APS_post,     # mdt_within_wide uses M_A - M_B and DV_A - DV_B in these models
+                  M_B = PA_pre, M_A = PA_post)
+add_index(withinmed_jrad)
+```
+
+## ES
+
+```{r}
+set.seed(101)
+# remember that id 28 is outlier on aps ... mediation does not hold even when 28 is excluded
+withinmed_es <- 
+  mdt_within_wide(data = es_df,   # %>% dplyr::filter(ID != 28)
+                  DV_B = APS_pre, DV_A = APS_post, 
+                  M_B = PA_pre, M_A = PA_post)
+add_index(withinmed_es) 
+```
+
+# rmAnova
+
+```{r, message=FALSE}
+# Analyses
+long_df_new %>%
+  select_to_longer("OX") %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = OX)
+```
+
+```{r, message=FALSE}
+long_df_new %>%
+  select_to_longer("StaiS") %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = StaiS)
+```
+
+```{r, message=FALSE}
+long_df_new %>%
+  select_to_longer("PA") %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = PA)
+```
+
+```{r, message=FALSE}
+long_df_new %>%
+  dplyr::rename(NegAf_pre = NA_pre, NegAf_post = NA_post) %>%
+  select_to_longer("NegAf") %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = NegAf)
+```
+
+```{r, message=FALSE}
+long_df_new %>%
+  select_to_longer("APS") %>%
+  tw_rmANOVA_func(id_var = ID, cond_var = Cond, time_var = PrePost, value_var = APS)
+```
+
+-->
+
+
+
+<!--
+# Sequential mediation
+
+```{r}
+library(lavaan)
+library(semPlot)
+
+# model=
+# "
+#   # Regressions
+#   m1 ~ a*iv
+#   m2 ~ b*m1 + iv
+#   dv ~ c*m2 + m1 + d*iv + cv1 + cv2
+#   
+#   # Defined Parameters:
+#   ie := a*b*c
+#   de := d
+# "
+
+
+model <- "
+  # Regressions
+  PA_pre ~ a*OX_post
+  PA_post ~ b*PA_pre + OX_post
+  APS_post ~ c*PA_post + PA_pre + d*OX_post + StaiS_post
+  
+  # Defined Parameters:
+  ie := a*b*c
+  de := d
+"
+
+fit <- lavaan::sem(model, data = jrad_df)  # long_df_all %>% dplyr::filter(ID != 28)
+summary(fit)
+
+lavaanPlot::lavaanPlot(model = fit, 
+                       graph_options = list(layout = "dot", rankdir = "LR"), 
+                       node_options = list(shape = "box", fontname = "Helvetica"), 
+                       edge_options = list(color = "grey"), 
+                       coefs = TRUE, stand = TRUE, covs = TRUE, 
+                       sig = 0.05, stars = c("regress", "cov"))  # unstandardized: sig = 1.00 
+```
+-->
+
+<!--
+# Med new
+
+```{r}
+source("C:/Users/Mihai/Desktop/LCS mediation/Function LCS ANCOVA mediation.R")
+mod <- lcs_ancova_med(df = long_df_all, x = Conditie, y1 = APS_pre, y2 = APS_post, m1 = PA_pre, m2 = PA_post)
+summary(mod)
+semPlot::semPaths(mod, layout = "spring",  nCharNodes = 0, nCharEdges = 0, what = "path", whatLabels = "path", edge.label.cex = 0.8)
+```
+-->
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
