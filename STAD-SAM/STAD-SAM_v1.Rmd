@@ -43,22 +43,37 @@ options(scipen = 999)       # positive values bias towards fixed and negative to
 options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
 
 # Load packages
-if(!require("librarian")) install.packages("librarian", dependencies = TRUE)
-librarian::shelf(
-  update_all = FALSE,
-  quiet = TRUE,
-  # package list
-  papaja,
-  here, fs,
-  conflicted,
-  rio,
-  tidyverse, 
-  psych,          
-  rstatix, ggstatsplot,
-  ggplot2, ggpubr, scales,
-  report
+# if(!require("librarian")) install.packages("librarian", dependencies = TRUE)
+# librarian::shelf(
+#   update_all = FALSE,
+#   quiet = TRUE,
+#   # package list
+#   papaja,
+#   here, fs,
+#   conflicted,
+#   rio,
+#   tidyverse, 
+#   psych,          
+#   rstatix, ggstatsplot,
+#   ggplot2, ggpubr, scales,
+#   report
+#   # , ...
+# )
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report"
   # , ...
 )
+pacman::p_load(char = packages)
 
 # Set here to Rnotebook directory
 here::set_here()
