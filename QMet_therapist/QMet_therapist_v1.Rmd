@@ -1,0 +1,556 @@
+---
+title: "<br> QMet therapists study" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report",
+  "XML",
+  "qmethod"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+conflicted::conflict_prefer("recode", winner = "dplyr")
+conflicted::conflict_prefer("fill", winner = "tidyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+
+
+<!-- Report -->
+
+# Read survey structure
+
+```{r}
+# LimeSurvey export survey as .txt (.xml is good too, but easier to work with .txt)
+survey_df <- readr::read_delim("limesurvey_survey_192485.txt", delim = '\t')
+survey_df <- 
+  survey_df %>%
+  select_if(~ !all(is.na(.)))
+
+survey_codetext <-
+  survey_df %>%
+  select(name, text) %>%
+  slice(
+    seq(
+      from = min(which(str_detect(name, "nt Informat"))),
+      to = nrow(.)
+  )) %>%
+  mutate(row_no = row_number()) %>%
+  relocate(row_no)
+
+DT::datatable(
+  survey_codetext[3:nrow(survey_codetext),],
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 30,
+    scrollX = "100px",
+    # scrollY = "400px"
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+# Item coding based on survey structure
+
+```{r}
+item_codetext <-
+  survey_codetext %>%
+  slice(
+    seq(
+      from = which(str_detect(name, "Demografice")) + 1,
+      to = nrow(.)
+  )) %>%
+  mutate(
+    clean_text = str_remove_all(text, "<.*?>"),                           # remove HTML tags
+    is_question = str_detect(name, "^G0.*"),                               # tag questions
+    is_subquestion = str_detect(name, "^SQ.*"),                            # tag subquestions
+    is_answer = str_detect(name, "^AO.*"),                                 # tag answer definitions
+    quest_no = cumsum(is_question),                                       # number all questions
+    question = if_else(is_question, name, NA_character_),                 # get question codes
+    subquestion = if_else(is_subquestion, name, NA_character_),           # get subquestion codes
+    question_text = if_else(is_question, clean_text, NA_character_),                 # get question texts
+    subquestion_text = if_else(is_subquestion, clean_text, NA_character_),           # get subquestion texts
+    answer = 
+      if_else(is_answer, 
+        paste0("\"", name, "\"", " = ", "\"", clean_text, "\""), 
+        NA_character_
+      )                                                                   # paste definition of each answer
+  ) %>%
+  fill(question, .direction = "down") %>%                   # fill with same question, it appies for subquestions and answers
+  filter(is_question | is_subquestion | is_answer)                        # drop sections and other useless info
+
+# Full info on items as list-columns dataframe
+item_info <-
+  item_codetext %>%
+  select(question, subquestion, question_text, subquestion_text, answer) %>%
+  pivot_longer(cols = -question, values_drop_na = TRUE) %>%
+  pivot_wider(names_from = name, values_from = value, values_fn = list)
+
+
+# Meant to be used as: 
+# def <- c("foo" = "bar", "zar" = "far")
+# dplyr::recode(as.character(col), !!!def)
+# e.g. item_def$answer[item_def$question == "G02Q03"]
+#      eval(parse(text = item_def$answer[item_def$question == "G02Q03"]))
+
+item_def <-
+  item_codetext %>%
+  filter(is_answer) %>%
+  select(question, answer) %>%
+  group_by(question) %>%
+  mutate(answer = paste0(answer, collapse = ", "),
+         answer = paste0("c(", answer, ")")) %>%
+  distinct()
+
+#e.g. on how to use item_def
+# test_df <- 
+#   df %>%
+#   mutate(
+#     across(
+#       .cols = starts_with("G02Q03"),
+#       .fns = ~recode(., !!!eval(parse(text = item_def$answer[item_def$question == "G02Q03"])))     
+#     )
+#   )  
+
+DT::datatable(
+  item_def,
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 15,
+    scrollX = "100px",
+    # scrollY = "400px"
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+# Read data & transform
+
+```{r}
+df <- readr::read_csv("survey_192485_R_data_file.csv")
+
+# test_df <- 
+#   map_dfc(
+#     item_def$question,
+#     \(x) {
+#       map(
+#         df %>%
+#           select(contains(x)),
+#         \(y) recode(y, !!!eval(parse(text = item_def$answer[str_detect(item_def$question, x)])))
+#       )
+#     }
+#   )
+
+# Need to find a way to iterate this with purrr
+df_recoded <-
+  df %>%
+  mutate(
+    across(
+      .cols = starts_with(item_def$question[1]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[1])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[2]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[2])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[3]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[3])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[4]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[4])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[5]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[5])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[6]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[6])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[7]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[7])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[8]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[8])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[9]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[9])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[10]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[10])])))
+    )
+  )
+
+# To numeric and rescale questionnaire items 
+# for numeric extraction: str_extract(x, "[0-9]")   # "[0-9]+" for more digits, but Liker scales have only 1 digit
+# [8]  = G04Q10 = Reactiv [1, 7]
+# [9]  = G05Q11 = Empath [0, 4]
+# [10] = G06Q12 = Online_Terap [1, 5]
+#        G07Q13 = QSort (is already numeric, but needs to be on scale [-4, +4])
+
+df_recoded2 <-
+  df_recoded %>%
+  mutate(
+    across(
+      .cols = starts_with(c("G04Q10", "G05Q11", "G06Q12")),
+      .fns = ~as.numeric(str_extract(., "[0-9]"))     # get only digits and to numeric
+    ),
+    across(
+      .cols = starts_with("G07Q13"),
+      .fns = ~.-5                                   # to [-4, +4]
+    )
+    
+  )
+# check - everything fine
+# df_recoded2 %>% select(starts_with("G04Q10")) %>% summary()
+# df_recoded2 %>% select(starts_with("G05Q11")) %>% summary()
+# df_recoded2 %>% select(starts_with("G06Q12")) %>% summary()
+# df_recoded2 %>% select(starts_with("G07Q13")) %>% summary()
+
+```
+
+## Scoring IRI
+
+```{r}
+## IRI
+# Scales with reversed c(3,4,7,12,13,14,15,18,19)         min = 0, max = 4
+# Empathic Concern   - IRI_EC c(1,5,7,12,16,23,26)
+# Perspective Taking - IRI_PT c(3,8,11,15,21,25,28)
+# Fantasy            - IRI_F  c(2,4,9,14,18,20,22)
+# Personal Distress  - IRI_PD c(6,10,13,17,19,24,27)
+idx_iri <- df_recoded2 %>% select(starts_with("G05Q11")) %>% colnames()
+idx_item_iri_rev <- c(3,4,7,12,13,14,15,18,19) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_ec <- c(1,5,7,12,16,23,26) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_pt <- c(3,8,11,15,21,25,28) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_f <- c(2,4,9,14,18,20,22) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_pd <- c(6,10,13,17,19,24,27) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+
+df_recoded2$IRI_EC <- ScoreLikert(df_recoded2[idx_item_iri_ec], reversecols = intersect(idx_item_iri_rev, idx_item_iri_ec), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_PT <- ScoreLikert(df_recoded2[idx_item_iri_pt], reversecols = intersect(idx_item_iri_rev, idx_item_iri_pt), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_F  <- ScoreLikert(df_recoded2[idx_item_iri_f], reversecols = intersect(idx_item_iri_rev, idx_item_iri_f), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_PD <- ScoreLikert(df_recoded2[idx_item_iri_pd], reversecols = intersect(idx_item_iri_rev, idx_item_iri_pd), napercent = .9, min = 0, max = 4)
+
+```
+
+# Q Method
+
+```{r}
+# ----------------------------------------
+# Item texts
+item_qsort_text <- read_lines("JHP_operationalis_items.txt") %>% as.vector()
+
+# Grid
+# 2 + 
+#   3 + 
+#     4 +           # 9 Important
+#       5 + 
+#         7 +
+#       5 +         # 17 Some what important / Neutral
+#     4 +
+#   3 +
+# 2                 # 9 Unimportant
+
+distro <- c(
+  rep(-4, 2), rep(-3, 3), rep(-2, 4), 
+  rep(-1, 5), rep(0, 7), rep(1, 5),
+  rep(2, 4), rep(3, 3), rep(4, 2)
+)
+
+# ----------------------------------------
+# Prepare data for QMethod
+# QMethod needs statements on rows and sorts on columns (t())
+idx_qsort <- df_recoded2 %>% select(starts_with("G07Q13")) %>% colnames()
+df_qsort_data <-
+  df_recoded2[, c("id", idx_qsort)] %>%
+  column_to_rownames(var = "id") %>%
+  t() %>% 
+  as.data.frame() 
+df_qsort_text <- paste(rownames(df_qsort_data), item_qsort_text) %>% as.data.frame()
+list_qsort <- list(df_qsort_data, df_qsort_text)
+
+# ----------------------------------------
+# Number of factors to extract
+screeplot(prcomp(df_qsort_data), main = "Screeplot of unrotated factors", type = "l")  # 3 factors?
+# psych::fa.parallel(df_recoded2[idx_qsort])
+# ----------------------------------------
+
+# Run the analysis using centroid factor extraction instead of PCA, and without rotation:
+results <- qmethod::qmethod(
+  df_qsort_data, nfactors = 3,
+  forced = FALSE, silent = TRUE,
+  distribution = distro
+)
+# qmethod:::summary.QmethodRes(results)
+# ----------------------------------------
+
+# Print results
+results$loa %>% knitr::kable(caption = "Q-sort factor loadings")
+results$flagged %>% knitr::kable(caption = "Flagged Q-sorts")  
+
+# I think flagged  is based on some cutoff on loadings
+# try_calc_flag <- !results$loa - apply(results$loa, 1, max) & abs(results$loa) >= .37
+# identical(try_calc_flag, results$flagged)
+# all.equal(try_calc_flag, results$flagged)   # close enough ... so it's max loading and some cutoff probably
+
+results$zsc %>% knitr::kable(caption = "Statement z-scores")
+results$zsc_n %>% knitr::kable(caption = "Statement factor scores")
+
+results$f_char$characteristics %>% knitr::kable(caption = "Factor characteristics")
+results$f_char$cor_zsc %>% knitr::kable(caption = "Correlation between factor z-scores")
+results$f_char$sd_dif %>% knitr::kable(caption = "Standard error of differences between factors")
+ 
+results$qdc %>% knitr::kable(caption = "Distinguishing and consensus statements")
+
+# ----------------------------------------
+# Plot
+qmethod:::plot.QmethodRes(
+  results,
+  xlab = "z-scores", ylab = "",                        
+  leg.pos = "topleft", sort.items = FALSE
+) 
+# ----------------------------------------
+# Merge flagged/membership back to data
+results$flagged 
+(results$flagged)
+
+results$flagged %>% as.data.frame() %>% mutate_all(as.factor)
+
+factor((results$flagged %*% (1:ncol(results$flagged))), 
+         labels = c(NA_character_, colnames(results$flagged)))
+
+df_recoded2$QSort_mem <- factor(
+  (results$flagged %*% (1:ncol(results$flagged))), 
+  labels = c(NA_character_, colnames(results$flagged))
+)
+# cbind(as.data.frame(results$flagged), df_recoded2$QSort_mem) # test -- all fine
+
+```
+
+# Some analyses
+
+```{r}
+ggpiestats(  
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = G03Q05,
+  type = "np"
+)
+```
+
+```{r}
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_EC,
+  type = "np"
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PT,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_F,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PD,
+  type = "np"              
+)
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
