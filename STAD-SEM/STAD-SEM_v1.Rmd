@@ -1,0 +1,261 @@
+---
+title: "<br> STAD SEM" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+```
+
+
+<!-- Report -->
+
+# Read data
+
+```{r}
+# La "5sem" e buna a doua inregistrare. 
+# "7sem" e bune, al doilea "7sem" (varsta 73) este de fapt 8sem (varsta 71).  
+# "25 sem c" apare dublat doar la subjects.csv dar nu si in celelalte 2 .csv
+
+# IDs
+ids_df <- read.csv(here::here("subjects.csv"))
+ids_df <- ids_df[6:52, ]
+nrow(ids_df) == length(unique(ids_df$id))
+ids_df$id[duplicated(ids_df$id)]
+
+ids_vec <- ids_df$id
+
+# Stad
+stad_df <- read.csv(here::here("stad.csv"))   
+stad_ids_vec <- unique(stad_df$id)
+stad_df <-
+  stad_df %>%
+  filter(id %in% ids_vec) %>%
+  group_by(id) %>%
+  mutate(trial_cycl = cumsum(c(1, diff(trialNo) < 0)))  %>%
+  ungroup() %>%
+  relocate(trial_cycl, .after = trialNo) %>%
+  select(id:chosen5) %>%
+  rowwise() %>%
+  mutate(
+    score = sum(
+      correct1 == chosen1,
+      correct2 == chosen2,
+      correct3 == chosen3,
+      correct4 == chosen4,
+      correct5 == chosen5
+    )          
+  )
+
+stad_df %>%
+  filter(trial_cycl == 2) %>%
+  print(n = Inf)
+
+stad_problem <- 
+  stad_df %>%
+  filter(id %in% c("7sem", "5sem"))
+
+
+# Actions
+actions_df <- read.csv(here::here("actions.csv"))
+actions_df <-
+  actions_df %>%
+  filter(id %in% ids_vec) %>%
+  group_by(id) %>%
+  mutate(trial_cycl = cumsum(c(1, diff(trialNo) < 0)))  %>%
+  ungroup() %>%
+  relocate(trial_cycl, .after = trialNo)
+
+actions_problem <-
+  actions_df %>%
+  filter(id %in% c("7sem", "5sem"))
+
+# Fix "7sem" - "8sem" and "5sem" second
+ids_df <- 
+  ids_df %>% 
+  group_by(id) %>%
+  mutate(id = if_else(id == "7sem" & row_number() == 2, "8sem", id)) %>%
+  distinct() %>%  # "25 sem c" apare dublat doar lasubjects.csv dar nu si in celelalte 2 .csv
+  select(-c(nume, prenume, email))
+  
+stad_df <-
+  stad_df %>% 
+  group_by(id) %>%
+  filter(!(id == "5sem" & trial_cycl == 1)) %>%  # 1413, first recording of "5sem" deleted
+  mutate(id = if_else(id == "7sem" & trial_cycl == 2, "8sem", id))
+
+stad_df %>%
+  count(id) %>%
+  print(n = Inf)
+
+actions_df <-
+  actions_df %>% 
+  group_by(id) %>%
+  filter(!(id == "5sem" & trial_cycl == 1)) %>%  # 1413, first recording of "5sem" deleted
+  mutate(id = if_else(id == "7sem" & trial_cycl == 2, "8sem", id))
+
+actions_df %>%
+  count(id, trialNo) %>%
+  print(n = Inf)
+  
+```
+
+## Match with external records for Cond
+
+```{r}
+# Merge Cond with ids_df
+ids_elderly <- ids_df$id[1:14] # elderly - ids 1:14 (16 missing)
+ids_rest <- ids_df$id[15:45]  # rest - ids (1:5,8:33) C  (missing: 6, 7)
+
+elderly_cond <- c("NS", "pozitiv", "NS", "pozitiv", "neutru", "neutru", "NS", "pozitiv", "NS", "NS", "NS", "NS", "NS", "pozitiv")
+length(unique(elderly_cond))
+length(ids_df$id[1:14]) == length(elderly_cond)
+rest_cond <- c("NS", "NS", "pozitiv", "pozitiv", "NS", "pozitiv", "NS", "pozitiv", "pozitiv", "pozitiv", "neutru", "neutru", 
+               "pozitiv", "pozitiv", "pozitiv", "pozitiv", "neutru", "NS", "neutru", "NS", "neutru", "neutru", "neutru", 
+               "neutru", "neutru", "NS", "NS", "NS", "neutru", "NS", "pozitiv")
+length(unique(rest_cond))
+length(ids_df$id[15:45]) == length(rest_cond)
+
+ids_df$Cond <- c(elderly_cond, rest_cond)
+
+# Join ids_df with stad and actions
+
+stad_merge_df <-
+  stad_df %>%
+  left_join(ids_df, by = "id") 
+
+actions_merge_df <-
+  actions_df %>%
+  left_join(ids_df, by = "id")
+```
+
+```{r}
+stad_merge_df %>%
+  filter(id %in% ids_elderly) %>%
+  group_by(id, Cond) %>%
+  summarise(score = sum(score)) %>%
+  ungroup() %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Cond,
+    y = score,
+    outlier.label = id,
+    type = "np",
+    title = "Elderly"
+  )
+
+stad_merge_df %>%
+  filter(id %in% ids_rest) %>%
+  group_by(id, Cond) %>%
+  summarise(score = sum(score)) %>%
+  ungroup() %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Cond,
+    y = score,
+    outlier.label = id,
+    type = "np",
+    title = "General Sample"
+  )
+```
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
