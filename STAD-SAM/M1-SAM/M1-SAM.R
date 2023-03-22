@@ -59,7 +59,7 @@ fast_ggsave <- function(plot, device = "png", path = NULL,
 ## Read files
 m1_file <- "Date Complete M1 v.13 siPPGGSRamilaza.sav"
 sam_file <- "df_memo_SAM.RDS"
-folder <- "D:/R Notebooks/new"
+folder <- "E:/Github/R Notebooks/notebooks/STAD-SAM/M1-SAM"
 
 m1_df <- rio::import(file.path(folder, m1_file))
 sam_df <- readRDS(file.path(folder, sam_file))
@@ -157,3 +157,90 @@ plot_m1vrmiros_relv <-
 # fast_ggsave(plot_m1vrmiros_val, width = 5, height = 5)
 # fast_ggsave(plot_m1vrmiros_viv, width = 5, height = 5)
 # fast_ggsave(plot_m1vrmiros_relv, width = 5, height = 5)
+
+# -------------------------------------------------------------------------
+plot_np_val <- 
+  df %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Valence,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+plot_np_viv <-
+  df %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Vividness,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+plot_np_relv <-
+  df %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Relevance,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+
+plot_np__m1vrmiros_val <- 
+  df %>%
+  as.data.frame() %>%
+  dplyr::filter(Conditia %in% c("M1", "VR miros")) %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Valence,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+plot_np__m1vrmiros_viv <- 
+  df %>%
+  as.data.frame() %>%
+  dplyr::filter(Conditia %in% c("M1", "VR miros")) %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Vividness,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+plot_np__m1vrmiros_relv <- 
+  df %>%
+  as.data.frame() %>%
+  dplyr::filter(Conditia %in% c("M1", "VR miros")) %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Relevance,
+    outlier.label = ID,
+    xlab = "",
+    type = "np"
+  )
+
+# fast_ggsave(plot_np_val, width = 7, height = 5)
+# fast_ggsave(plot_np_viv, width = 7, height = 5)
+# fast_ggsave(plot_np_relv, width = 7, height = 5)
+# fast_ggsave(plot_np__m1vrmiros_val, width = 5, height = 5)
+# fast_ggsave(plot_np__m1vrmiros_viv, width = 5, height = 5)
+# fast_ggsave(plot_np__m1vrmiros_relv, width = 5, height = 5)
+
+# -------------------------------------------------------------------------
+df %>%
+  as.data.frame() %>%
+  dplyr::filter(Conditia %in% c("M1", "VR miros")) %>%
+  lm(Valence ~ Conditia + Relevance, data = .) %>% 
+  summary()
+
+df %>%
+  as.data.frame() %>%
+  dplyr::select(Conditia, Valence, Relevance, Vividness) %>%
+  GGally::ggpairs()
