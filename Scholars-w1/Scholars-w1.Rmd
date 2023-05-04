@@ -1,0 +1,387 @@
+---
+title: "<br> Scholars wave 1 - partial data" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+if (!require("tidyverse")) install.packages("tidyverse", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "psych",          
+  "ggstatsplot",
+  "ggplot2", "scales",
+  "report",
+  "gtsummary",
+  "XML",
+  "qmethod"
+  # , ...
+)
+pacman::p_load(char = packages, update = FALSE)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+conflicted::conflict_prefer("recode", winner = "dplyr")
+conflicted::conflict_prefer("fill", winner = "tidyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+
+
+<!-- Report -->
+
+# Read survey structure
+
+```{r, message=FALSE}
+# LimeSurvey export survey as .txt (.xml is good too, but easier to work with .txt)
+
+# Check most recent .txt file
+last_txt_file <- 
+  dir(here::here(), pattern = ".*txt", full.names = TRUE) %>% 
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+# Read
+survey_df <- readr::read_delim("limesurvey_survey_686732.txt", delim = "\t")
+survey_df <- 
+  survey_df %>%
+  select_if(~ !all(is.na(.)))
+
+survey_codetext <-
+  survey_df %>%
+  select(name, text) %>%
+  slice(
+    seq(
+      from = min(which(str_detect(name, "Consim....nt"))),
+      to = nrow(.)
+  )) %>%
+  mutate(row_no = row_number()) %>%
+  relocate(row_no)
+
+# Print with download
+DT::datatable(
+  survey_codetext[3:nrow(survey_codetext),],
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  # class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 30,
+    scrollX = "100px",
+    scrollY = "400px",
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+# Item coding based on survey structure
+
+```{r, message=FALSE, warning=FALSE}
+item_codetext <-
+  survey_codetext %>%
+  slice(
+    seq(
+      from = which(str_detect(name, "Date demografice"))[1] + 1,     # rows 10 & 796 are named "Date demografice"
+      to = nrow(.)
+  )) %>%
+  mutate(
+    clean_text = str_remove_all(text, "<.*?>"),                           # remove HTML tags
+    is_question = str_detect(name, "^G0.*"),                               # tag questions
+    is_subquestion = str_detect(name, "^SQ.*"),                            # tag subquestions
+    is_answer = str_detect(name, "^AO.*"),                                 # tag answer definitions
+    quest_no = cumsum(is_question),                                       # number all questions
+    question = if_else(is_question, name, NA_character_),                 # get question codes
+    subquestion = if_else(is_subquestion, name, NA_character_),           # get subquestion codes
+    question_text = if_else(is_question, clean_text, NA_character_),                 # get question texts
+    subquestion_text = if_else(is_subquestion, clean_text, NA_character_),           # get subquestion texts
+    answer = 
+      if_else(is_answer, 
+        paste0("\"", name, "\"", " = ", "\"", clean_text, "\""), 
+        NA_character_
+      )                                                                   # paste definition of each answer
+  ) %>%
+  fill(question, .direction = "down") %>%                   # fill with same question, it appies for subquestions and answers
+  filter(is_question | is_subquestion | is_answer)                        # drop sections and other useless info
+
+# Full info on items as list-columns dataframe
+item_info <-
+  item_codetext %>%
+  select(question, subquestion, question_text, subquestion_text, answer) %>%
+  pivot_longer(cols = -question, values_drop_na = TRUE) %>%
+  pivot_wider(names_from = name, values_from = value, values_fn = list)
+
+
+# Meant to be used as: 
+# def <- c("foo" = "bar", "zar" = "far")
+# dplyr::recode(as.character(col), !!!def)
+# e.g. item_def$answer[item_def$question == "G02Q03"]
+#      eval(parse(text = item_def$answer[item_def$question == "G02Q03"]))
+
+item_def <-
+  item_codetext %>%
+  filter(is_answer) %>%
+  select(question, answer) %>%
+  group_by(question) %>%
+  mutate(answer = paste0(answer, collapse = ", "),
+         answer = paste0("c(", answer, ")")) %>%
+  distinct()
+
+#e.g. on how to use item_def
+# test_df <- 
+#   df %>%
+#   mutate(
+#     across(
+#       .cols = starts_with("G02Q03"),
+#       .fns = ~recode(., !!!eval(parse(text = item_def$answer[item_def$question == "G02Q03"])))     
+#     )
+#   )  
+
+# Print with download
+DT::datatable(
+  item_info,
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  # class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 15,
+    scrollX = "100px",
+    scrollY = "400px",
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+# Read data & transform
+
+```{r}
+# Check most recent .csv file
+last_csv_file <- 
+  dir(here::here(), pattern = ".*csv", full.names = TRUE) %>% 
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+# Read
+df <- readr::read_csv("results-survey686732.csv")
+
+# Iterate and organize
+for(n_quest in seq_along(item_def$question[!is.na(item_def$question)])) {
+  df_recoded <-
+    df %>%
+    mutate(
+      across(
+        .cols = starts_with(item_def$question[n_quest]),
+        .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[1])])))
+      )
+    )  
+}
+
+# Data set with complete answers
+df_recoded_complete <-
+  df_recoded %>%
+  filter(`Ultima pagina` == 17) %>%
+  select(-all_of(c("[Nume]", "[Prenume]")))
+
+# Print with download
+DT::datatable(
+  df_recoded_complete,
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  # class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 15,
+    scrollX = "100px",
+    scrollY = "500px",
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+## Alternative - but seems useless
+
+```{r}
+library(lemonaid)
+
+data_path <- here::here("Rsyntax&data")
+
+df <- limonaid::ls_import_data(
+  datafile = file.path(data_path, "survey_686732_R_data_file.csv"),
+  scriptfile = file.path(data_path, "survey_686732_R_syntax_file.R")
+)  
+```
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
