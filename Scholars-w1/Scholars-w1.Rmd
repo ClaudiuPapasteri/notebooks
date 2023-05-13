@@ -408,12 +408,17 @@ library(psych)
 psych::mediate(posit ~ agree + (aware), data = df_scales)
 psych::mediate(agree ~ posit + soc_supp + (aware), data = df_scales)
 
-soc_supp posit	aware
-soc_supp posit agree
+# soc_supp posit	aware
+# soc_supp posit agree
+# 
+# agree	aware posit
+# soc_supp agree posit
+# aware (agree, posit) soc_supp, help_seek
 
-agree	aware posit
-soc_supp agree posit
-aware (agree, posit) soc_supp, help_seek
+
+summary(lm(help_seek ~ sex + age + agree  + aware + soc_supp, data = df_scales))
+summary(lm(help_seek ~ agree + aware + soc_supp, data = df_scales))
+
 ```
 
 
