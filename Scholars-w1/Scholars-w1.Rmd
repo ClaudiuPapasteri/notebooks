@@ -492,9 +492,111 @@ summary(lm(help_seek ~ sex + age * aware, data = df_scales))
 
 ```
 
+## Demographics
+
+```{r}
+demo_sex <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  group_by(sex) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) 
+demo_sex
+
+demo_sex %>%
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "sex", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+```{r}
+demo_resid <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(resid))) %>%
+  group_by(resid) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) 
+demo_resid
+
+demo_resid %>%
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "resid", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.height=9, fig.width=9}
+demo_residsex <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(age = as.factor(as.character(resid))) %>%
+  dplyr::count(resid, sex, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n),                            # Calculate percent within each var
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_residsex
+
+df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(age = as.factor(as.character(resid))) %>%
+  ggstatsplot::grouped_ggpiestats(
+    x = sex,
+    grouping.var = resid,
+    package = "RColorBrewer",
+    palette = "Greys",
+    bf.message = FALSE,
+    ggplot.component = list(scale_fill_grey())
+  )
+```
 
 
 
+```{r}
+demo_age <- 
+  df_scales %>% 
+  mutate(age = as.factor(as.character(age))) %>%
+  count(age) %>%
+  mutate(pct = prop.table(n),
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_age
+
+demo_age %>%
+  ggplot(aes(x = age, y = pct, label = scales::percent(pct))) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = Percent), vjust = -0.25) +
+     scale_y_continuous(labels = scales::percent) +
+     ylab("Percentage %") +  xlab("")  
+  
+```
+
+```{r, warning=FALSE, fig.height=8, fig.width=10}
+demo_agesex <-
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(age = as.factor(as.character(age))) %>%
+  dplyr::count(age, sex, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n),                            # Calculate percent within each var
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_agesex
+
+demo_agesex %>%     
+  ggplot(aes(x = age, y = pct, fill = sex, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
 
 
 <!-- Session Info and License -->
