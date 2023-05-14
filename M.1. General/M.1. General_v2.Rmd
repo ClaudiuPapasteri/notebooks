@@ -1,0 +1,531 @@
+---
+title: "<br> General Plots for M.1. (Autobiographical Memories)" 
+subtitle: "Initial Dataset"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # word_document        
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# kintr options
+knitr::opts_chunk$set(
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, 
+  warning = FALSE, message = FALSE, error = FALSE,
+  cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# General R options and info
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+packages <- c(
+  "papaja",
+  "tidyverse", "plyr",      
+  "psych", "PerformanceAnalytics",          
+  "broom", "rstatix",
+  "summarytools", "tadaatoolbox",           
+  "ggplot2", "ggpubr", "scales",        
+  "rio"
+  # , ...
+)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(char = packages)
+
+# Themes for ggplot2 ploting (here used APA style)
+theme_set(theme_apa())
+
+# Tables knitting to Word
+doc.type <- knitr::opts_knit$get('rmarkdown.pandoc.to')  # then format tables using an if statement like:
+# if (doc.type == "docx") { pander::pander(df) } else { knitr::kable(df) }
+
+# Set wd for Notebook
+folder <- "C:/Users/Mihai/Desktop/R Notebooks/notebooks/M.1. General"
+# knitr::opts_knit$set(root.dir = normalizePath(folder))
+```
+
+
+
+
+
+<!-- Report -->
+
+
+# Read
+
+```{r red_clean_recode_merge, results='hide'}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Read
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Read files
+file <- "Date Complete M1 v.13 siPPGGSRamilaza.sav"
+
+# setwd(folder)
+Data <- rio::import(file)
+```
+
+
+# Make data frame
+
+```{r df_excel}
+Data %>%
+  dplyr::select(-Nume) %>%
+    DT::datatable(
+      extensions = 'Buttons',
+      options = list(pageLength = 10,
+                     scrollX='500px',
+                     dom = 'Bfrtip',
+                     buttons = c('excel', "csv")))
+```
+
+
+## Exclude Protocol 8 (mother)
+
+```{r df_filtered}
+Data <- 
+  Data %>%
+  filter(P != 8)
+```
+
+
+# Define Functions 
+
+```{r def_func_ttest, hide=TRUE, results='asis'}
+## Func t test si boxplot simplu
+func_t_box <- function(df, ind, pre_var, post_var, facet = FALSE, xlab = ""){  
+  if(facet){
+    facet <- "Protocol"
+  }else{
+    facet <- NULL
+  }
+  
+  df_modif <-
+    df %>%
+    select(ind, P, pre_var, post_var) %>% 
+    tidyr::drop_na() %>%
+    gather(pre_var, post_var, key = "PrePost", value = "value") %>% 
+    mutate_at(vars(c(1, 2)), funs(as.factor)) %>% 
+    mutate(PrePost = factor(PrePost, levels = c(pre_var, post_var))) 
+  
+  if(!is.null(facet)){
+    df_modif <-
+      df_modif %>%
+      group_by(P) %>%
+      mutate(Protocol = paste0("Protocol = ", P, ", n = ", n()))
+  }
+  
+  stat_comp <-
+    df_modif %>% 
+    do(tidy(t.test(.$value ~ .$PrePost,
+                   paired = TRUE,
+                   data=.)))
+  
+  plot <- 
+    ggpubr::ggpaired(df_modif, x = "PrePost", y = "value", id = ind, 
+                     color = "PrePost", line.color = "gray", line.size = 0.4,
+                     palette = c("#00AFBB", "#FC4E07"), legend = "none",
+                     facet.by = facet, ncol = 3, 
+                     xlab = xlab) +
+    stat_summary(fun.data = mean_se,  colour = "darkred") +
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label.x = as.numeric(df_modif$PrePost)-0.4, label.y = max(df_modif$value)+1) + 
+    ggpubr::stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif", comparisons = list(c(pre_var, post_var)))
+  
+  print(stat_comp)
+  cat("\n")                      
+  print(plot)
+  cat("\n")
+  plot.new()                     # Need this workaround for interleaving tables and plots in R Markdown, within loop
+  dev.off()
+}
+```
+
+
+```{r def_func_heatcorplotly, hide=TRUE, results='asis'}
+heat_cor_plotly <- function(df, x_vars = NULL, y_vars = NULL, low_color = "cyan",  high_color = "red",  ...){   
+  # inherit type = c("pearson","spearman") from Hmisc::rcorr() 
+  library(ggplot2)
+  library(plotly)
+  library(reshape2)
+  library(Hmisc)
+  
+  # use all numeric columns only, print message if non-numeric are found
+  numeric_cols <- unlist(lapply(df, is.numeric))
+  if(!all(numeric_cols)) message("Warning: Non-numeric columns were excluded!")
+  df <- df[, numeric_cols]
+  
+  df_mat <- as.matrix(df)
+  rt <- Hmisc::rcorr(df_mat, ...)
+  
+  # extract correlations, p-values and merge into another dataframe
+  mtlr <- reshape2::melt(rt$r, value.name = "Correlation")
+  mtlp <- reshape2::melt(rt$P, value.name = "P-Value")
+  
+  mtl <- merge(mtlr, mtlp)
+  
+  # give possibility to prune the correlation matrix
+  if(!is.null(x_vars)){
+    mtl <- mtl[(mtl$Var1 %in% x_vars), ]
+  }
+  if(!is.null(x_vars)){
+    mtl <- mtl[(mtl$Var2 %in% y_vars), ]
+  }
+  
+  # want to avoid scientific notetion, but this doesnt work as numeric
+  # mtl$Correlation <- as.numeric(format(mtl$Correlation, digits = 4, scientific = FALSE))  # doesnt work
+  # mtl$`P-Value` <- as.numeric(format(mtl$`P-Value`, digits = 4, scientific = FALSE)) 
+  options(scipen = 999)
+  mtl$Correlation <- round(mtl$Correlation, 3)
+  mtl$`P-Value` <- round(mtl$`P-Value`, 3)
+
+  gx <-
+    ggplot2::ggplot(mtl, 
+           aes(Var1, Var2, 
+               fill = Correlation,  
+               text = paste("P-val = ", `P-Value`))) +
+    ggplot2::geom_tile() + 
+    ggplot2::scale_fill_gradient(low = low_color,  high = high_color, limits = c(-1, 1), breaks = c(-1, -.5, 0, .5, 1)) +
+    ggplot2::theme_minimal() +
+    {if(any(nchar(names(df)) > 6)) ggplot2::theme(axis.text.x = element_text(angle = 90, hjust = 1))}  # vertical x axis labels if lenghty
+  plotly::ggplotly(gx)  
+}
+```
+
+
+# Plot Age
+
+```{r plot1, fig.width=8, fig.height=6, results='asis'}
+## Dodged Bar plot of Age and Gender
+Data  %>%
+  mutate(Varta_categ = cut(Varsta, 
+                           breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, 60, Inf), 
+                           labels=c("<25","25-29","30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60>"), 
+                           right = FALSE)) %>%  
+  mutate(Varsta = as.factor(Varsta),
+         Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+
+## By Protocol
+
+```{r plot1_2, fig.width=8, fig.height=28, results='asis'}
+## Dodged Bar plot of Age and Gender by Protocol
+Data  %>%
+  mutate(Varta_categ = cut(Varsta, 
+                           breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, 60, Inf), 
+                           labels=c("<25","25-29","30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60>"), 
+                           right = FALSE)) %>%  
+  mutate(Varsta = as.factor(Varsta),
+         Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  group_by(P) %>%
+  dplyr::count(Varta_categ, Gen, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Varta_categ, y = pct, fill = Gen, label = scales::percent(pct))) +
+      facet_wrap(~P, scales = "free", ncol = 1) +
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+
+```{r plot2, fig.width=6, fig.height=6, results='asis'}
+## Pie chart
+Data  %>%
+  mutate(Gen = as.factor(as.character(Gen))) %>%
+  mutate(Gen = forcats::fct_recode(Gen, "femin" = "1", "masculin" = "2")) %>%
+  group_by(Gen) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) %>% 
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "Gen", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+
+
+# Analyses
+
+## Simple before-after analyses with t test
+
+```{r t_test1, fig.width=5, fig.height=6, results='asis'}
+## Simple before-after analyses with t test
+cat("#### VAS Stress")
+func_t_box(Data, ind = "ID", "Stres_pre", "Stres_post", facet = FALSE) 
+```
+
+
+```{r t_test2, fig.width=8, fig.height=12, results='asis'}
+## Simple before-after analyses with t test
+cat("#### VAS Stress")
+func_t_box(Data, ind = "ID", "Stres_pre", "Stres_post", facet = TRUE) 
+```
+
+
+## Correlations: Anotimpuri - Personality (without P6, P7)
+
+```{r cor_anopers, fig.width=14, fig.height=7, results='asis'}
+dateplot_anopers <- Data[, c("P", "Primavara", "Vara", "Toamna", "Iarna")]
+dateplot_anopers <- cbind(dateplot_anopers, Data[, 87:121])
+dateplot_anopers <- subset(dateplot_anopers, P!=6 & P!=7)
+
+COR <- Hmisc::rcorr(as.matrix(dateplot_anopers[, -1]))   
+M <- COR$r[1:4, ]
+P_MAT <- COR$P[1:4, ]
+corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+# corrplot::corrplot(M, method = "number", type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .5, tl.srt = 45)  
+```
+
+## Correlations: Anotimpuri - Calitate Amintiri (without P6, P7)
+
+```{r cor1, fig.width=9, fig.height=9, results='asis'}
+dateplot1 <- Data[, c("P", "Primavara", "Vara", "Toamna", "Iarna", "Media_s1", "Media_s2", "Media_s3",  "SocDih_Part",  "SocDih_FamN",  "SocDih_FamInd",  "SocDih_Priet",  "SocDih_Amici",  "SocDih_Necun",  "SocDih_Antag",  "SocDih_TotAprop",  "SocDih_TotNeaprop", "STAI_T")] 
+names(dateplot1) <- c("P", "Primavara", "Vara", "Toamna", "Iarna", "S1- Valenta", "S2 - Vividness", "S3 - Relevanta",  "Partener",  "Familie nucleu",  "Familie extinsa",  "Prieteni",  "Amici",  "Necunoscuti",  "Antagonisti",  "Toti Apropiatii",  "Toti Neapropiatii", "STAI_T")
+dateplot1 <- subset(dateplot1, P!=6 & P!=7)
+
+COR <- Hmisc::rcorr(as.matrix(dateplot1[,-1]))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, method = "number", type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .9, tl.srt = 45)  
+```
+
+
+```{r heat_cor1, fig.width=9, fig.height=9, results='asis'}
+heat_cor_plotly(dateplot1[,-1])
+```
+
+
+## Correlations: Personality - Qualities of Memories (without P6, P7)
+
+```{r cor2, fig.width=11, fig.height=11, results='asis'}
+dateplot2 <- Data[, c(24, 40, 56, 87:121, 126)] 
+names(dateplot2)[1:3] <- c("S1- Valenta", "S2 - Vividness", "S3 - Relevanta")
+
+COR <- Hmisc::rcorr(as.matrix(dateplot2))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+```
+
+
+```{r heat_cor2, fig.width=4, fig.height=12, results='asis'}
+heat_cor_plotly(dateplot2, x_vars = names(dateplot2)[1:3], y_vars = names(dateplot2)[-(1:3)])
+```
+
+
+## Correlations: Social - Personality
+
+```{r cor3, fig.width=11, fig.height=11, results='asis'}
+dateplot3 <- Data[, c(131:139, 87:121)]
+names(dateplot3)[1:9] <- c("Partener",  "Familie nucleu",  "Familie extinsa",  "Prieteni",  "Amici",  "Necunoscuti",  "Antagonisti",  "Toti Apropiatii",  "Toti Neapropiatii")
+
+COR <- Hmisc::rcorr(as.matrix(dateplot3))   
+M <- COR$r
+P_MAT <- COR$P
+corrplot::corrplot(M, type = "upper", p.mat = P_MAT, sig.level = 0.05, insig = "blank", tl.col = "black", tl.cex = .7, cl.pos = "b", tl.srt = 45)
+```
+
+
+```{r heat_cor3, fig.width=6, fig.height=12, results='asis'}
+heat_cor_plotly(dateplot3, x_vars = names(dateplot3)[1:9], y_vars = names(dateplot3)[-(1:9)])
+```
+
+
+# Social
+
+```{r soc_1, results='asis', fig.height=7, fig.width=9, fig.align='center'}
+# names(Data[str_detect(colnames(Data), fixed("SocDih", ignore_case=TRUE))])
+Data_soc <-
+  Data %>%
+  dplyr::select("ID", "P", starts_with("SocDih")) %>%
+  haven::zap_formats(.) %>%                # to not get warning  
+  haven::zap_labels(.) %>%                 # "attributes are not identical across measure variables"
+  haven::zap_widths(.) %>%                 # on gather() because of SPSS
+  dplyr::rename_all(list(~stringr::str_replace(., "SocDih_", ""))) %>% 
+  gather(key = "Variable", value = "Value", -ID, -P) 
+  
+# Create a custom color scale for all ASCQ graphs
+library(RColorBrewer)
+myColors <- brewer.pal(10,"Set1")
+names(myColors) <- levels(Data_soc$Variable)
+colScale <- scale_colour_manual(name = "Variable", values = myColors)
+
+# Plot
+ggpubr::ggviolin(data = Data_soc, x = "Variable", y = "Value", fill = "Variable",
+      add = "boxplot", add.params = list(fill = "white"),
+      xlab = "", legend = "none") +
+  colScale +                                                   # color scale here keep consistency of color with factor level
+  stat_summary(fun.data = mean_se,  colour = "darkred") +         
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+```{r soc_2, results='asis', fig.height=28, fig.width=9, fig.align='center'}
+# Plot faceted by Protocol
+p <- 
+  ggpubr::ggviolin(data = Data_soc, x = "Variable", y = "Value", fill = "Variable",
+        add = "boxplot", add.params = list(fill = "white"),
+        xlab = "", legend = "none") +
+         
+    colScale +                                                   # color scale here keep consistency of color with factor level
+    stat_summary(fun.data = mean_se,  colour = "darkred") +         
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggpubr::facet(p, facet.by = "P", ncol = 1, scales = "free_x")
+```
+
+
+## Social - this doesnt make sense 
+
+```{r soc_3, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+# PerformanceAnalytics::chart.Correlation(Data[, c(8, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140)])
+
+# Example of Simpsons Paradox
+coplot(DifStres ~ SocDih_Amici | Media_s1,
+       data = Data,
+       rows = 1,
+     panel = function(x, y, ...) {
+          panel.smooth(x, y, span = .8, iter = 5,...)
+          abline(lm(y ~ x), col = "blue")})
+```
+
+
+# Varsta Amint - P1,P2,P3
+
+```{r difstres_varstaamint, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P1P2P3 <- 
+  Data %>%
+  filter(P %in% c("1", "2", "3")) %>%
+  mutate(Med_amintvarsta = as.numeric(as.character(Med_amintvarsta)),
+         Dif_Med_amintvarsta = Varsta - Med_amintvarsta)
+
+PerformanceAnalytics::chart.Correlation(Data_P1P2P3[, c(8, 85, 122, 148)])
+
+coplot(DifStres ~ Dif_Med_amintvarsta | Media_s1,
+       data = Data_P1P2P3,
+       rows = 1,
+     panel = function(x, y, ...) {
+          panel.smooth(x, y, span = .8, iter = 5,...)
+          abline(lm(y ~ x), col = "blue")})
+```
+
+
+# Protocol 3 - Social
+
+```{r p3_soc, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P3 <- 
+  Data %>%
+  filter(P == "3")
+
+PerformanceAnalytics::chart.Correlation(Data_P3[, c(8, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140)])
+
+# coplot(SocDih_Amici ~ DifStres | Media_s1, 
+#        data = Data,
+#        columns = 3,
+#      panel = function(x, y, ...) {
+#           panel.smooth(x, y, span = .8, iter = 5,...)
+#           abline(lm(y ~ x), col = "blue") } )
+```
+
+
+# Protocol 3 - Varsta Amint
+
+```{r p3_difstres_varstaamint, results='asis', fig.height=8, fig.width=8, fig.align='center'}
+Data_P3 <- 
+  Data %>%
+  filter(P == "3") %>%
+  mutate(Med_amintvarsta = as.numeric(as.character(Med_amintvarsta)),
+         Dif_Med_amintvarsta = Varsta - Med_amintvarsta)
+
+PerformanceAnalytics::chart.Correlation(Data_P3[, c(8, 85, 122, 148)])
+```
+
+
+
+
+
+
+
+
+
+<br>
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
