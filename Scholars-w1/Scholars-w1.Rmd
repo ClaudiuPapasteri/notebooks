@@ -400,24 +400,95 @@ for(i in seq_len(length(mod_tabl))) {print(mod_synth[i]); print(mod_tabl[[i]])}
 for(i in seq_len(length(mediation_model_list$MedEs))) {print(mediation_model_list$MedEs[i]); print(mediation_model_list$PathEs[[i]])}
 ```
 
+### Odd stigma patterns
+
+```{r, warning=FALSE, fig.height=6, fig.width=7}
+ggplot(df_scales, aes(aware, agree, color = posit)) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, alpha = 0.1, color = "red", fill = "red") +
+  geom_point() +
+  scale_colour_distiller(palette = "Blues", direction = 1)
+
+df_scales %>%
+  mutate(posit_cat = cut(posit,
+    breaks = c(5, 10, 20, 30, 40))
+  ) %>%
+  ggplot(aes(aware, agree, color = posit_cat)) +
+  geom_point() -> plot_stigma1
+plotly::ggplotly(plot_stigma1)
+
+ggplot(df_scales, aes(posit, agree, color = aware)) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, alpha = 0.1, color = "red", fill = "red") +
+  geom_point() +
+  scale_colour_distiller(palette = "Blues", direction = 1)
+
+df_scales %>%
+  mutate(aware_cat = cut(posit,
+    breaks = c(5, 10, 20, 30, 40))
+  ) %>%
+  ggplot(aes(posit, agree, color = aware_cat)) +
+  geom_point() -> plot_stigma2
+plotly::ggplotly(plot_stigma2)
+
+coplot(agree ~ posit | aware, overlap = 0, data = df_scales,
+  panel = function(x, y, ...) {
+          points(x, y, ...)
+          abline(lm(y ~ x), col = "red")}
+)
+```
+
+### Partial correlations stigma (partial everything from everything)
 
 ```{r}
-library(psych)
-# help_seek not good outcome/predictor; aware & agree sunt chiar stigmatizare
-
-psych::mediate(posit ~ agree + (aware), data = df_scales)
-psych::mediate(agree ~ posit + soc_supp + (aware), data = df_scales)
-
-# soc_supp posit	aware
-# soc_supp posit agree
-# 
-# agree	aware posit
-# soc_supp agree posit
-# aware (agree, posit) soc_supp, help_seek
+psych::lowerMat(psych::partial.r(df_scales[, c("agree", "aware", "posit")]))
+```
 
 
-summary(lm(help_seek ~ sex + age + agree  + aware + soc_supp, data = df_scales))
-summary(lm(help_seek ~ agree + aware + soc_supp, data = df_scales))
+### Interaction stigma
+
+```{r}
+mod_stigma_interac <- lm(agree ~ aware * posit, data = df_agree)
+interactions::interact_plot(mod_stigma_interac, pred = posit, modx = aware)
+# interactions::sim_slopes(mod_stigma_interac, pred = posit, modx = aware)
+```
+
+### Gender diff stigma
+
+```{r}
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = agree)
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = aware)
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = posit)
+```
+
+### Silly model that works smh (0 m, 1 fem)
+
+```{r}
+df_scales %>% 
+  mutate(sex = as.numeric(as.factor(sex)) - 1) %>% 
+  psych::mediate(posit ~ sex + aware:agree + (aware), data = .)
+
+# psych::mediate(agree ~ posit + (aware), data = df_scales) # silly but works
+# psych::mediate(agree ~ posit * aware, data = df_scales)
+```
+
+### Reg step - everything about stigma is wacky
+
+```{r}
+df_agree <- na.omit(df_scales[, c("agree", "sex", "age", "resid", "aware", "soc_supp", "posit")])
+mod_agree <- lm(agree ~ sex + age + resid + aware + soc_supp, data = df_agree)
+best_mod_agree <- step(mod_agree, scope = help_seek ~ .^2, direction = "both", data = mod_agree$model, trace = 0) # BIC with k = log(nrow(mod_agree$model))
+summary(best_mod_agree)
+```
+
+
+```{r}
+df_helpseek <- na.omit(df_scales[, c("help_seek", "sex", "age", "agree", "aware", "soc_supp", "agree", "posit")])
+mod_helpseek <- lm(help_seek ~ sex + age + agree  + aware + soc_supp, data = df_helpseek)
+best_mod_helpseek <- step(mod_helpseek, scope = help_seek ~ .^2, direction = "both", data = mod_helpseek$model, trace = 0) # BIC with k = log(nrow(mod_helpseek$model))
+summary(best_mod_helpseek)
+
+
+summary(lm(help_seek ~ sex + age * aware, data = df_scales)) 
+
 
 ```
 
