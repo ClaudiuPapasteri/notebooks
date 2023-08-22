@@ -828,11 +828,43 @@ batch_rds_export(in_folder, out_folder, output = "both", only_clean = TRUE)
 # ieeg_in_folder_rds <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_116"; dir.exists(ieeg_in_folder_rds)
 # ieeg_out_folder_csv <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_csv_116"; dir.exists(ieeg_out_folder_csv)
 # batch_rds_to_csv(ieeg_in_folder_rds, ieeg_out_folder_csv)
+
+# iEEG 119
+# ieeg_in_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_119"; dir.exists(ieeg_in_folder)
+# ieeg_out_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_119"; dir.exists(ieeg_out_folder)
+# batch_rds_export(ieeg_in_folder, ieeg_out_folder, output = "both", only_clean = TRUE)
+# 
+# ieeg_in_folder_rds <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_119"; dir.exists(ieeg_in_folder_rds)
+# ieeg_out_folder_csv <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_csv_119"; dir.exists(ieeg_out_folder_csv)
+# batch_rds_to_csv(ieeg_in_folder_rds, ieeg_out_folder_csv)
+
+# iEEG 121
+# ieeg_in_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_121"; dir.exists(ieeg_in_folder)
+# ieeg_out_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_121"; dir.exists(ieeg_out_folder)
+# batch_rds_export(ieeg_in_folder, ieeg_out_folder, output = "both", only_clean = TRUE)
+# 
+# ieeg_in_folder_rds <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_121"; dir.exists(ieeg_in_folder_rds)
+# ieeg_out_folder_csv <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_csv_121"; dir.exists(ieeg_out_folder_csv)
+# batch_rds_to_csv(ieeg_in_folder_rds, ieeg_out_folder_csv)
+
+# iEEG 122,123,124
+# ieeg_in_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_122,123,124"; dir.exists(ieeg_in_folder)
+# ieeg_out_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_122,123,124"; dir.exists(ieeg_out_folder)
+# batch_rds_export(ieeg_in_folder, ieeg_out_folder, output = "both", only_clean = TRUE)
+# 
+# ieeg_in_folder_rds <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_RDS_122,123,124"; dir.exists(ieeg_in_folder_rds)
+# ieeg_out_folder_csv <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/Clean_Sessions_ieeg/output_file_csv_122,123,124"; dir.exists(ieeg_out_folder_csv)
+# batch_rds_to_csv(ieeg_in_folder_rds, ieeg_out_folder_csv)
 ##################################################################################################################
-
-
-
-
+# Norway
+# nor_in_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/STAD1_behavior_Norway_botrec"; dir.exists(nor_in_folder)
+# nor_out_folder <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/STAD1_behavior_Norway_RDScsv/output_file_RDS"; dir.exists(nor_out_folder)
+# batch_rds_export(nor_in_folder, nor_out_folder, output = "both", only_clean = TRUE)
+# 
+# nor_in_folder_rds <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/STAD1_behavior_Norway_RDScsv/output_file_RDS"; dir.exists(nor_in_folder_rds)
+# nor_out_folder_csv <- "C:/Users/claud/Desktop/Desktop/aaa new Desktop/STAD/Sessions_SSM_Clean/STAD1_behavior_Norway_RDScsv/output_file_csv"; dir.exists(nor_out_folder_csv)
+# batch_rds_to_csv(nor_in_folder_rds, nor_out_folder_csv)
+##################################################################################################################
 
 
 
