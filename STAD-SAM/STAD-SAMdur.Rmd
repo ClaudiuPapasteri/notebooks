@@ -1,0 +1,189 @@
+---
+title: "<br> STAD SAM" 
+subtitle: "duration"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+# Load packages
+# if(!require("librarian")) install.packages("librarian", dependencies = TRUE)
+# librarian::shelf(
+#   update_all = FALSE,
+#   quiet = TRUE,
+#   # package list
+#   papaja,
+#   here, fs,
+#   conflicted,
+#   rio,
+#   tidyverse, 
+#   psych,          
+#   rstatix, ggstatsplot,
+#   ggplot2, ggpubr, scales,
+#   report
+#   # , ...
+# )
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report",
+  "lubridate",
+  "matrixStats"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+<!-- Report -->
+
+# Read data
+
+```{r}
+last_xlsx_file <-
+  dir(here::here(), pattern = "DATE SAM.*xlsx", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+df_dur <- readxl::read_xlsx(path = last_xlsx_file, 
+  sheet = "durataINREGISTRARI sam2022", skip = 0, 
+  col_types = c(rep("text", 3), rep("date", 35)))  # stupid format: data formate hh:mm AM
+
+df_dur <- 
+  df_dur %>% 
+  select(1:3, contains("povestirii"))
+
+df_dur_ms <- 
+  df_dur %>% 
+  mutate(Conditia = toupper(Conditia)) %>% 
+  mutate(
+    Conditia =
+      case_when(
+        str_detect(Conditia, "VR MIROS") ~ "VR MIROS",
+        .default = Conditia
+      )
+  ) %>%                                             # excel encoding: H=M, M=S
+  mutate(across(4:12, ~format(as.POSIXct(.x), format = "%H:%M"))) %>%   # extract only M and S
+  mutate(across(4:12, ~period_to_seconds(ms(.x)))) %>%               # convert to S
+  # mutate(across(4:12, ~seconds))
+  # transform to seconds
+  drop_na(Conditia) %>% 
+  mutate(med_dur = rowMedians(as.matrix(.[, 4:12]), na.rm = TRUE),
+         mean_dur = rowMeans(.[, 4:12], na.rm = TRUE))
+
+```
+
+
+
+# Analyses 
+
+```{r, fig.height=8, fig.width=9}
+df_dur_ms %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = med_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_dur_ms %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = mean_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
