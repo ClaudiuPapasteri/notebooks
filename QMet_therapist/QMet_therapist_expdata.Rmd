@@ -1,0 +1,1577 @@
+---
+title: "<br> QMet therapists study" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+if (!require("tidyverse")) install.packages("tidyverse", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "psych",          
+  "ggstatsplot",
+  "ggplot2", "scales",
+  "report",
+  "gtsummary",
+  "XML",
+  "qmethod"
+  # , ...
+)
+pacman::p_load(char = packages, update = FALSE)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+conflicted::conflict_prefer("recode", winner = "dplyr")
+conflicted::conflict_prefer("fill", winner = "tidyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+## Quick ggbetweenstats function
+
+```{r}
+# For publication
+library(ggprism)
+savefolder <- r'(E:\PROJECTS\QMet therapist study\zzz graphs)'
+
+my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = FALSE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "np",
+        bf.message = FALSE, 
+        p.adjust.method = "none",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "np",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+<!-- Report -->
+
+# Read survey structure
+
+```{r}
+# LimeSurvey export survey as .txt (.xml is good too, but easier to work with .txt)
+survey_df <- readr::read_delim("limesurvey_survey_192485.txt", delim = '\t')
+survey_df <- 
+  survey_df %>%
+  select_if(~ !all(is.na(.)))
+
+survey_codetext <-
+  survey_df %>%
+  select(name, text) %>%
+  slice(
+    seq(
+      from = min(which(str_detect(name, "nt Informat"))),
+      to = nrow(.)
+  )) %>%
+  mutate(row_no = row_number()) %>%
+  relocate(row_no)
+```
+
+
+```{r, eval=FALSE}
+DT::datatable(                # give error on Notbook render
+  survey_codetext[3:nrow(survey_codetext),],
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  # class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 30,
+    scrollX = "100px",
+    # scrollY = "400px"
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+
+
+# Item coding based on survey structure
+
+```{r}
+item_codetext <-
+  survey_codetext %>%
+  slice(
+    seq(
+      from = which(str_detect(name, "Demografice")) + 1,
+      to = nrow(.)
+  )) %>%
+  mutate(
+    clean_text = str_remove_all(text, "<.*?>"),                           # remove HTML tags
+    is_question = str_detect(name, "^G0.*"),                               # tag questions
+    is_subquestion = str_detect(name, "^SQ.*"),                            # tag subquestions
+    is_answer = str_detect(name, "^AO.*"),                                 # tag answer definitions
+    quest_no = cumsum(is_question),                                       # number all questions
+    question = if_else(is_question, name, NA_character_),                 # get question codes
+    subquestion = if_else(is_subquestion, name, NA_character_),           # get subquestion codes
+    question_text = if_else(is_question, clean_text, NA_character_),                 # get question texts
+    subquestion_text = if_else(is_subquestion, clean_text, NA_character_),           # get subquestion texts
+    answer = 
+      if_else(is_answer, 
+        paste0("\"", name, "\"", " = ", "\"", clean_text, "\""), 
+        NA_character_
+      )                                                                   # paste definition of each answer
+  ) %>%
+  fill(question, .direction = "down") %>%                   # fill with same question, it appies for subquestions and answers
+  filter(is_question | is_subquestion | is_answer)                        # drop sections and other useless info
+
+# Full info on items as list-columns dataframe
+item_info <-
+  item_codetext %>%
+  select(question, subquestion, question_text, subquestion_text, answer) %>%
+  pivot_longer(cols = -question, values_drop_na = TRUE) %>%
+  pivot_wider(names_from = name, values_from = value, values_fn = list)
+
+
+# Meant to be used as: 
+# def <- c("foo" = "bar", "zar" = "far")
+# dplyr::recode(as.character(col), !!!def)
+# e.g. item_def$answer[item_def$question == "G02Q03"]
+#      eval(parse(text = item_def$answer[item_def$question == "G02Q03"]))
+
+item_def <-
+  item_codetext %>%
+  filter(is_answer) %>%
+  select(question, answer) %>%
+  group_by(question) %>%
+  mutate(answer = paste0(answer, collapse = ", "),
+         answer = paste0("c(", answer, ")")) %>%
+  distinct()
+
+#e.g. on how to use item_def
+# test_df <- 
+#   df %>%
+#   mutate(
+#     across(
+#       .cols = starts_with("G02Q03"),
+#       .fns = ~recode(., !!!eval(parse(text = item_def$answer[item_def$question == "G02Q03"])))     
+#     )
+#   )  
+```
+
+```{r, eval=FALSE}
+DT::datatable(                # give error on Notbook render
+  item_def,
+  extensions = "Buttons",
+  fillContainer = TRUE,
+  rownames = FALSE,
+  selection = "multiple",
+  # style = "bootstrap", 
+  # class = "compact", #width = "1000px",
+  options = list(
+    #autowidth = TRUE,
+    deferRender = FALSE,
+    pageLength = 15,
+    scrollX = "100px",
+    # scrollY = "400px"
+    dom = "Bfrtip",
+    buttons = c("excel", "csv")
+  )
+)
+```
+
+# Read data & transform
+
+```{r}
+df <- readr::read_csv("survey_192485_R_data_file.csv")
+
+# test_df <- 
+#   map_dfc(
+#     item_def$question,
+#     \(x) {
+#       map(
+#         df %>%
+#           select(contains(x)),
+#         \(y) recode(y, !!!eval(parse(text = item_def$answer[str_detect(item_def$question, x)])))
+#       )
+#     }
+#   )
+
+# Need to find a way to iterate this with purrr
+df_recoded <-
+  df %>%
+  mutate(
+    across(
+      .cols = starts_with(item_def$question[1]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[1])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[2]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[2])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[3]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[3])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[4]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[4])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[5]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[5])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[6]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[6])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[7]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[7])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[8]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[8])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[9]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[9])])))
+    ),
+    across(
+      .cols = starts_with(item_def$question[10]),
+      .fns = ~recode(., !!!eval(parse(text = item_def$answer[str_detect(item_def$question, item_def$question[10])])))
+    )
+  )
+
+# To numeric and rescale questionnaire items 
+# for numeric extraction: str_extract(x, "[0-9]")   # "[0-9]+" for more digits, but Liker scales have only 1 digit
+# [8]  = G04Q10 = Reactiv [1, 7]
+# [9]  = G05Q11 = Empath [0, 4]
+# [10] = G06Q12 = Online_Terap [1, 5]
+#        G07Q13 = QSort (is already numeric, but needs to be on scale [-4, +4])
+
+df_recoded2 <-
+  df_recoded %>%
+  mutate(
+    across(
+      .cols = starts_with(c("G04Q10", "G05Q11", "G06Q12")),
+      .fns = ~as.numeric(str_extract(., "[0-9]"))     # get only digits and to numeric
+    ),
+    across(
+      .cols = starts_with("G07Q13"),
+      .fns = ~((.-5)*(-1))                           # to [-4, +4], where 1=+4, 9=-4
+    )
+  )
+# check - everything fine
+# df_recoded2 %>% select(starts_with("G04Q10")) %>% summary()
+# df_recoded2 %>% select(starts_with("G05Q11")) %>% summary()
+# df_recoded2 %>% select(starts_with("G06Q12")) %>% summary()
+# df_recoded2 %>% select(starts_with("G07Q13")) %>% summary()
+
+```
+
+## Scoring IRI
+
+```{r}
+## IRI
+# Scales with reversed c(3,4,7,12,13,14,15,18,19)         min = 0, max = 4
+# Empathic Concern   - IRI_EC c(1,5,7,12,16,23,26)
+# Perspective Taking - IRI_PT c(3,8,11,15,21,25,28)
+# Fantasy            - IRI_F  c(2,4,9,14,18,20,22)
+# Personal Distress  - IRI_PD c(6,10,13,17,19,24,27)
+idx_iri <- df_recoded2 %>% select(starts_with("G05Q11")) %>% colnames()
+idx_item_iri_rev <- c(3,4,7,12,13,14,15,18,19) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_ec <- c(1,5,7,12,16,23,26) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_pt <- c(3,8,11,15,21,25,28) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_f <- c(2,4,9,14,18,20,22) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+idx_item_iri_pd <- c(6,10,13,17,19,24,27) %>% sprintf('%0.3d', .) %>% paste0("G05Q11[SQ", . ,"]")
+
+df_recoded2$IRI_EC <- ScoreLikert(df_recoded2[idx_item_iri_ec], reversecols = intersect(idx_item_iri_rev, idx_item_iri_ec), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_PT <- ScoreLikert(df_recoded2[idx_item_iri_pt], reversecols = intersect(idx_item_iri_rev, idx_item_iri_pt), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_F  <- ScoreLikert(df_recoded2[idx_item_iri_f], reversecols = intersect(idx_item_iri_rev, idx_item_iri_f), napercent = .9, min = 0, max = 4)
+df_recoded2$IRI_PD <- ScoreLikert(df_recoded2[idx_item_iri_pd], reversecols = intersect(idx_item_iri_rev, idx_item_iri_pd), napercent = .9, min = 0, max = 4)
+
+```
+
+## Scoring UTAUT (Online Therapy)
+
+```{r}
+# UTAUT
+# Scales with reversed c(5,9,11,20,21)         min = 1, max = 5
+# Therapy Quality Expectation: 1,2,5R,6,9R,11R,15,17,21R; - UT_QE c(1,2,5,6,9,11,15,17,21)
+# Ease of use: 12,14,18,20R;                              - UT_EU c(12,14,18,20)
+# Pressure from others: 4,16;                             - UT_PO c(4,16)
+# Professional Support: 8,19;                             - UT_PS c(8,19) 
+# Convenience: 3,13;                                      - UT_C  c(3,13)
+# Behavior intention: 7,10                                - UT_BI c(7,10)
+idx_ut <- df_recoded2 %>% select(starts_with("G06Q12")) %>% colnames()
+idx_item_ut_rev <- c(5,9,11,20,21) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_qe <- c(1,2,5,6,9,11,15,17,21) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_eu <- c(12,14,18,20) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_po <- c(4,16) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_ps <- c(8,19) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_c <- c(3,13) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+idx_item_ut_bi <- c(7,10) %>% sprintf('%0.3d', .) %>% paste0("G06Q12[SQ", . ,"]")
+
+df_recoded2$UT_QE <- ScoreLikert(df_recoded2[idx_item_ut_qe], reversecols = intersect(idx_item_ut_rev, idx_item_ut_qe), napercent = .9, min = 1, max = 5)
+df_recoded2$UT_EU <- ScoreLikert(df_recoded2[idx_item_ut_eu], reversecols = intersect(idx_item_ut_rev, idx_item_ut_eu), napercent = .9, min = 1, max = 5)
+df_recoded2$UT_PO <- ScoreLikert(df_recoded2[idx_item_ut_po], napercent = .9)
+df_recoded2$UT_PS <- ScoreLikert(df_recoded2[idx_item_ut_ps], napercent = .9)
+df_recoded2$UT_C <- ScoreLikert(df_recoded2[idx_item_ut_c], napercent = .9)
+df_recoded2$UT_BI <- ScoreLikert(df_recoded2[idx_item_ut_bi], napercent = .9)
+
+df_recoded2$UT_Total <- rowSums(df_recoded2[, c("UT_QE", "UT_EU", "UT_PO", "UT_PS", "UT_C", "UT_BI")], na.rm = TRUE)
+```
+
+
+# Q Method
+
+```{r}
+# ----------------------------------------
+# Item texts
+item_qsort_text <- read_lines("JHP_operationalis_items.txt") %>% as.vector() 
+
+# Grid
+# 2 + 
+#   3 + 
+#     4 +           # 9 Important
+#       5 + 
+#         7 +
+#       5 +         # 17 Some what important / Neutral
+#     4 +
+#   3 +
+# 2                 # 9 Unimportant
+
+distro <- c(
+  rep(-4, 2), rep(-3, 3), rep(-2, 4), 
+  rep(-1, 5), rep(0, 7), rep(1, 5),
+  rep(2, 4), rep(3, 3), rep(4, 2)
+)
+
+# ----------------------------------------
+# Prepare data for QMethod
+# QMethod needs statements on rows and sorts on columns (t())
+idx_qsort <- df_recoded2 %>% select(starts_with("G07Q13")) %>% colnames()
+df_qsort_data <-
+  df_recoded2[, c("id", idx_qsort)] %>%
+  column_to_rownames(var = "id") %>%
+  t() %>% 
+  as.data.frame() 
+df_qsort_text <- paste(rownames(df_qsort_data), item_qsort_text) %>% data.frame(item_text = .)
+list_qsort <- list(df_qsort_data, df_qsort_text)
+
+# ----------------------------------------
+# Number of factors to extract
+screeplot(prcomp(df_qsort_data), main = "Screeplot of unrotated factors", type = "l")  # 3 factors?
+# psych::fa.parallel(df_recoded2[idx_qsort])
+# ----------------------------------------
+
+# Run the analysis using centroid factor extraction instead of PCA, and without rotation:
+results <- qmethod::qmethod(
+  df_qsort_data, nfactors = 3,
+  forced = FALSE, silent = TRUE,
+  distribution = distro
+)
+# qmethod:::summary.QmethodRes(results)
+# ----------------------------------------
+
+# Print results
+results$loa %>% knitr::kable(caption = "Q-sort factor loadings")
+results$flagged %>% knitr::kable(caption = "Flagged Q-sorts")  
+
+# I think flagged  is based on some cutoff on loadings
+# try_calc_flag <- !results$loa - apply(results$loa, 1, max) & abs(results$loa) >= .37
+# identical(try_calc_flag, results$flagged)
+# all.equal(try_calc_flag, results$flagged)   # close enough ... so it's max loading and some cutoff probably
+
+results$zsc %>% knitr::kable(caption = "Statement z-scores")
+results$zsc_n %>% knitr::kable(caption = "Statement factor scores")
+
+results$f_char$characteristics %>% knitr::kable(caption = "Factor characteristics")
+results$f_char$cor_zsc %>% knitr::kable(caption = "Correlation between factor z-scores")
+results$f_char$sd_dif %>% knitr::kable(caption = "Standard error of differences between factors")
+ 
+results$qdc %>% knitr::kable(caption = "Distinguishing and consensus statements")
+
+# ----------------------------------------
+# Plot
+qmethod:::plot.QmethodRes(
+  results,
+  xlab = "z-scores", ylab = "",                        
+  leg.pos = "topright", sort.items = FALSE
+) 
+# ----------------------------------------
+
+# Order the results by the scores of each factor:
+scores <- cbind(results$zsc_n, df_qsort_text)
+# for (i in 1:length(results$loa)) {                 # this old code from doi:10.32614/RJ-2014-032 gives warning and additional ordering for 
+#   View(                                            # unexistant factor
+#     scores[base::order(scores[i], decreasing = TRUE), ],
+#     title = paste0("Order for f", i)
+#   )
+# }
+
+order_f1 <- 
+  scores %>%
+  select(fsc_f1, item_text) %>%
+  arrange(desc(fsc_f1)) 
+order_f1 %>% knitr::kable(caption = "Order f1") 
+
+order_f2 <- 
+  scores %>%
+  select(fsc_f2, item_text) %>%
+  arrange(desc(fsc_f2)) 
+order_f2 %>% knitr::kable(caption = "Order f2") 
+
+order_f3 <- 
+  scores %>%
+  select(fsc_f3, item_text) %>%
+  arrange(desc(fsc_f3)) 
+order_f3 %>% knitr::kable(caption = "Order f3") 
+
+# ----------------------------------------
+
+# Merge flagged/membership back to data
+
+df_recoded2$QSort_mem <- factor(
+  (results$flagged %*% (1:ncol(results$flagged))), 
+  labels = c(NA_character_, colnames(results$flagged))
+)
+# cbind(as.data.frame(results$flagged), df_recoded2$QSort_mem) # test -- all fine
+
+```
+
+## New for write-up
+
+```{r}
+# for gt APA tables
+devtools::source_gist("https://gist.github.com/pdparker/1b61b6d36d09cb295bf286a931990159")
+
+results$loa %>%    # results$flagged
+  as.data.frame() %>% 
+  rownames_to_column(var = "id") %>%
+  mutate(id = as.numeric(id)) %>% 
+  left_join(df_recoded2, by = "id") %>% 
+  select(id, G02Q03, G03Q10, G03Q05, f1, f2, f3) %>% 
+  mutate(f1 = round(f1, 3),
+         f2 = round(f2, 3),
+         f3 = round(f3, 3)) %>% 
+  gt::gt() %>% 
+  tab_caption("Q-sort factor loadings") %>% 
+  apa_style()
+```
+
+```{r}
+results$f_char$characteristics %>%    # criteria to decide on the number of factors in Watts & Stenner (2012, pp.105-110)
+  as.data.frame() %>% 
+  rownames_to_column(var = "id") %>%
+  gt::gt() %>% 
+  tab_caption("Factor characteristics") %>% 
+  fmt_number(columns = everything(), decimals = 3) %>%   
+  apa_style()
+```
+
+```{r}
+# qdc2[which(abs(qdc1[[n]]) <= sedth.05), n] <- ""
+# qdc2[which(abs(qdc1[[n]]) > sedth.05), n] <- "*"
+# qdc2[which(abs(qdc1[[n]]) > sedth.01), n] <- "**"
+# qdc2[which(abs(qdc1[[n]]) > sedth.001), n] <- "***"
+# qdc2[which(abs(qdc1[[n]]) > sedth.000001), n] <- "6*"
+
+results$qdc %>%                # use https://journal.r-project.org/archive/2014-2/zabala.pdf
+  as.data.frame() %>% 
+  rownames_to_column(var = "id") %>%
+  mutate(                      # strange "6*" notation is for < .000001
+    sig_f1_f2 = if_else(sig_f1_f2 == "6*", "****", sig_f1_f2),
+    sig_f1_f3 = if_else(sig_f1_f3 == "6*", "****", sig_f1_f3),
+    sig_f2_f3 = if_else(sig_f2_f3 == "6*", "****", sig_f2_f3) 
+  ) %>% 
+  mutate(f1_f2 = paste(round(f1_f2, 3), sig_f1_f2, sep = " ")) %>% 
+  mutate(f1_f3 = paste(round(f1_f3, 3), sig_f1_f3, sep = " ")) %>% 
+  mutate(f2_f3 = paste(round(f2_f3, 3), sig_f2_f3, sep = " ")) %>% 
+  select(-sig_f1_f2, -sig_f1_f3, -sig_f2_f3) %>% 
+  gt::gt() %>% 
+  tab_caption("Distinguishing and consensus statements") %>% 
+  # fmt_number(columns = everything(), decimals = 3) %>%   
+  apa_style()
+```
+
+
+
+
+```{r}
+df_recoded222 <- 
+  df_recoded2 %>% 
+  mutate(QSort_mem = as.factor(na_if(as.character(QSort_mem), "NA"))) %>% 
+  mutate(
+    xp = case_when(
+      str_detect(G03Q10, "mai pu") ~ 1L,
+      str_detect(G03Q10, "1-2 ani") ~ 2L,
+      str_detect(G03Q10, "2-3 ani") ~ 3L,
+      str_detect(G03Q10, "3-5 ani") ~ 4L,
+      str_detect(G03Q10, "5-10 ani") ~ 5L,
+      str_detect(G03Q10, "peste 10 ani") ~ 6L,
+      .default = NA_integer_
+      ),
+    Experience = case_when(
+      str_detect(G03Q10, "mai pu") ~ "< 1",
+      str_detect(G03Q10, "1-2 ani") ~ "1-2",
+      str_detect(G03Q10, "2-3 ani") ~ "2-3",
+      str_detect(G03Q10, "3-5 ani") ~ "3-5",
+      str_detect(G03Q10, "5-10 ani") ~ "5-10",
+      str_detect(G03Q10, "peste 10 ani") ~ "> 10",
+      .default = NA_character_
+      ),
+    Experience = factor(Experience, 
+                        levels = c("< 1", "1-2", "2-3", "3-5", "5-10", "> 10"))
+  ) %>% 
+  mutate( 
+    G03Q05 = case_when(
+      str_detect(G03Q05, "Integrativa") ~ "IE",
+      str_detect(G03Q05, "Cognitiva / comportamentala") ~ "CBT",
+      str_detect(G03Q05, "Umanist experien") ~ "HE",
+      str_detect(G03Q05, "Psihodinamica") ~ "PD",
+      .default = NA_character_
+      ),
+  ) %>% 
+  mutate(
+      Gender = G02Q03,
+      School = G03Q05,
+      n_course = G03Q06,
+      xp_cat = G03Q10,
+      tech = G03Q08) %>% 
+  mutate(
+    Gender = case_when(
+      Gender == "Feminin" ~ "Female",
+      Gender == "Masculin" ~ "Male",
+      .default = NA_character_
+    )
+  ) %>% 
+  mutate(
+    Membership = case_when(
+      QSort_mem == "flag_f1" ~ "F1",
+      QSort_mem == "flag_f2" ~ "F2",
+      QSort_mem == "flag_f3" ~ "F3",
+      .default = NA_character_
+    )
+  ) %>% 
+  select(Gender, School, n_course, tech, xp_cat, QSort_mem, Membership, xp, Experience, starts_with("IRI"), starts_with("UT"))
+
+
+
+df_recoded2_nona <- 
+  df_recoded2 %>% 
+  mutate(QSort_mem = as.factor(na_if(as.character(QSort_mem), "NA"))) %>% 
+  drop_na(QSort_mem) %>%
+  mutate(
+    xp = case_when(
+      str_detect(G03Q10, "mai pu") ~ 1L,
+      str_detect(G03Q10, "1-2 ani") ~ 2L,
+      str_detect(G03Q10, "2-3 ani") ~ 3L,
+      str_detect(G03Q10, "3-5 ani") ~ 4L,
+      str_detect(G03Q10, "5-10 ani") ~ 5L,
+      str_detect(G03Q10, "peste 10 ani") ~ 6L,
+      .default = NA_integer_
+      ),
+    Experience = case_when(
+      str_detect(G03Q10, "mai pu") ~ "< 1",
+      str_detect(G03Q10, "1-2 ani") ~ "1-2",
+      str_detect(G03Q10, "2-3 ani") ~ "2-3",
+      str_detect(G03Q10, "3-5 ani") ~ "3-5",
+      str_detect(G03Q10, "5-10 ani") ~ "5-10",
+      str_detect(G03Q10, "peste 10 ani") ~ "> 10",
+      .default = NA_character_
+      ),
+    Experience = factor(Experience, 
+                        levels = c("< 1", "1-2", "2-3", "3-5", "5-10", "> 10"))
+  ) %>% 
+  mutate( 
+    G03Q05 = case_when(
+      str_detect(G03Q05, "Integrativa") ~ "IE",
+      str_detect(G03Q05, "Cognitiva / comportamentala") ~ "CBT",
+      str_detect(G03Q05, "Umanist experien") ~ "HE",
+      str_detect(G03Q05, "Psihodinamica") ~ "PD",
+      .default = NA_character_
+      ),
+  ) %>% 
+  mutate(
+      Gender = G02Q03,
+      School = G03Q05,
+      n_course = G03Q06,
+      xp_cat = G03Q10,
+      tech = G03Q08) %>% 
+  mutate(
+    Gender = case_when(
+      Gender == "Feminin" ~ "Female",
+      Gender == "Masculin" ~ "Male",
+      .default = NA_character_
+    )
+  ) %>% 
+  mutate(
+    Membership = case_when(
+      QSort_mem == "flag_f1" ~ "F1",
+      QSort_mem == "flag_f2" ~ "F2",
+      QSort_mem == "flag_f3" ~ "F3",
+      .default = NA_character_
+    )
+  ) %>% 
+  select(Gender, School, n_course, tech, xp_cat, QSort_mem, Membership, xp, Experience, starts_with("IRI"), starts_with("UT"))
+
+
+# ggplot(df_recoded2_nona, aes(x = xp, y = UT_Total)) +
+#   geom_smooth(method = "lm") +
+#   geom_point(aes(color = school))
+ggscatterstats(df_recoded2_nona, 
+              x = xp, 
+              y = UT_Total, 
+              # label.var = school
+              point.args = list(aes(color = School), size = 3.5),
+              smooth.line.args = list(linewidth = 1, color = "black", method = "lm", formula = y ~ x),
+              xsidehistogram.args = list(fill = "grey", color = "black", na.rm = TRUE),
+              ysidehistogram.args = list(fill = "grey", color = "black", na.rm = TRUE)
+)
+
+ggscatterstats(df_recoded2_nona, 
+              x = xp, 
+              y = UT_Total, 
+              # label.var = school
+              point.args = list(aes(color = Membership), size = 3.5),
+              smooth.line.args = list(linewidth = 1, color = "black", method = "lm", formula = y ~ x),
+              xsidehistogram.args = list(fill = "grey", color = "black", na.rm = TRUE),
+              ysidehistogram.args = list(fill = "grey", color = "black", na.rm = TRUE)
+)
+
+
+
+ggpiestats(  
+  data = df_recoded2_nona, 
+  x = QSort_mem,
+  y = Gender,
+  type = "np"
+)
+
+ggpiestats(  
+  data = df_recoded2_nona, 
+  x = QSort_mem,
+  y = tech,
+  type = "np"
+)
+
+pie_gender_xp_51 <- 
+  ggpiestats(  
+      data = df_recoded2_nona, 
+      x = Experience,
+      y = Gender,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Blues"  
+  ) + scale_fill_grey(start = 0.2, end = 1)
+# fast_tiffsave(pie_gender_xp_51, path = savefolder, width = 8, height = 7)
+
+pie_gender_xp_62 <- 
+  ggpiestats(  
+      data = df_recoded222, 
+      x = Experience,
+      y = Gender,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Blues"  
+  ) + scale_fill_grey(start = 0.2, end = 1)
+# fast_tiffsave(pie_gender_xp_62, path = savefolder, width = 8, height = 7)
+
+
+pie_gender_mem <- 
+  ggpiestats(  
+      data = df_recoded2_nona, 
+      x = Membership,
+      y = Gender,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Dark2"   
+  ) + scale_fill_grey(start = 0.2, end = 0.8)
+# fast_tiffsave(pie_gender_mem, path = savefolder, width = 8, height = 7)
+
+pie_mem_gender <- 
+  ggpiestats(  
+      data = df_recoded2_nona, 
+      x = Gender,
+      y = Membership,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Dark2"   
+  ) + scale_fill_grey(start = 0.2, end = 0.8)
+# fast_tiffsave(pie_mem_gender, path = savefolder, width = 8, height = 7)
+
+pie_xp_mem <- 
+  ggpiestats(  
+      data = df_recoded222, 
+      x = Experience,
+      y = Membership,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Blues"  
+  ) + scale_fill_grey(start = 0.2, end = 1)
+# fast_tiffsave(pie_xp_mem, path = savefolder, width = 8, height = 7)
+
+ggpiestats(  
+  data = df_recoded2_nona, 
+  x = QSort_mem,
+  y = Experience,
+  type = "np"
+)
+
+
+ggpiestats(  
+  data = df_recoded2_nona, 
+  x = Membership,
+  y = School,
+  type = "np"
+)
+
+pie_mem_school <- 
+  ggpiestats(  
+      data = df_recoded2_nona, 
+      x = Membership,
+      y = School,
+      type = "np",
+      results.subtitle = FALSE,
+      package = "RColorBrewer",
+      palette = "Dark2"  
+  ) + scale_fill_grey(start = 0.2, end = 0.8)
+# fast_tiffsave(pie_mem_school, path = savefolder, width = 8, height = 7) 
+```
+
+## based on membership
+
+```{r}
+###
+# IRI
+# ggbetweenstats(
+#   data = df_recoded2_nona,
+#   x = QSort_mem,
+#   y = IRI_EC,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+mem_iri_ec <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = IRI_EC,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Empathic Concern",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(0, 28)
+  )
+mem_iri_ec
+# fast_tiffsave(mem_iri_ec, path = savefolder) 
+
+
+# ggbetweenstats(
+#   data = df_recoded2_nona,
+#   x = QSort_mem,
+#   y = IRI_PT,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+mem_iri_pt <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = IRI_PT,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Perspective Taking",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(0, 28)
+  )
+mem_iri_pt
+# fast_tiffsave(mem_iri_pt, path = savefolder)
+
+# ggbetweenstats(
+#   data = df_recoded2_nona,
+#   x = QSort_mem,
+#   y = IRI_F,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+mem_iri_f <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = IRI_F,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Fantasy",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(0, 28)
+  )
+mem_iri_f
+# fast_tiffsave(mem_iri_f, path = savefolder)
+
+
+# ggbetweenstats(
+#   data = df_recoded2_nona,
+#   x = QSort_mem,
+#   y = IRI_PD,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+mem_iri_pd <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = IRI_PD,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Personal Distress",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(0, 28)
+  )
+mem_iri_pd
+# fast_tiffsave(mem_iri_pd, path = savefolder)
+
+
+
+###
+# UT
+# ggbetweenstats(   # MARGINAL
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_QE,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+mem_ut_qe <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = UT_QE,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Therapy Quality Expectation",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+mem_ut_qe
+# fast_tiffsave(mem_ut_qe, path = savefolder)
+
+
+
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_EU,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+# 
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_PO,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+# 
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_PS,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+# ggbetweenstats(   # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_C,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"              
+# )
+
+mem_ut_c <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = UT_C,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "UT_C",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+mem_ut_c
+# fast_tiffsave(mem_ut_c, path = savefolder)
+
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_BI,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+# ggbetweenstats(   # MARGINAL -- SIG. if no adjustment
+#   data = df_recoded2_nona, 
+#   x = QSort_mem,
+#   y = UT_Total,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"
+# )  # %>%   extract_stats()
+
+mem_ut_total <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = Membership,
+    y = UT_C,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "Membership",
+    ylab = "Acceptance and Use of Technology (Total)",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+mem_ut_total
+# fast_tiffsave(mem_ut_total, path = savefolder)
+```
+
+## based on school
+
+```{r}
+###
+# IRI
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = IRI_EC,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+# 
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = IRI_PT,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"              
+# )
+# 
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = IRI_F,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"              
+# )
+# 
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = IRI_PD,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"              
+# )
+
+
+###
+# UT
+# ggbetweenstats(          # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = UT_QE,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"
+# )
+
+school_ut_qe <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = School,
+    y = UT_QE,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "School",
+    ylab = "Therapy Quality Expectation",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+school_ut_qe
+# fast_tiffsave(school_ut_qe, path = savefolder)
+
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = G03Q05,
+#   y = UT_EU,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+# ggbetweenstats(            # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = G03Q05,
+#   y = UT_PO,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+school_ut_po <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = School,
+    y = UT_PO,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "School",
+    ylab = "UT_PO",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+school_ut_po
+# fast_tiffsave(school_ut_po, path = savefolder)
+
+
+# ggbetweenstats(
+#   data = df_recoded2_nona, 
+#   x = G03Q05,
+#   y = UT_PS,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+# ggbetweenstats(             # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = G03Q05,
+#   y = UT_C,
+#   type = "np",
+#   p.adjust.method = "none"    # "fdr"              
+# )
+
+school_ut_c <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = School,
+    y = UT_C,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "School",
+    ylab = "UT_C",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+school_ut_c
+# fast_tiffsave(school_ut_c, path = savefolder)
+
+
+# ggbetweenstats(             # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = G03Q05,
+#   y = UT_BI,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"              
+# )
+
+school_ut_bi <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = School,
+    y = UT_BI,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "School",
+    ylab = "UT_BI",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+school_ut_bi
+# fast_tiffsave(school_ut_bi, path = savefolder)
+
+
+
+# ggbetweenstats(              # SIG. HERE
+#   data = df_recoded2_nona, 
+#   x = School,
+#   y = UT_Total,
+#   type = "np",
+#   p.adjust.method = "none"   # "fdr"
+# )  # %>%   extract_stats()
+
+school_ut_total <- 
+  my_ggbetweenstats(
+    data = df_recoded2_nona, 
+    x = School,
+    y = UT_Total,
+    # outlier.label = ID, 
+    title = "",
+    xlab = "School",
+    ylab = "Acceptance and Use of Technology (Total)",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(17, 51)
+  )
+school_ut_total
+# fast_tiffsave(school_ut_total, path = savefolder)
+```
+
+
+
+
+
+## Data mining
+
+```{r}
+# df_recoded2_nona %>% explore::explore()
+
+
+```
+
+
+
+# Analyses
+
+## Descriptives
+
+```{r}
+# "G02Q03" = gen
+# "G03Q05" = scoala formare
+# "G02Q06" = no cursuri formare
+# "G03Q08" = tehnici scoala
+# "G03Q10" = ani practica
+
+desc_table <- 
+  df_recoded2 %>%
+    select(G02Q03, G03Q05, G03Q06, G03Q08, G03Q10, QSort_mem) %>%
+    gtsummary::tbl_summary()
+gtsummary:::print.gtsummary(desc_table, print_engine = "kable")
+
+
+# df_recoded2_nona2 %>% 
+#   select(QSort_mem) %>%
+#   gtsummary::tbl_summary() %>%
+#   gtsummary:::print.gtsummary(print_engine = "kable")
+
+```
+
+# QSort mem by school
+
+```{r}
+ggpiestats(  
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = G03Q05,
+  type = "np"
+)
+```
+
+## IRI
+
+```{r}
+ggbetweenstats(
+  data = df_recoded2, 
+  x = G03Q05,
+  y = IRI_EC,
+  type = "np"
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = G03Q05,
+  y = IRI_PT,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = G03Q05,
+  y = IRI_F,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = G03Q05,
+  y = IRI_PD,
+  type = "np"              
+)
+```
+
+```{r}
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_EC,
+  type = "np"
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PT,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_F,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PD,
+  type = "np"              
+)
+```
+
+## UT 
+
+```{r}
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_QE,
+  type = "np"
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_EU,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_PO,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_PS,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_C,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_BI,
+  type = "np"              
+)
+
+ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = UT_Total,
+  type = "np"              
+)
+```
+
+
+
+```{r}
+grouped_ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_EC,
+  grouping.var = G03Q05,
+  type = "np"
+)
+
+grouped_ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PT,
+  grouping.var = G03Q05,
+  type = "np"              
+)
+
+grouped_ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_F,
+  grouping.var = G03Q05,
+  type = "np"              
+)
+
+grouped_ggbetweenstats(
+  data = df_recoded2, 
+  x = QSort_mem,
+  y = IRI_PD,
+  grouping.var = G03Q05,
+  type = "np"              
+)
+```
+
+
+
+```{r export}
+if(!dir.exists("Data export")) dir.create("Data export")
+rio::export(df_recoded2, here::here("Data export", "Full_data.xlsx"))
+rio::export(df_recoded222, here::here("Data export", "Analyses_data.xlsx"))
+rio::export(item_codetext, here::here("Data export", "item_codetext.xlsx"))
+rio::export(df_qsort_data, here::here("Data export", "Analyses_data_qsort.xlsx"))
+rio::export(df_qsort_text, here::here("Data export", "item_codetext_qsort.xlsx"))
+```
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
