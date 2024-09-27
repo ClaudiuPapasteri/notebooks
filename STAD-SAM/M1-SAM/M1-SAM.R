@@ -59,7 +59,7 @@ fast_ggsave <- function(plot, device = "png", path = NULL,
 ## Read files
 m1_file <- "Date Complete M1 v.13 siPPGGSRamilaza.sav"
 sam_file <- "df_memo_SAM.RDS"
-folder <- "E:/Github/R Notebooks/notebooks/STAD-SAM/M1-SAM"
+folder <- r'-(C:\Users\User\c\Github\R Notebooks\notebooks\STAD-SAM\M1-SAM)-' 
 
 m1_df <- rio::import(file.path(folder, m1_file))
 sam_df <- readRDS(file.path(folder, sam_file))

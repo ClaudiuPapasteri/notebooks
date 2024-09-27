@@ -1,0 +1,1413 @@
+---
+title: "<br> STAD SAM & M1" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+# Load packages
+# if(!require("librarian")) install.packages("librarian", dependencies = TRUE)
+# librarian::shelf(
+#   update_all = FALSE,
+#   quiet = TRUE,
+#   # package list
+#   papaja,
+#   here, fs,
+#   conflicted,
+#   rio,
+#   tidyverse, 
+#   psych,          
+#   rstatix, ggstatsplot,
+#   ggplot2, ggpubr, scales,
+#   report
+#   # , ...
+# )
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report",
+  "lubridate",
+  "matrixStats"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+
+```{r}
+# helper for mixed type to long format
+select_to_longer <- function(data, var_prefix = NULL) {
+  var_regex <- paste0("(", var_prefix, ")_(pre|post)")
+  
+  data %>%
+    dplyr::select(ID, Conditia, dplyr::matches(var_regex)) %>%
+    tidyr::pivot_longer(cols = dplyr::matches(var_regex), 
+                 names_to = c("Variable", "PrePost"), 
+                 names_pattern = "(.*)_(pre|post)",   
+                 values_to = var_prefix
+    ) %>% 
+    dplyr::mutate(
+      ID = as.factor(ID),
+      Cond = factor(Conditia, levels = c("VR", "VR miros", "VR social")),
+      PrePost = factor(PrePost, levels = c("pre", "post"))
+    ) %>%
+    dplyr::select(-c(Conditia, Variable))
+}  # select_to_longer(df, "varpref)
+```
+
+## Quick ggbetweenstats function
+
+```{r}
+# For publication
+library(ggprism)
+
+my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = FALSE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "np",
+        bf.message = FALSE, 
+        p.adjust.method = "holm",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "np",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                             test.args = list(exact = FALSE)),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+
+<!-- Report -->
+
+# Read data
+
+## Psych data
+
+```{r}
+# # -------------------------------------------------------------------------
+# # INTERACTIVE - Get the data from Google Drive ----------------------------
+# library(googledrive)
+# 
+# # Get the data from Google Drive
+# sheet_url <- "https://docs.google.com/spreadsheets/d/1ATSP4zEGt2mo25Kzu3lYlwu1LBA2WfwW/edit?usp=sharing&ouid=109354048369365876984&rtpof=true&sd=true"
+# file_name <- paste0("DATE SAM,2022_", Sys.Date(), ".xlsx")
+# 
+# ###############################
+# if(interactive()){
+#   want_dl <- readline("Want to re-download data? 1-YES 2-NO: ")
+#   if (want_dl == 1) {
+#     # Call Google Drive authentication forcing interactive login and save in cache 
+#     googledrive::drive_auth(use_oob = TRUE, cache = TRUE)      
+#     
+#     # Reuse token to Sheet authentification 
+#     # googlesheets4::gs4_auth(token = googledrive::drive_token())    # the file is .xlsx not google sheet
+#     
+#     # Download the .xlsx from google drive
+#     googledrive::drive_download(sheet_url, path = file.path(here::here(), file_name), overwrite = TRUE)
+#   }
+# }  
+# ##################################################################################################################
+# # INTERACTIVE - Read the latest .xlsx file for scalp ----------------------
+# 
+# # Read the latest .xlsx file for scalp SSM
+# last_xlsx_file <- 
+#   dir(here::here(), pattern = "DATE SAM.*xlsx", full.names = TRUE) %>% 
+#   file.info() %>%
+#   dplyr::arrange(dplyr::desc(ctime)) %>%
+#   dplyr::slice(1) %>%
+#   row.names()
+# 
+# # Check if it is the same that was downloaded this session
+# check_file <- identical(file_name, basename(last_xlsx_file))
+# check_file
+# 
+# # If it is read it, if not decide what to do
+# if(interactive() & check_file){
+#   df_arsq <- rio::import(file = last_xlsx_file, which = "ARSQ", skip = 1)
+#   df_memo <- rio::import(file = last_xlsx_file, which = "Scala Memorabilitate")
+#   df_pq <- rio::import(file = last_xlsx_file, which = "Chestionar prezenta")
+#   df_itq <- rio::import(file = last_xlsx_file, which = "ITQ")  
+# }
+# # -------------------------------------------------------------------------
+
+last_xlsx_file <-
+  dir(here::here(), pattern = "DATE SAM.*xlsx", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+df_arsq <- rio::import(file = last_xlsx_file, which = "ARSQ", skip = 1)
+df_memo <- rio::import(file = last_xlsx_file, which = "Scala Memorabilitate")
+df_pq <- rio::import(file = last_xlsx_file, which = "Chestionar prezenta")
+df_itq <- rio::import(file = last_xlsx_file, which = "ITQ")
+```
+
+
+## OXT data 
+
+```{r}
+df_sam_ox <- rio::import("rezultate_oxy+protT_sam_sem nov 2022.xlsx", which = "SAM")
+df_sam_ox <- df_sam_ox[, 2:5]
+df_sam_ox <- 
+  df_sam_ox %>% 
+  janitor::clean_names() %>% 
+  tidyr::separate_wider_delim(id_proba, delim = "/", names = c("id", "study", "prepost")) %>% 
+  mutate(id = as.numeric(id))
+
+# Wide data (to join to other dataframes)
+df_sam_ox_wide <- 
+  df_sam_ox %>% 
+  dplyr::select(-study) %>% 
+  pivot_wider(id_cols = id, names_from = prepost, values_from = starts_with("oxi")) %>% 
+  dplyr::mutate(oxitocina_pg_ml_DIF = oxitocina_pg_ml_POST - oxitocina_pg_ml_PRE,
+                oxitocina_normalizata_DIF = oxitocina_normalizata_POST - oxitocina_normalizata_PRE)
+
+# Join dataframes to add condition 
+df_sam_ox_long <- left_join(df_sam_ox, df_arsq[, 1:5], by = c("id" = "ID"))
+```
+
+
+# Clean data
+
+```{r}
+df_arsq <- 
+  df_arsq %>%
+  select_if(~ !all(is.na(.))) %>%                                           # drop columns with only NAs
+  mutate(across(where(is.character), ~ na_if(.x, "na"))) %>%                # mark NAs
+  mutate(across(i1:j55, ~ as.numeric(.x))) %>%                              # convert item cols to numeric
+  rename_with(~ paste0("ascq_pre_", 1:55), .cols = i1:i55) %>%              # rename item cols
+  rename_with(~ paste0("ascq_post_", 1:55), .cols = j1:j55) %>%
+  mutate(
+    ID = as.numeric(ID),
+    Conditia = as.factor(Conditia),
+    Gen = case_when(
+      Gen == 1 ~ "f",
+      Gen == 2 ~ "m",
+      TRUE ~ NA_character_
+    ),
+    Gen = as.factor(Gen)
+  )
+  
+
+df_pq <- 
+  df_pq %>%
+  select_if(~ !all(is.na(.))) %>%                                           # drop columns with only NAs
+  mutate(across(where(is.character), ~ na_if(.x, "na"))) %>%                # mark NAs
+  mutate(across(i1:i12, ~ as.numeric(.x))) %>%                              # convert item cols to numeric
+  rename_with(~ paste0("pq_", 1:12), .cols = i1:i12) %>%                  # rename item cols
+  mutate(
+    ID = as.numeric(ID),
+    Conditia = as.factor(Conditia),
+    Gen = case_when(
+      Gen == 1 ~ "f",
+      Gen == 2 ~ "m",
+      TRUE ~ NA_character_
+    ),
+    Gen = as.factor(Gen)
+  )
+  
+  
+df_itq <- 
+  df_itq %>%
+  select_if(~ !all(is.na(.))) %>%                                           # drop columns with only NAs
+  mutate(across(where(is.character), ~ na_if(.x, "na"))) %>%                # mark NAs
+  mutate(across(itq1:itq29, ~ as.numeric(.x))) %>%                          # convert item cols to numeric
+  mutate(
+    ID = as.numeric(ID),
+    Conditia = as.factor(Conditia),
+    Gen = case_when(
+      Gen == 1 ~ "f",
+      Gen == 2 ~ "m",
+      TRUE ~ NA_character_
+    ),
+    Gen = as.factor(Gen)
+  )
+  
+df_memo <-
+  df_memo %>%
+  select_if(~ !all(is.na(.))) %>%                                            # drop columns with only NAs
+  filter(!all(is.na(.))) %>%                                                 # drop rows with only NAs
+  mutate(across(starts_with("Varsta_amin_"), ~ as.numeric(.x))) %>%          # convert item cols to numeric
+  mutate(across(starts_with("Val_"), ~ as.numeric(.x))) %>%              
+  mutate(across(starts_with("Viv_"), ~ as.numeric(.x))) %>%
+  mutate(across(starts_with("Relv_"), ~ as.numeric(.x))) %>%
+  mutate(
+    ID = as.numeric(ID),
+    Conditia = as.factor(Conditia),
+    Gen = case_when(
+      Gen == 1 ~ "f",
+      Gen == 2 ~ "m",
+      TRUE ~ NA_character_
+    ),
+    Gen = as.factor(Gen)
+  )
+df_memo <- df_memo[1:80, ]   # only the first 80 rows have data
+```
+
+
+# Compute scores
+
+## Memo Scales
+
+```{r}
+df_memo <-
+  df_memo %>%
+  rowwise() %>%
+  mutate(
+    Valence =  mean(c_across(starts_with("Val_")), na.rm = TRUE),
+    Vividness = mean(c_across(starts_with("Viv_")), na.rm = TRUE),
+    Relevance = mean(c_across(starts_with("Relv_")), na.rm = TRUE)
+  ) 
+# identical(df_memo$Valence, rowMeans(df_memo[, paste0("Val_", 1:10)], na.rm = TRUE))
+# identical(df_memo$Vividness, rowMeans(df_memo[, paste0("Viv_", 1:10)], na.rm = TRUE))
+# identical(df_memo$Relevance, rowMeans(df_memo[, paste0("Relv_", 1:10)], na.rm = TRUE))
+```
+
+## ASCQ
+
+```{r}
+# full scoring in EEG_O.4_resting_state_behavioral
+## ARSQ (Likert 1-5) -- no reverse scoring, in total 30 items to score + 25 additional single items
+# discont: 1, 2, 3
+# tom: 4, 5, 6
+# self: 7, 8, 9
+# planning: 10, 11, 12
+# sleep: 13, 14, 15
+# comfort: 16, 17, 18
+# somatic: 19, 20, 21
+# health: 22, 23, 24
+# visual: 25, 26, 27
+# verbal: 28, 29, 30
+# + 25 individual items
+
+df_arsq$discont_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(1, 2, 3))], napercent = 1, engine = "mean")
+df_arsq$tom_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(4, 5, 6))], napercent = 1, engine = "mean") 
+df_arsq$self_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(7, 8, 9))], napercent = 1, engine = "mean")
+df_arsq$planning_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(10, 11, 12))], napercent = 1, engine = "mean")
+df_arsq$sleep_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(13, 14, 15))], napercent = 1, engine = "mean") 
+df_arsq$comfort_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(16, 17, 18))], napercent = 1, engine = "mean")
+df_arsq$somatic_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(19, 20, 21))], napercent = 1, engine = "mean")
+df_arsq$health_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(22, 23, 24))], napercent = 1, engine = "mean")
+df_arsq$visual_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(25, 26, 27))], napercent = 1, engine = "mean")
+df_arsq$verbal_pre <- ScoreLikert(df_arsq[, paste0("ascq_pre_", c(28, 29, 30))], napercent = 1, engine = "mean")
+
+df_arsq$discont_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(1, 2, 3))], napercent = 1, engine = "mean")
+df_arsq$tom_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(4, 5, 6))], napercent = 1, engine = "mean") 
+df_arsq$self_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(7, 8, 9))], napercent = 1, engine = "mean")
+df_arsq$planning_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(10, 11, 12))], napercent = 1, engine = "mean")
+df_arsq$sleep_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(13, 14, 15))], napercent = 1, engine = "mean") 
+df_arsq$comfort_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(16, 17, 18))], napercent = 1, engine = "mean")
+df_arsq$somatic_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(19, 20, 21))], napercent = 1, engine = "mean")
+df_arsq$health_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(22, 23, 24))], napercent = 1, engine = "mean")
+df_arsq$visual_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(25, 26, 27))], napercent = 1, engine = "mean")
+df_arsq$verbal_post <- ScoreLikert(df_arsq[, paste0("ascq_post_", c(28, 29, 30))], napercent = 1, engine = "mean")
+```
+
+## PQ
+
+```{r}
+# Only total
+
+df_pq$PQ <- ScoreLikert(df_pq[, paste0("pq_", 1:12)], napercent = 1, engine = "sum")
+```
+
+# Merge all with OXT data
+
+```{r}
+# Join dataframes to add condition 
+df_memo_ox <- left_join(df_memo, df_sam_ox_wide, by = join_by(ID == id))
+df_arsq_ox <- left_join(df_arsq, df_sam_ox_wide, by = join_by(ID == id))
+df_pq_ox <- left_join(df_pq, df_sam_ox_wide, by = join_by(ID == id))
+```
+
+
+# New data: duration
+
+## Read duration data
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+last_xlsx_file <-
+  dir(here::here(), pattern = "DATE SAM,2022.*(tineri).*.xlsx", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+df_dur <- readxl::read_xlsx(path = last_xlsx_file, 
+  sheet = "durataINREGISTRARI sam2022", skip = 0, 
+  col_types = c(rep("text", 3), rep("date", 35)))  # stupid format: data formate hh:mm AM
+
+df_dur <- 
+  df_dur %>% 
+  select(1:3, contains("povestirii"))
+
+df_dur_ms <- 
+  df_dur %>% 
+  mutate(Conditia = toupper(Conditia)) %>% 
+  mutate(
+    Conditia =
+      case_when(
+        str_detect(Conditia, "VR MIROS") ~ "VR MIROS",
+        .default = Conditia
+      )
+  ) %>%                                             # excel encoding: H=M, M=S
+  mutate(across(4:12, ~format(as.POSIXct(.x), format = "%H:%M"))) %>%   # extract only M and S
+  mutate(across(4:12, ~period_to_seconds(ms(.x)))) %>%               # convert to S
+  mutate(across(4:12, ~na_if(.x, 0))) %>%                            # 0 to NA, otherwise median of 0 
+  # mutate(across(4:12, ~seconds))
+  # transform to seconds
+  drop_na(Conditia) %>% 
+  mutate(med_dur = rowMedians(as.matrix(.[, 4:12]), na.rm = TRUE),
+         mean_dur = rowMeans(.[, 4:12], na.rm = TRUE))
+
+```
+
+## Merge all with duration data
+
+```{r}
+df_dur_ms$ID <- as.numeric(df_dur_ms$ID)
+
+# Join dataframes to add condition 
+df_memo_ox <- left_join(df_memo_ox, df_dur_ms, by = join_by(ID == ID))
+df_arsq_ox <- left_join(df_arsq_ox, df_dur_ms, by = join_by(ID == ID))
+df_pq_ox <- left_join(df_pq_ox, df_dur_ms, by = join_by(ID == ID))
+```
+
+
+# M1 data: link back
+
+```{r}
+m1_file <- "Date Complete M1 v.13 siPPGGSRamilaza.sav"
+
+m1_df <- rio::import(here::here("M1-SAM", m1_file))
+
+m1_df <-
+  m1_df %>% 
+  dplyr::filter(P == 3) %>%
+  dplyr::select(
+    ID, Varsta, 
+    Valence = Media_s1, Vividness = Media_s2, Relevance = Media_s3, 
+    med_dur = Med_raspsec
+  ) %>%
+  haven::zap_formats() %>% 
+  haven::zap_label() %>% 
+  dplyr::mutate(Conditia = "M1")
+
+
+# m1_df <-
+#   m1_df %>%
+#   dplyr::filter(P == 3) %>%
+#   rowwise() %>%
+#   mutate(
+#     Valence =  mean(c_across(starts_with("s1.")), na.rm = TRUE),
+#     Vividness = mean(c_across(starts_with("s2.")), na.rm = TRUE),
+#     Relevance = mean(c_across(starts_with("s3.")), na.rm = TRUE)
+#   )
+# 
+# # check
+# all.equal(m1_df$Valence, m1_df$Media_s1); cbind(m1_df$Valence, m1_df$Media_s1) 
+# all.equal(m1_df$Vividness, m1_df$Media_s2); cbind(m1_df$Vividness, m1_df$Media_s2) 
+# all.equal(m1_df$Relevance, m1_df$Media_s3); cbind(m1_df$Relevance, m1_df$Media_s3)
+
+```
+
+
+## Merge all with M1
+
+```{r}
+df_memo_ox_m1 <- dplyr::bind_rows(df_memo_ox, m1_df) %>% 
+  mutate(Conditia = coalesce(Conditia, Conditia.x))
+```
+
+
+# Analyses 
+
+## Memo
+
+```{r, fig.height=6, fig.width=7}
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Valence,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Vividness,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Relevance,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+```{r, fig.height=6, fig.width=7}
+df_memo_ox_m1 %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Valence,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo_ox_m1 %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Vividness,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo_ox_m1 %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Relevance,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+## PQ
+
+```{r, fig.height=6, fig.width=7}
+df_pq %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = PQ,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+## OXT
+
+```{r, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
+df_sam_ox_long %>%
+  mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+  group_by(id, Conditia) %>% 
+  filter(n() > 1) %>%                      # exclude incomplete
+  ungroup() %>% 
+  ggstatsplot::grouped_ggwithinstats(
+    x = prepost,
+    y = oxitocina_normalizata,
+    grouping.var = Conditia, 
+    type = "p",
+    bf.message = FALSE,
+    annotation.args = list(title = "Pre & Post OX data", subtitle = "")
+  )
+
+df_sam_ox_long %>%
+  mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+  filter(oxitocina_normalizata < 3) %>%    # exclude outlier from "VR miros"
+  group_by(id, Conditia) %>% 
+  filter(n() > 1) %>%                      # exclude incomplete
+  ungroup() %>% 
+  ggstatsplot::grouped_ggwithinstats(
+    x = prepost,
+    y = oxitocina_normalizata,
+    grouping.var = Conditia,
+    type = "p",
+    bf.message = FALSE,
+    annotation.args = list(title = "Pre & Post OX data", subtitle = "Outlier excluded from VR miros")
+  )
+```
+
+### RM ANOVA
+
+```{r}
+df_sam_ox_long_anova <-
+  df_sam_ox_long %>%
+  mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+  filter(oxitocina_normalizata < 3)
+
+# ANOVA
+anova_test(
+  data = df_sam_ox_long_anova, wid = id,
+  dv = oxitocina_normalizata, 
+  within = prepost, between = Conditia
+)
+
+# comparisons for treatment variable
+df_sam_ox_long_anova %>%
+  group_by(prepost) %>% 
+  pairwise_t_test(
+    oxitocina_normalizata ~ Conditia, paired = FALSE, 
+    p.adjust.method = "holm"
+  )
+
+# comparisons for time variable
+df_sam_ox_long_anova %>%
+  group_by(id, Conditia) %>% 
+  filter(n() > 1) %>% 
+  ungroup() %>% 
+  group_by(Conditia) %>% 
+  pairwise_t_test(
+    oxitocina_normalizata ~ prepost, paired = TRUE, 
+    p.adjust.method = "holm"
+  )
+```
+
+## ARSQ 
+
+```{r}
+df_arsq_ox <- 
+  df_arsq_ox %>% 
+  dplyr::mutate(
+    tom_dif = tom_post - tom_pre,
+    self_dif = self_post - self_pre,
+    planning_dif = planning_post - planning_pre,
+    sleep_dif = sleep_post - sleep_pre,
+    comfort_dif = comfort_post - comfort_pre,
+    somatic_dif = somatic_post - somatic_pre,
+    health_dif = health_post - health_pre,
+    visual_dif = visual_post - visual_pre,
+    verbal_dif = verbal_post - verbal_pre,
+  ) %>% 
+  dplyr::rename(Conditia = Conditia.x)
+
+  
+for (col in grep("_dif", names(df_arsq_ox), value = TRUE)) { 
+  ggstatsplot::ggbetweenstats(
+    data = df_arsq_ox,
+    x = Conditia,
+    y = {{ col }},
+    grouping.var = Conditia,
+    type = "np",
+    bf.message = FALSE
+  ) %>% print()
+}
+```
+
+
+# Analyses duration
+
+```{r, fig.height=6, fig.width=7}
+df_dur_ms %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = med_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_dur_ms %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = mean_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+```{r, fig.height=6, fig.width=7}
+df_memo_ox_m1 %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = med_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+## Correlations - duration & memorability
+
+```{r, warning=FALSE}
+df_memo_ox %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    "Valence", "Vividness", "Relevance", "med_dur", "mean_dur" 
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+```
+
+
+## Correlations with OX difference
+
+```{r, warning=FALSE}
+same_cols <- intersect(names(df_memo_ox), names(df_pq_ox))
+
+dplyr::left_join(df_memo_ox, df_pq_ox, by = same_cols) %>% 
+  dplyr::rename(Conditia = Conditia.x) %>% 
+  dplyr::filter(Conditia == "VR") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    "Valence", "Vividness", "Relevance", "PQ", "med_dur", "mean_dur" 
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR")
+
+
+dplyr::left_join(df_memo_ox, df_pq_ox, by = same_cols) %>% 
+  dplyr::rename(Conditia = Conditia.x) %>%
+  dplyr::filter(Conditia == "VR miros") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    "Valence", "Vividness", "Relevance", "PQ", "med_dur", "mean_dur"  
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR miros")
+
+dplyr::left_join(df_memo_ox, df_pq_ox, by = same_cols) %>%
+  dplyr::rename(Conditia = Conditia.x) %>%
+  dplyr::filter(Conditia == "VR social") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    "Valence", "Vividness", "Relevance", "PQ", "med_dur", "mean_dur"  
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR social")
+```
+
+
+```{r, fig.width=11, fig.height=11, warning=FALSE}
+df_arsq_ox %>%
+  dplyr::filter(Conditia == "VR") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    contains("_dif") 
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR")
+
+df_arsq_ox %>%
+  dplyr::filter(Conditia == "VR miros") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    contains("_dif") 
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR miros")
+
+df_arsq_ox %>%
+  dplyr::filter(Conditia == "VR social") %>% 
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    contains("_dif") 
+  ) %>% 
+  PerformanceAnalytics::chart.Correlation()
+title("VR social")
+```
+
+
+# Publication graphs
+
+```{r, message=FALSE, warning=FALSE}
+# Data
+df_memo_ox_m1_plot <-
+  df_memo_ox_m1 %>%
+  mutate(
+    Condition = case_when(
+      Conditia == "M1" ~ "odor",
+      Conditia == "VR miros" ~ "VR odor",
+      .default = Conditia
+    ),
+    Condition = factor(Condition, levels = c("odor", "VR odor", "VR", "VR social")),
+  )
+
+df_pq_plot <- 
+  df_pq %>% 
+  mutate(
+    Condition = case_when(
+      Conditia == "VR miros" ~ "VR odor",
+      .default = Conditia
+    ),
+    Condition = factor(Condition, levels = c("VR odor", "VR", "VR social")),
+  )
+
+# Plots
+plot_val <- df_memo_ox_m1_plot %>%
+  my_ggbetweenstats(
+    x = Condition,
+    y = Valence,
+    outlier.label = ID,
+    title = "",
+    xlab = "",
+    ylab = "Valence",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(3, 8)
+  )
+plot_val
+# fast_tiffsave(plot_val, path = here::here("Results"), width = 6, height = 6.5) 
+
+plot_viv <- df_memo_ox_m1_plot %>%
+  my_ggbetweenstats(
+    x = Condition,
+    y = Vividness,
+    outlier.label = ID,
+    title = "",
+    xlab = "",
+    ylab = "Vividness",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(3, 8)
+  )
+plot_viv
+# fast_tiffsave(plot_viv, path = here::here("Results"), width = 6, height = 6.5)
+
+plot_relv <- df_memo_ox_m1_plot %>%
+  my_ggbetweenstats(
+    x = Condition,
+    y = Relevance,
+    outlier.label = ID,
+    title = "",
+    xlab = "",
+    ylab = "Relevance",
+    # breaks = seq(from = 20, to = 50, by = 5),
+    limits = c(3, 8)
+  )
+plot_relv
+# fast_tiffsave(plot_relv, path = here::here("Results"), width = 6, height = 6.5)
+
+# Duration
+plot_meddur <- df_memo_ox_m1_plot %>%
+  my_ggbetweenstats(
+    x = Condition,
+    y = med_dur,
+    outlier.label = ID,
+    title = "",
+    xlab = "",
+    ylab = "Median duration (s)"
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(3, 8)
+  )
+plot_meddur
+# fast_tiffsave(plot_meddur, path = here::here("Results"), width = 6, height = 6.5)
+
+# PQ 
+plot_pq <- df_pq_plot %>%
+  my_ggbetweenstats(
+    x = Condition,
+    y = PQ,
+    outlier.label = ID,
+    title = "",
+    xlab = "",
+    ylab = "Presence"
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(3, 8)
+  )
+plot_pq
+# fast_tiffsave(plot_pq, path = here::here("Results"), width = 6, height = 6.5)
+
+
+# Oxytocin (outliers excluded)
+plot_oxy <- 
+  df_sam_ox_long %>%
+    mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+    filter(oxitocina_normalizata < 3) %>%    # exclude outlier from "VR miros"
+     mutate(
+      Condition = case_when(
+        Conditia == "VR miros" ~ "VR odor",
+        .default = Conditia
+      ),
+      Condition = factor(Condition, levels = c("VR odor", "VR", "VR social")),
+    ) %>% 
+    group_by(id, Conditia) %>% 
+    filter(n() > 1) %>%                      # exclude incomplete
+    ungroup() %>% 
+    ggstatsplot::grouped_ggwithinstats(
+      x = prepost,
+      y = oxitocina_normalizata,
+      xlab = "",
+      ylab = "Salivary OXT (pg/mg total protein)", 
+      grouping.var = Condition,
+      annotation.args = list(title = "Pre & Post OX", subtitle = "Outliers excluded"),
+      pairwise.comparisons = TRUE,
+      pairwise.display = "significant",
+      results.subtitle = FALSE,
+      type = "np",
+      bf.message = FALSE, 
+      p.adjust.method = "none",
+      point.path = TRUE,
+      ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+      violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+      centrality.plotting = TRUE,
+      centrality.type = "np",
+      centrality.point.args = list(size = 5, color = "black"),
+      centrality.path.args = list(color = "black", size = 1, alpha = 1),
+      ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                           test.args = list(exact = FALSE)),
+      centrality.label.args = list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0), # very hacky way of not showing label
+      ggplot.component = list(
+        scale_y_continuous(limits = c(0.3, 2.1)), 
+        theme(
+          plot.title = element_text(hjust = 0, size = 16),
+          plot.subtitle = element_text(hjust = 0, size = 12), 
+          plot.caption = element_text(hjust = 0, size = 12), 
+          text = element_text(family = "Sans", size = 14)
+      )),
+      point.args = list(color = "gray20")
+    ) 
+# fast_tiffsave(plot_oxy, path = here::here("Results"), width = 8, height = 6.5)
+
+
+# Correlations
+df_memo_ox_m1_plot %>%
+  dplyr::select(
+    "oxitocina_pg_ml_DIF", "oxitocina_normalizata_DIF", 
+    "Valence", "Vividness", "Relevance", "med_dur", "mean_dur" 
+  ) %>% 
+  correlation::correlation(p_adjust = "none") 
+
+cat("### odor")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "odor") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", "med_dur", 
+  ) %>% 
+  correlation::correlation(p_adjust = "none")
+
+cat("### VR odor")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR odor") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", "med_dur", 
+  ) %>% 
+  correlation::correlation(p_adjust = "none")
+
+cat("### VR")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", "med_dur", 
+  ) %>% 
+  correlation::correlation(p_adjust = "none")
+
+cat("### VR social")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR social") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", "med_dur", 
+  ) %>% 
+  correlation::correlation(p_adjust = "none") 
+```
+
+```{r}
+my_ggbetweenstats_oxt <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = TRUE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.4, segment.linetype = 5, fill = "white")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "p",
+        bf.message = FALSE, 
+        p.adjust.method = "holm",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        centrality.plotting = TRUE,
+        centrality.type = "p",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                             test.args = list(exact = FALSE)),
+        centrality.label.args = centrality.label.args,
+        boxplot.args = list(width = 0),
+        violin.args = list(width = 0, linewidth = 0),
+        # violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+```
+
+```{r}
+#---------------------------------------------------------------------------
+# Dif OXT --------------------------
+df_ox_pre <- 
+  df_sam_ox_long %>%
+    mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+    filter(oxitocina_normalizata < 3) %>%    # exclude outlier from "VR miros"
+     mutate(
+      Condition = case_when(
+        Conditia == "VR miros" ~ "VR odor",
+        .default = Conditia
+      ),
+      Condition = factor(Condition, levels = c("VR odor", "VR", "VR social")),
+    ) %>% 
+    group_by(id, Conditia) %>% 
+    filter(n() > 1) %>%                      # exclude incomplete
+    ungroup()
+df_ox_pre_id <- df_ox_pre$id
+
+plot_oxt_pre1_np <- df_memo_ox_m1_plot %>% 
+  filter(Condition %in% c("VR odor", "VR"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "np"
+  )  
+# fast_tiffsave(plot_oxt_pre1_np, path = here::here("Results"), width = 8, height = 6.5)
+
+plot_oxt_pre2_np <- df_memo_ox_m1_plot %>%  
+  filter(Condition %in% c("VR odor", "VR social"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "np"
+  )  
+# fast_tiffsave(plot_oxt_pre2_np, path = here::here("Results"), width = 8, height = 6.5)
+
+plot_oxt_pre3_np <- df_memo_ox_m1_plot %>% 
+  filter(Condition %in% c("VR", "VR social"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "np"
+  )  
+# fast_tiffsave(plot_oxt_pre3_np, path = here::here("Results"), width = 8, height = 6.5)
+
+#
+plot_oxt_pre1_p <- df_memo_ox_m1_plot %>% 
+  filter(Condition %in% c("VR odor", "VR"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "p"
+  )  
+# fast_tiffsave(plot_oxt_pre1_p, path = here::here("Results"), width = 8, height = 6.5)
+
+plot_oxt_pre2_p <- df_memo_ox_m1_plot %>%  
+  filter(Condition %in% c("VR odor", "VR social"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "p"
+  )  
+# fast_tiffsave(plot_oxt_pre2_p, path = here::here("Results"), width = 8, height = 6.5)
+
+plot_oxt_pre3_p <- df_memo_ox_m1_plot %>% 
+  filter(Condition %in% c("VR", "VR social"),
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    type = "p"
+  )  
+# fast_tiffsave(plot_oxt_pre3_p, path = here::here("Results"), width = 8, height = 6.5)
+
+# --
+plot_oxt_pres <- df_memo_ox_m1_plot %>% 
+  filter(Condition != "odor",
+         ID %in% df_ox_pre_id) %>% 
+  ggbetweenstats(
+    x = Condition,
+    y = oxitocina_normalizata_PRE,
+    outlier.label = ID,
+    type = "np",
+    title = "",
+    xlab = "",
+    ylab = "OXT PRES"#,
+    # breaks = seq(from = 20, to = 50, by = 5),
+    # limits = c(3, 8)
+  )
+# fast_tiffsave(plot_oxt_pres, path = here::here("Results"), width = 10, height = 6.5)
+
+# ---
+# DIF
+# plot_oxt_dif <- df_memo_ox_m1_plot %>%
+#   filter(Condition != "odor", oxitocina_normalizata_DIF < 2) %>% 
+#   my_ggbetweenstats(
+#     x = Condition,
+#     y = oxitocina_normalizata_DIF,
+#     outlier.label = ID,
+#     title = "",
+#     xlab = "",
+#     ylab = "OXT DIF"#,
+#     # breaks = seq(from = 20, to = 50, by = 5),
+#     # limits = c(3, 8)
+#   )
+
+plot_oxt_dif <- 
+  df_memo_ox_m1_plot %>%
+    filter(Condition != "odor") %>% 
+    my_ggbetweenstats_oxt(
+      x = Condition,
+      y = oxitocina_normalizata_DIF,
+      outlier.label = ID,
+      title = "",
+      xlab = "",
+      ylab = "Salivary OXT (pg/mg total protein) \n Change Scores"
+    )
+# fast_tiffsave(plot_oxt_dif, path = here::here("Results"), width = 8, height = 6.5)
+
+```
+
+
+
+
+
+
+
+
+```{r}
+library(bootnet)
+library(qgraph)
+library(networktools)
+library(NetworkComparisonTest)
+library(kableExtra)
+# # Network color groups
+# mygroups <- list("B" = 1:4,
+#                  "C" = 5:7,
+#                  "D" = 8:13,
+#                  "E" = 14:20)
+# mycolors <- c("grey40", "grey60", "grey80", "grey100") # c("lightblue", "lightgreen", "lightpink", "yellow")        
+# mylegend <- "bla"
+# # Weight Mat
+# net_stud$graph %>% 
+#   kableExtra::kbl(caption = "Net Stud Weights", digits = 2) %>%
+#   kableExtra::kable_classic(full_width = F, html_font = "Times New Roman")
+# # Print
+# tiff(filename = "Student Network - 1grey600.tiff", width = 8, height = 8, units = "in", res = 600)
+# plot(net_stud, layout = "spring", border.color = "black", 
+#      groups = mygroups, color = mycolors, edge.color = "black",  
+#      legend = TRUE, legend.mode = "groups", 
+#      vsize = 7, node.width = .8, node.height = .8, legend.cex = .7,
+#      title = "Student Network")
+# dev.off()
+
+cat("### whole sample")
+df_memo_ox_m1_plot %>%
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", # "med_dur", 
+  ) %>% 
+  estimateNetwork(default = "cor",  # "EBICglasso"
+                  corMethod = "cor", 
+                  corArgs = list(method = "pearson", use = "pairwise.complete.obs")) %>% 
+  plot(layout = "groups", vsize = 6, border.color = "black")
+
+cat("### odor")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "odor") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", # "med_dur", 
+  ) %>% 
+  estimateNetwork(default = "cor",  # "EBICglasso"
+                  corMethod = "cor", 
+                  corArgs = list(method = "pearson", use = "pairwise.complete.obs")) %>% 
+  plot(layout = "groups", vsize = 6, border.color = "black")
+
+cat("### VR odor")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR odor") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", # "med_dur", 
+  ) %>% 
+  estimateNetwork(default = "cor",  # "EBICglasso"
+                  corMethod = "cor", 
+                  corArgs = list(method = "pearson", use = "pairwise.complete.obs")) %>% 
+  plot(layout = "groups", vsize = 6, border.color = "black")
+
+cat("### VR")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", # "med_dur", 
+  ) %>% 
+  estimateNetwork(default = "cor",  # "EBICglasso"
+                corMethod = "cor", 
+                corArgs = list(method = "pearson", use = "pairwise.complete.obs")) %>% 
+  plot(layout = "groups", vsize = 6, border.color = "black")
+
+cat("### VR social")
+df_memo_ox_m1_plot %>%
+  filter(Condition == "VR social") %>% 
+  dplyr::select(
+    "Valence", "Vividness", "Relevance", # "med_dur", 
+  ) %>% 
+  estimateNetwork(default = "cor",  # "EBICglasso"
+              corMethod = "cor", 
+              corArgs = list(method = "pearson", use = "pairwise.complete.obs")) %>% 
+  plot(layout = "groups", vsize = 6, border.color = "black") 
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;

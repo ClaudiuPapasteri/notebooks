@@ -1,0 +1,719 @@
+---
+title: "<br> STAD SAM elderly" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+# Load packages
+# if(!require("librarian")) install.packages("librarian", dependencies = TRUE)
+# librarian::shelf(
+#   update_all = FALSE,
+#   quiet = TRUE,
+#   # package list
+#   papaja,
+#   here, fs,
+#   conflicted,
+#   rio,
+#   tidyverse, 
+#   psych,          
+#   rstatix, ggstatsplot,
+#   ggplot2, ggpubr, scales,
+#   report
+#   # , ...
+# )
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio", 
+  "tidyverse", 
+  "psych",          
+  "rstatix", "ggstatsplot",
+  "ggplot2", "ggpubr", "scales",
+  "report"
+  # , ...
+)
+pacman::p_load(char = packages) # lapply(packages, require, character.only = TRUE) # 
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+
+```{r}
+# helper for mixed type to long format
+select_to_longer <- function(data, var_prefix = NULL) {
+  var_regex <- paste0("(", var_prefix, ")_(pre|post)")
+  
+  data %>%
+    dplyr::select(ID, Conditia, dplyr::matches(var_regex)) %>%
+    tidyr::pivot_longer(cols = dplyr::matches(var_regex), 
+                 names_to = c("Variable", "PrePost"), 
+                 names_pattern = "(.*)_(pre|post)",   
+                 values_to = var_prefix
+    ) %>% 
+    dplyr::mutate(
+      ID = as.factor(ID),
+      Conditia = factor(Conditia, levels = c("Miros", "VR Miros")),
+      PrePost = factor(PrePost, levels = c("pre", "post"))
+    ) %>%
+    dplyr::select(-Variable)
+}  # select_to_longer(df, "varpref)
+```
+
+
+
+<!-- Report -->
+
+# Read data
+
+## Psych data
+
+```{r}
+# # -------------------------------------------------------------------------
+# # INTERACTIVE - Get the data from Google Drive ----------------------------
+# library(googledrive)
+# 
+# # Get the data from Google Drive
+# sheet_url <- "https://docs.google.com/spreadsheets/d/1ATSP4zEGt2mo25Kzu3lYlwu1LBA2WfwW/edit?usp=sharing&ouid=109354048369365876984&rtpof=true&sd=true"
+# sheet_url <- "https://docs.google.com/spreadsheets/d/1tDmww6a2wV4YmeVt6GU20VfLSBJw8lGLGnglvvYKMMY/edit?gid=1334526859#gid=1334526859"
+# file_name <- paste0("DATE SAM,2022_", Sys.Date(), ".xlsx")
+# 
+# ###############################
+# if(interactive()){
+#   want_dl <- readline("Want to re-download data? 1-YES 2-NO: ")
+#   if (want_dl == 1) {
+#     # Call Google Drive authentication forcing interactive login and save in cache 
+#     googledrive::drive_auth(use_oob = TRUE, cache = TRUE)      
+#     
+#     # Reuse token to Sheet authentification 
+#     # googlesheets4::gs4_auth(token = googledrive::drive_token())    # the file is .xlsx not google sheet
+#     
+#     # Download the .xlsx from google drive
+#     googledrive::drive_download(sheet_url, path = file.path(here::here(), file_name), overwrite = TRUE)
+#   }
+# }  
+# ##################################################################################################################
+# # INTERACTIVE - Read the latest .xlsx file for scalp ----------------------
+# 
+# # Read the latest .xlsx file for scalp SSM
+# last_xlsx_file <- 
+#   dir(here::here(), pattern = "DATE SAM.*xlsx", full.names = TRUE) %>% 
+#   file.info() %>%
+#   dplyr::arrange(dplyr::desc(ctime)) %>%
+#   dplyr::slice(1) %>%
+#   row.names()
+# 
+# # Check if it is the same that was downloaded this session
+# check_file <- identical(file_name, basename(last_xlsx_file))
+# check_file
+# 
+# # If it is read it, if not decide what to do
+# if(interactive() & check_file){
+#   df_arsq <- rio::import(file = last_xlsx_file, which = "ARSQ", skip = 1)
+#   df_memo <- rio::import(file = last_xlsx_file, which = "Scala Memorabilitate")
+#   df_pq <- rio::import(file = last_xlsx_file, which = "Chestionar prezenta")
+#   df_itq <- rio::import(file = last_xlsx_file, which = "ITQ")  
+# }
+# # -------------------------------------------------------------------------
+
+last_xlsx_file <-
+  dir(here::here(), pattern = "SAM-varstnici.*xlsx", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+names_arsq_sheet <- c(
+  "ID", "Nume", "Gen", "Varsta", "Conditia",
+  paste0(c("stress", "wb"), "_", "pre"), 
+  paste0("arsq", "_", "pre", "_", 1:30), 
+  paste0("lot", "_", "pre", "_", 1:10),
+  paste0(c("stress", "wb"), "_", "post"),
+  paste0("arsq", "_", "post", "_", 1:30), 
+  paste0("lot", "_", "post", "_", 1:10)
+)
+
+df_arsq <- rio::import(file = last_xlsx_file, which = "ARSQ LOT VAS", skip = 1)
+if(length(names_arsq_sheet) == ncol(df_arsq)) {names(df_arsq) <- names_arsq_sheet} 
+df_memo <- rio::import(file = last_xlsx_file, which = "SCALA MEMORABILITATE")
+df_mmse <- rio::import(file = last_xlsx_file, which = "MMSE_2")
+```
+
+### Duration of narration data
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+df_dur <- readxl::read_xlsx(path = last_xlsx_file,  # different order or oders from other sample, but still the same
+  sheet = "INREGISTRARI", skip = 0, 
+  col_types = c(rep("text", 3), "date", "text", rep("date", 34)))  # stupid format: data formate hh:mm AM
+
+df_dur <- 
+  df_dur %>% 
+  select(2, 4, matches("povestirii|aprox"))    # drop Conditia and get it from merging because in this sheet it's a wrek
+
+df_dur <- df_dur[2:nrow(df_dur), ]
+names(df_dur)[1] <- "id"
+  
+df_dur_ms <- 
+  df_dur %>%                                              # excel encoding: H=M, M=S
+  mutate(
+    ID = id,
+    id = as.numeric(str_remove(trimws(id), "SAM"))
+  ) %>% 
+  mutate(across(3:12, ~format(as.POSIXct(.x), format = "%H:%M"))) %>%   # extract only M and S
+  mutate(across(3:12, ~period_to_seconds(ms(.x)))) %>%               # convert to S
+  mutate(across(3:12, ~na_if(.x, 0))) %>%                            # 0 to NA, otherwise median of 0 
+  # mutate(across(4:12, ~seconds))
+  # transform to seconds
+  mutate(med_dur = matrixStats::rowMedians(as.matrix(.[, 3:12]), na.rm = TRUE),
+         mean_dur = rowMeans(.[, 3:12], na.rm = TRUE))
+
+# many ids are duplicated but don't have data -> get only good data
+df_dur_ms <- df_dur_ms %>% 
+  filter(across(starts_with("Brazi"), function(x) !is.na(x))) %>% 
+  mutate(ID = as.numeric(id))
+```
+
+
+# Clean data
+
+```{r}
+names(df_mmse) <- paste0(names(df_mmse), df_mmse[1, ])
+names(df_mmse)[c(1:5, 14, 27, 30)] <- c( 
+  "ID", "Nume", "Gen", "Data", "Varsta",                                                   
+  "MMSE_BV", "MMSE_SV", "MMSE_EV")
+df_mmse <- df_mmse[2:190, ]
+
+# Keep only SAM ids (there are SSM and SEM ids)
+df_mmse <- 
+  df_mmse %>% 
+  filter(str_detect(ID, "SAM")) %>% 
+  filter(row_number() <= 70) %>% 
+  mutate(ID = as.numeric(str_remove(trimws(ID), "SAM")),
+         Varsta = as.numeric(Varsta)
+  ) %>% 
+  mutate(across(starts_with("MMSE_"), as.numeric)) %>% 
+  mutate(MMSE_EV_cat = if_else(MMSE_EV <= 50, TRUE, FALSE)) # sum(df_mmse$MMS_EV_cat, na.rm = TRUE) == 20  
+
+df_mmse_small <- df_mmse %>% 
+  select(ID, starts_with("MMSE_"))
+```
+
+
+```{r}
+df_arsq <- 
+  df_arsq %>%
+  select_if(~ !all(is.na(.))) %>%                                      # drop columns with only NAs
+  mutate(across(where(is.character), ~ na_if(.x, "na"))) %>%           # mark NAs
+  mutate(
+    across(                                                # ARSQ 7-point DP/D/DU/N/AU/A/AP
+      starts_with("arsq_"),
+      ~ case_when(
+        . == "DP" ~ 1,
+        . == "D" ~ 2,
+        . == "DU" ~ 3,
+        . == "N" ~ 4,
+        . == "AU" ~ 5,
+        . == "A" ~ 2,
+        . == "AP" ~ 2,
+        . == "na" ~ NA_integer_,
+        .default = NA_integer_
+      )
+  )) %>%                                                       
+  mutate(across(6:77, ~ as.numeric(.x))) %>%                       # convert item cols to numeric
+  mutate(
+    ID = as.numeric(str_remove(trimws(ID), "SAM")),
+    Conditia = if_else(grepl("VR", Conditia, ignore.case = TRUE), "VR Miros", Conditia),
+    Conditia = if_else(Conditia == "M", "Miros", Conditia),
+    Conditia = as.factor(Conditia),
+    Gen = as.factor(Gen)
+  )
+df_arsq <- df_arsq[1:70, ]  
+  
+df_memo <-
+  df_memo %>%
+  mutate(across(where(is.character), ~ na_if(.x, "na"))) %>%           # mark NAs
+  select_if(~ !all(is.na(.))) %>%                                            # drop columns with only NAs
+  filter(!all(is.na(.))) %>%                                                 # drop rows with only NAs
+  mutate(across(starts_with("Varsta_amin_"), ~ as.numeric(.x))) %>%   # convert item cols to numeric
+  mutate(across(starts_with("Val_"), ~ as.numeric(.x))) %>%              
+  mutate(across(starts_with("Viv_"), ~ as.numeric(.x))) %>%
+  mutate(across(starts_with("Relv_"), ~ as.numeric(.x))) %>%
+  mutate(
+    ID = as.numeric(str_remove(trimws(ID), "SAM")),
+    Conditia = if_else(grepl("VR", Conditia, ignore.case = TRUE), "VR Miros", Conditia),
+    Conditia = if_else(Conditia == "M", "Miros", Conditia),
+    # Conditia = as.factor(Conditia),
+    Gen = as.factor(Gen)
+  )
+df_memo <- df_memo[1:70, ]   
+```
+
+
+# Compute scores
+
+## Memo Scales
+
+```{r}
+df_memo <-
+  df_memo %>%
+  rowwise() %>%
+  mutate(
+    Valence =  mean(c_across(starts_with("Val_")), na.rm = TRUE),
+    Vividness = mean(c_across(starts_with("Viv_")), na.rm = TRUE),
+    Relevance = mean(c_across(starts_with("Relv_")), na.rm = TRUE)
+  ) %>% 
+  mutate_all(~ifelse(is.nan(.), NA, .))
+# identical(df_memo$Valence, rowMeans(df_memo[, paste0("Val_", 1:10)], na.rm = TRUE))
+# identical(df_memo$Vividness, rowMeans(df_memo[, paste0("Viv_", 1:10)], na.rm = TRUE))
+# identical(df_memo$Relevance, rowMeans(df_memo[, paste0("Relv_", 1:10)], na.rm = TRUE))
+```
+
+## arsq
+
+```{r}
+# full scoring in EEG_O.4_resting_state_behavioral
+## ARSQ (Likert 1-5) -- no reverse scoring, in total 30 items to score + 25 additional single items
+# discont: 1, 2, 3
+# tom: 4, 5, 6
+# self: 7, 8, 9
+# planning: 10, 11, 12
+# sleep: 13, 14, 15
+# comfort: 16, 17, 18
+# somatic: 19, 20, 21
+# health: 22, 23, 24
+# visual: 25, 26, 27
+# verbal: 28, 29, 30
+# + 25 individual items
+
+df_arsq$discont_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(1, 2, 3))], napercent = 1, engine = "mean")
+df_arsq$tom_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(4, 5, 6))], napercent = 1, engine = "mean") 
+df_arsq$self_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(7, 8, 9))], napercent = 1, engine = "mean")
+df_arsq$planning_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(10, 11, 12))], napercent = 1, engine = "mean")
+df_arsq$sleep_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(13, 14, 15))], napercent = 1, engine = "mean") 
+df_arsq$comfort_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(16, 17, 18))], napercent = 1, engine = "mean")
+df_arsq$somatic_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(19, 20, 21))], napercent = 1, engine = "mean")
+df_arsq$health_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(22, 23, 24))], napercent = 1, engine = "mean")
+df_arsq$visual_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(25, 26, 27))], napercent = 1, engine = "mean")
+df_arsq$verbal_pre <- ScoreLikert(df_arsq[, paste0("arsq_pre_", c(28, 29, 30))], napercent = 1, engine = "mean")
+
+df_arsq$discont_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(1, 2, 3))], napercent = 1, engine = "mean")
+df_arsq$tom_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(4, 5, 6))], napercent = 1, engine = "mean") 
+df_arsq$self_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(7, 8, 9))], napercent = 1, engine = "mean")
+df_arsq$planning_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(10, 11, 12))], napercent = 1, engine = "mean")
+df_arsq$sleep_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(13, 14, 15))], napercent = 1, engine = "mean") 
+df_arsq$comfort_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(16, 17, 18))], napercent = 1, engine = "mean")
+df_arsq$somatic_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(19, 20, 21))], napercent = 1, engine = "mean")
+df_arsq$health_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(22, 23, 24))], napercent = 1, engine = "mean")
+df_arsq$visual_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(25, 26, 27))], napercent = 1, engine = "mean")
+df_arsq$verbal_post <- ScoreLikert(df_arsq[, paste0("arsq_post_", c(28, 29, 30))], napercent = 1, engine = "mean")
+```
+
+## Merge MMSE with rest
+
+```{r}
+df_memo <- left_join(df_memo, df_mmse_small, by = "ID")
+df_arsq <- left_join(df_arsq, df_mmse_small, by = "ID")
+
+table(df_memo$Conditia, df_memo$MMSE_EV_cat)
+
+PerformanceAnalytics::chart.Correlation(df_memo[, c("Valence", "Vividness", "Relevance", "MMSE_EV")])
+PerformanceAnalytics::chart.Correlation(df_arsq[, c("wb_pre", "wb_post", "stress_pre", "stress_post", "MMSE_EV")])
+```
+
+## Merge duration data
+
+```{r}
+df_dur_ms <- left_join(df_dur_ms, df_memo, by = "ID")
+```
+
+# Analyses 
+
+## Duration
+
+```{r, fig.height=5, fig.width=5}
+df_dur_ms %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = med_dur,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+PerformanceAnalytics::chart.Correlation(df_dur_ms[, c("med_dur", "mean_dur", "MMSE_EV")])
+```
+
+
+## Memo
+
+```{r, fig.height=5, fig.width=5}
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Valence,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Vividness,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_memo %>%
+  ggstatsplot::ggbetweenstats(
+    x = Conditia,
+    y = Relevance,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+## Stress & Wb
+
+```{r, fig.height=5, fig.width=8}
+df_arsq %>%
+  select_to_longer("stress") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = stress,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("wb") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = wb,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+## ARSQ
+
+```{r, fig.height=5, fig.width=8}
+df_arsq %>%
+  select_to_longer("discont") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = discont,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("tom") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = tom,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("self") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = self,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("sleep") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = sleep,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("comfort") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = comfort,
+    outlier.label = ID,
+    xlab = "",
+    pairwise.comparisons = TRUE,
+    pairwise.display = "all"
+  )
+
+df_arsq %>%
+  select_to_longer("somatic") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = somatic,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("health") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = health,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("visual") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = visual,
+    outlier.label = ID,
+    xlab = ""
+  )
+
+df_arsq %>%
+  select_to_longer("verbal") %>%
+  ggstatsplot::grouped_ggbetweenstats(
+    grouping.var = Conditia,
+    x = PrePost,
+    y = verbal,
+    outlier.label = ID,
+    xlab = ""
+  )
+```
+
+
+
+<!--
+### RM ANOVA
+
+```{r}
+df_sam_ox_long_anova <-
+  df_sam_ox_long %>%
+  mutate(prepost = factor(prepost, levels = c("PRE", "POST"))) %>% 
+  filter(oxitocina_normalizata < 3)
+
+# ANOVA
+anova_test(
+  data = df_sam_ox_long_anova, wid = id,
+  dv = oxitocina_normalizata, 
+  within = prepost, between = Conditia
+)
+
+# comparisons for treatment variable
+df_sam_ox_long_anova %>%
+  group_by(prepost) %>% 
+  pairwise_t_test(
+    oxitocina_normalizata ~ Conditia, paired = FALSE, 
+    p.adjust.method = "holm"
+  )
+
+# comparisons for time variable
+df_sam_ox_long_anova %>%
+  group_by(id, Conditia) %>% 
+  filter(n() > 1) %>% 
+  ungroup() %>% 
+  group_by(Conditia) %>% 
+  pairwise_t_test(
+    oxitocina_normalizata ~ prepost, paired = TRUE, 
+    p.adjust.method = "holm"
+  )
+```
+
+
+## ARSQ 
+
+```{r}
+df_arsq_ox <- 
+  df_arsq_ox %>% 
+  dplyr::mutate(
+    tom_dif = tom_post - tom_pre,
+    self_dif = self_post - self_pre,
+    planning_dif = planning_post - planning_pre,
+    sleep_dif = sleep_post - sleep_pre,
+    comfort_dif = comfort_post - comfort_pre,
+    somatic_dif = somatic_post - somatic_pre,
+    health_dif = health_post - health_pre,
+    visual_dif = visual_post - visual_pre,
+    verbal_dif = verbal_post - verbal_pre,
+  )
+
+  
+for (col in grep("_dif", names(df_arsq_ox), value = TRUE)) { 
+  ggstatsplot::ggbetweenstats(
+    data = df_arsq_ox,
+    x = Conditia,
+    y = {{ col }},
+    grouping.var = Conditia,
+    type = "np",
+    bf.message = FALSE
+  ) %>% print()
+}
+```
+
+
+-->
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
