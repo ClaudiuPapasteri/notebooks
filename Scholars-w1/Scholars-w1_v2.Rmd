@@ -1,0 +1,896 @@
+---
+title: "<br> Scholars wave 1 - partial data" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+if (!require("tidyverse")) install.packages("tidyverse", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "psych",          
+  "ggstatsplot",
+  "ggplot2", "scales",
+  "report",
+  "gtsummary",
+  "limonaid", "sticky",
+  "likert"
+  # , ...
+)
+pacman::p_load(char = packages, update = FALSE)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+conflicted::conflict_prefer("recode", winner = "dplyr")
+conflicted::conflict_prefer("fill", winner = "tidyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+## Define function that recodes to numeric, but watches out to coercion to not introduce NAs
+colstonumeric <- function(df){
+  tryCatch({
+    df_num <- as.data.frame(
+      lapply(df,
+             function(x) { as.numeric(as.character(x))})) 
+  },warning = function(stop_on_warning) {
+    message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+  }) 
+}
+##
+## Define function that reverse codes items
+ReverseCode <- function(df, tonumeric = FALSE, min = NULL, max = NULL) {
+  if(tonumeric) df <- colstonumeric(df)
+  df <- (max + min) - df
+}
+##
+## Define function that scores only rows with less than 10% NAs (returns NA if all or above threshold percentage of rows are NA); can reverse code if vector of column indexes and min, max are provided.
+ScoreLikert <- function(df, napercent = .1, tonumeric = FALSE, reversecols = NULL, min = NULL, max = NULL, engine = "sum") {
+  reverse_list <- list(reversecols = reversecols, min = min, max = max)
+  reverse_check <- !sapply(reverse_list, is.null)
+  
+  # Recode to numeric, but watch out to coercion to not introduce NAs
+  colstonumeric <- function(df){
+    tryCatch({
+      df_num <- as.data.frame(
+        lapply(df,
+               function(x) { as.numeric(as.character(x))})) 
+    },warning = function(stop_on_warning) {
+      message("Stoped the execution of numeric conversion: ", conditionMessage(stop_on_warning))
+    }) 
+  }
+  
+  if(tonumeric) df <- colstonumeric(df)
+  
+  if(all(reverse_check)){
+    df[ ,reversecols] <- (max + min) - df[ ,reversecols]
+  }else if(any(reverse_check)){
+    stop("Insuficient info for reversing. Please provide: ", paste(names(reverse_list)[!reverse_check], collapse = ", "))
+  }
+  
+  if(engine == "sum") {
+    return(
+      ifelse(rowSums(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )
+    )  
+  }
+  
+  if(engine == "mean") {
+    return(
+      ifelse(rowMeans(is.na(df)) > ncol(df) * napercent,
+             NA,
+             rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+      )       
+    )
+  }
+  
+    if(engine == "mean_na") {
+      df[is.na(df)] <- 0
+      rowMeans(df)
+    }
+}
+```
+
+
+```{r}
+quick_score_hist <- function(x, xlab = "X", na.rm = TRUE, cut_into_bins = TRUE) {
+  if(na.rm) {x = x[!is.na(x)]}
+  brx <- pretty(range(x, na.rm = TRUE), 
+    n = nclass.Sturges(x), min.n = 1)
+  df <- data.frame(x = x)
+  if(cut_into_bins) {df <- data.frame(x = cut(x, brx, ordered_result = TRUE))}
+  df %>% 
+  count(x) %>%
+  mutate(pct = prop.table(n),
+         Percent = paste0(round(pct * 100, 2), " %")) %>% 
+  ggplot(aes(x = x, y = pct, label = scales::percent(pct))) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = Percent), vjust = -0.25) +
+     scale_y_continuous(labels = scales::percent) +
+     ylab("Percentage %") +  xlab(xlab)    
+}
+```
+
+
+<!-- Report -->
+
+# Read survey structure
+
+```{r, message=FALSE}
+folder <- here::here("Rsyntax&data_650")
+data_name <- "survey_686732_R_data_file.csv"
+script_name <- "survey_686732_R_syntax_file.R"
+  
+# Check most recent .csv file
+last_csv_file <- 
+  dir(folder, pattern = ".*csv", full.names = TRUE) %>% 
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+if(identical(last_csv_file, file.path(folder, data_name))) {
+  cat("Most recent .csv is used.")
+} else {
+  cat("NOT using the most recent .csv!")
+}
+
+# -------------------------------------------------------------------------
+# Read data
+library(limonaid)
+library(sticky)  # need this for sticky labels
+
+df <- limonaid::ls_import_data(
+  datafile = file.path(folder, data_name),
+  scriptfile = file.path(folder, script_name),
+  massConvertToNumeric = FALSE
+)
+
+df_compl <-
+  df %>%
+  filter(lastpage == 17)
+
+# -------------------------------------------------------------------------
+# Labels to factor levels levels ("label" = question text; "labels" = response options text)
+# library(labelled)
+# library(sjlabelled)
+# sjlabelled::get_labels(df$G01Q59_SQ008, attr.only = TRUE, values = "as.prefix")
+# sjlabelled::get_values(df$G01Q59_SQ008)
+# sjlabelled::as_label(df$G01Q59_SQ008, prefix = TRUE, keep.labels = TRUE) 
+# sjlabelled::as_character(df$G01Q59_SQ008, prefix = TRUE, keep.labels = TRUE)
+# labelled::var_label(df$G01Q59_SQ008)
+# labelled::to_factor(df$G01Q59_SQ008, levels = "values")
+
+lime_label_recode <- function (x, prefix = FALSE) {
+  labels <- attr(x, "labels", exact = TRUE)
+  if (is.null(labels)) {
+    x
+  } else {
+    labels <- unname(labels)
+    values <- names(attr(x, "labels", exact = TRUE))
+    if (prefix) {
+      labels <- sprintf("[%s] %s", values, labels)
+    }
+    # No recoding solution preserve attributes, even with sticky
+      x_rec <- c(labels, x)[match(x, c(values, x))]
+    attributes(x_rec) <- attributes(x)  # reattach attributes
+    x_rec
+  }
+}
+# test_df <- cbind(df$G02Q02_SQ021, lime_label_recode(df$G02Q02_SQ021))
+# lime_label_recode(df$G01Q59_SQ008)
+# lime_label_recode(df$G04Q05_SQ001)
+
+# -------------------------------------------------------------------------
+# Recode using labels
+# cols_to_recode <- lapply(df, function(x) {!is.null(attr(x, "labels", exact = TRUE))})
+# cols_to_recode <- which(unlist(cols_to_recode))
+
+# df_recoded <- df
+# list_recoded <- lapply(df_recoded[, cols_to_recode], lime_label_recode)
+# df_recoded[, cols_to_recode] <- as.data.frame(do.call(cbind, list_recoded))
+
+# df_recoded <-
+#   df %>%
+#   mutate(across(all_of(cols_to_recode), lime_label_recode)) 
+
+df_recoded <-
+  df %>%
+  mutate(across(everything(), lime_label_recode)) %>%   # some values have same labels: df$G01Q60_SQ006
+  mutate(across(where(is.character), function(col) iconv(col, to="UTF-8")))  # encoding: df_recoded$G01Q56
+```
+
+
+
+# Score 3 Questionnaires
+
+```{r, warning=FALSE}
+# ------------------------------------------------------------------------------
+# Define 3 scales
+# ------------------------------------------------------------------------------
+# ATSPPH - 10 items (likert 0-3) total sum
+atspph_idx <- 184:193  # grep("G06Q13", names(df));  df[, grep("G06Q13", names(df), value = TRUE)]
+atspph_labs <- unique(lapply(df[, atspph_idx], attr, "labels"))
+atspph_rev <- c(2, 4, 8, 9, 10)
+
+atspph_recode <- function(df, rev) {
+  df %>%
+    mutate(
+      across(everything(),
+        ~ case_when(
+          . == "AO02" ~ 0,
+          . == "AO03" ~ 1,
+          . == "AO04" ~ 2,
+          . == "AO05" ~ 3
+        )
+      )       
+    ) %>%
+    mutate(   # here reverse code
+      across(rev,
+      ~ 3 - .x 
+      )
+    )
+}  # atspph_recode(df_compl[, atspph_idx], atspph_rev)
+
+# FSozU - 6 items (likert 1-5) total mean
+fsozu_idx <- 222:227 # grep("G12Q45", names(df)); df[, grep("G12Q45", names(df), value = TRUE)]  
+fsozu_labs <- unique(lapply(df[, fsozu_idx], attr, "labels"))  
+
+fsozu_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+        ~ case_when(
+          . == "AO01" ~ 1,
+          . == "AO02" ~ 2,
+          . == "AO03" ~ 3,
+          . == "AO04" ~ 4,
+          . == "AO05" ~ 5
+        )
+      )       
+    ) 
+}  # fsozu_recode(df_compl[, fsozu_idx])
+
+# PMHSS - 24 items (likert 1-5) subscale sum
+pmhss_idx <- 228:251   # grep("G13Q46", names(df)); df[, grep("G13Q46", names(df), value = TRUE)]
+pmhss_labs <- unique(lapply(df[, pmhss_idx], attr, "labels"))
+
+pmhss_aware <- c(2, 4, 5, 6, 8, 10, 11, 12)  
+pmhss_agree <- c(14, 16, 17, 18, 20, 22, 23, 24) 
+pmhss_posit <- c(1, 3, 7, 9, 13, 15, 19, 21)
+
+pmhss_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+        ~ case_when(
+          . == "AO01" ~ 1,
+          . == "AO02" ~ 2,
+          . == "AO03" ~ 3,
+          . == "AO04" ~ 4,
+          . == "AO05" ~ 5
+        )
+      )       
+    )
+}  # pmhss_recode(df_compl[, pmhss_idx])
+
+# ------------------------------------------------------------------------------
+# Recode & Score
+df_compl[, atspph_idx] <- atspph_recode(df_compl[, atspph_idx], atspph_rev)
+df_compl[, fsozu_idx] <- fsozu_recode(df_compl[, fsozu_idx])
+df_compl[, pmhss_idx] <- pmhss_recode(df_compl[, pmhss_idx])
+
+df_compl$help_seek <- ScoreLikert(df_compl[, atspph_idx], napercent = .5, engine = "sum")
+df_compl$soc_supp <- ScoreLikert(df_compl[, fsozu_idx], napercent = .5, engine = "mean")
+
+df_compl$aware <- ScoreLikert(df_compl[, pmhss_idx][pmhss_aware], napercent = .5, engine = "sum") 
+df_compl$agree <- ScoreLikert(df_compl[, pmhss_idx][pmhss_agree], napercent = .5, engine = "sum")
+df_compl$posit <- ScoreLikert(df_compl[, pmhss_idx][pmhss_posit], napercent = .5, engine = "sum")
+```
+
+
+# Some analyses on 3 Questionnaires
+
+```{r, echo=FALSE}
+vars_demog <- c("Q00", "G01Q23", "G01Q24", "G01Q26")
+vars_demog_names <- c("sex", "year_birth", "grade", "resid")
+lapply(df_compl[, vars_demog], attr, "label")
+
+df_scales <- 
+  df_compl %>%
+  # labelled::remove_attributes("label") %>%
+  # labelled::remove_attributes("labels") %>%
+  rename_with(~ c(vars_demog_names), all_of(vars_demog)) %>%
+  select(all_of(vars_demog_names),
+         help_seek, soc_supp, aware, agree, posit) %>%
+  mutate(across(all_of(vars_demog_names), lime_label_recode)) %>%
+  mutate(age = 2023 - as.numeric(year_birth))
+```
+
+### Just checks
+
+```{r, echo=FALSE, warning=FALSE, fig.height=10, fig.width=10}
+plot_scales <- GGally::ggpairs(df_scales[, c(1, 10, 3:9)], progress = FALSE)
+plot_scales
+```
+
+```{r, echo=FALSE, warning=FALSE, fig.height=7, fig.width=7}
+plot_scales2 <- PerformanceAnalytics::chart.Correlation(df_scales[, c(10, 5:9)])
+plot_scales2
+```
+
+<!--
+
+### Mod - just check
+
+```{r mod, cache=TRUE}
+# find_mod(df_scales)
+# moderation_model_list #1,2,3,6,7,10,11,12
+
+mod_synth <-
+  moderation_model_list %>%
+  purrr::pluck("Syntax") %>%
+  stringr::str_match("# Regressions\\\n(.*?)\\\n\\\n#") %>%   # string between "# Regressions\n" and "\n\n#"
+  as.data.frame() %>%
+  dplyr::pull(2) %>% 
+  stringr::str_remove_all(fixed("b0*1 + ")) 
+
+mod_tabl <- 
+  moderation_model_list %>%
+  purrr::pluck("Model")
+
+for(i in seq_len(length(mod_tabl))) {print(mod_synth[i]); print(mod_tabl[[i]])}
+```
+
+### Med - just check
+
+```{r med, cache=TRUE}
+# find_med(df_scales)
+# mediation_model_list
+
+for(i in seq_len(length(mediation_model_list$MedEs))) {print(mediation_model_list$MedEs[i]); print(mediation_model_list$PathEs[[i]])}
+```
+
+-->
+
+### Odd stigma patterns
+
+```{r, warning=FALSE, fig.height=6, fig.width=7}
+ggplot(df_scales, aes(aware, agree, color = posit)) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, alpha = 0.1, color = "red", fill = "red") +
+  geom_point() +
+  scale_colour_distiller(palette = "Blues", direction = 1)
+
+df_scales %>%
+  mutate(posit_cat = cut(posit,
+    breaks = c(5, 10, 20, 30, 40))
+  ) %>%
+  ggplot(aes(aware, agree, color = posit_cat)) +
+  geom_point() -> plot_stigma1
+plotly::ggplotly(plot_stigma1)
+
+ggplot(df_scales, aes(posit, agree, color = aware)) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE, alpha = 0.1, color = "red", fill = "red") +
+  geom_point() +
+  scale_colour_distiller(palette = "Blues", direction = 1)
+
+df_scales %>%
+  mutate(aware_cat = cut(posit,
+    breaks = c(5, 10, 20, 30, 40))
+  ) %>%
+  ggplot(aes(posit, agree, color = aware_cat)) +
+  geom_point() -> plot_stigma2
+plotly::ggplotly(plot_stigma2)
+
+coplot(agree ~ posit | aware, overlap = 0, data = df_scales,
+  panel = function(x, y, ...) {
+          points(x, y, ...)
+          abline(lm(y ~ x), col = "red")}
+)
+```
+
+### Partial correlations stigma (partial everything from everything)
+
+```{r}
+psych::lowerMat(psych::partial.r(df_scales[, c("agree", "aware", "posit")]))
+```
+
+
+### Interaction stigma
+
+```{r}
+df_agree <- na.omit(df_scales[, c("agree", "sex", "age", "resid", "aware", "soc_supp", "posit")])
+
+mod_stigma_interac <- lm(agree ~ aware * posit, data = df_agree)
+interactions::interact_plot(mod_stigma_interac, pred = posit, modx = aware)
+# interactions::sim_slopes(mod_stigma_interac, pred = posit, modx = aware)
+```
+
+### Gender diff stigma
+
+```{r}
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = agree)
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = aware)
+ggstatsplot::ggbetweenstats(df_agree, x = sex, y = posit)
+```
+
+### Silly model that works smh (0 m, 1 fem)
+
+```{r}
+df_scales %>% 
+  mutate(sex = as.numeric(as.factor(sex)) - 1) %>% 
+  psych::mediate(posit ~ sex + aware:agree + (aware), data = .)
+
+# psych::mediate(agree ~ posit + (aware), data = df_scales) # silly but works
+# psych::mediate(agree ~ posit * aware, data = df_scales)
+```
+
+### Reg step - everything about stigma is wacky
+
+```{r}
+mod_agree <- lm(agree ~ sex + age + resid + aware + soc_supp, data = df_agree)
+best_mod_agree <- step(mod_agree, scope = help_seek ~ .^2, direction = "both", data = mod_agree$model, trace = 0) # BIC with k = log(nrow(mod_agree$model))
+summary(best_mod_agree)
+```
+
+
+```{r}
+df_helpseek <- na.omit(df_scales[, c("help_seek", "sex", "age", "agree", "aware", "soc_supp", "agree", "posit")])
+mod_helpseek <- lm(help_seek ~ sex + age + agree  + aware + soc_supp, data = df_helpseek)
+best_mod_helpseek <- step(mod_helpseek, scope = help_seek ~ .^2, direction = "both", data = mod_helpseek$model, trace = 0) # BIC with k = log(nrow(mod_helpseek$model))
+summary(best_mod_helpseek)
+
+
+summary(lm(help_seek ~ sex + age * aware, data = df_scales)) 
+
+
+```
+
+## Demographics
+
+```{r}
+demo_sex <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  group_by(sex) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) 
+demo_sex
+
+demo_sex %>%
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "sex", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+```{r}
+demo_resid <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(resid))) %>%
+  group_by(resid) %>%
+  dplyr::summarise(counts = n()) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - .5*prop,
+         Percent = paste0(prop, " %")) 
+demo_resid
+
+demo_resid %>%
+  ggpubr::ggpie(x = "prop", label = "Percent",
+                fill = "resid", color = "white", 
+                lab.pos = "in", lab.font = list(color = "white"),
+                palette = "grey")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.height=9, fig.width=9}
+demo_residsex <- 
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(resid = as.factor(as.character(resid))) %>%
+  dplyr::count(resid, sex, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n),                            # Calculate percent within each var
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_residsex
+
+df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(resid = as.factor(as.character(resid))) %>%
+  ggstatsplot::grouped_ggpiestats(
+    x = sex,
+    grouping.var = resid,
+    package = "RColorBrewer",
+    palette = "Greys",
+    bf.message = FALSE,
+    ggplot.component = list(scale_fill_grey())
+  )
+```
+
+
+
+```{r}
+demo_age <- 
+  df_scales %>% 
+  mutate(age = as.factor(as.character(age))) %>%
+  count(age) %>%
+  mutate(pct = prop.table(n),
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_age
+
+demo_age %>%
+  ggplot(aes(x = age, y = pct, label = scales::percent(pct))) + 
+     geom_bar(stat = "identity") +
+     geom_text(aes(label = Percent), vjust = -0.25) +
+     scale_y_continuous(labels = scales::percent) +
+     ylab("Percentage %") +  xlab("")  
+  
+```
+
+```{r, warning=FALSE, fig.height=8, fig.width=10}
+demo_agesex <-
+  df_scales %>% 
+  mutate(sex = as.factor(as.character(sex))) %>%
+  mutate(age = as.factor(as.character(age))) %>%
+  dplyr::count(age, sex, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n),                            # Calculate percent within each var
+         Percent = paste0(round(pct * 100, 2), " %"))
+demo_agesex
+
+demo_agesex %>%     
+  ggplot(aes(x = age, y = pct, fill = sex, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Varsta") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gen", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+
+## Mental Health scales scoring
+
+```{r}
+# ------------------------------------------------------------------------------
+# Mental Health scales
+# ------------------------------------------------------------------------------
+
+# Screening  DSM-5-TR 11-17 (22 items likert 0-4; 3 items 1/0; 1 item 1/0)
+# https://www.psychiatry.org/getmedia/9352851c-d69f-411a-8933-3212e8c29063/APA-DSM5TR-Level1MeasureChildAge11To17.pdf
+screen_1_idx <- 59:80 # grep("G02Q02", names(df)); df[, grep("G02Q02", names(df), value = TRUE)]  
+screen_1_labs <- unique(lapply(df[, screen_1_idx], attr, "labels"))  
+screen_2_idx <- 81:84 # grep("G02Q47|G02Q48", names(df)); df[, grep("G02Q47|G02Q48", names(df), value = TRUE)];   
+screen_2_labs <- unique(lapply(df[, screen_2_idx], attr, "labels"))   # 84 is suicide item
+
+# df[, screen_1_idx] %>% map(~ attr(.x, "label"))  # get item text
+
+screen_1_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO01" ~ 0,
+               . == "AO02" ~ 1,
+               . == "AO03" ~ 2,
+               . == "AO04" ~ 3,
+               . == "AO05" ~ 4
+             )
+      )       
+    ) 
+}  # screen_1_recode(df_compl[, screen_1_idx])
+
+screen_2_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO01" ~ 1,
+               . == "AO02" ~ 0
+             )
+      )       
+    ) 
+}  # screen_2_recode(df_compl[, screen_2_idx])
+
+
+
+# ------------------------------------------------------------------------------
+# ADHD - 8 items (likert 5-1) total sum;
+adhd_idx <- 114:120 # grep("G03Q03", names(df)); df[, grep("G03Q03", names(df), value = TRUE)]  
+adhd_labs <- unique(lapply(df[, adhd_idx], attr, "labels"))  
+
+adhd_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO01" ~ 5,
+               . == "AO02" ~ 4,
+               . == "AO03" ~ 3,
+               . == "AO04" ~ 2,
+               . == "AO05" ~ 1
+             )
+      )       
+    ) 
+}  # adhd_recode(df_compl[, adhd_idx])
+
+# ------------------------------------------------------------------------------
+# Depresie (PHQ-9) – v. versiunea modificata pentru adolescenți (likert 0-3) total sum; cutoff 11
+# https://www.childrenshospital.org/sites/default/files/2022-03/PHQ%20Form.pdf
+phq_idx <- 85:94 # grep("G09Q39", names(df)); df[, grep("G09Q39", names(df), value = TRUE)]  
+phq_labs <- unique(lapply(df[, phq_idx], attr, "labels"))  
+
+phq_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO02" ~ 0,
+               . == "AO03" ~ 1,
+               . == "AO04" ~ 2,
+               . == "AO05" ~ 3
+             )
+      )       
+    ) 
+}  # phq_recode(df_compl[, phq_idx])
+
+# ------------------------------------------------------------------------------
+# Anxietate (GAD-7) (likert 0-3) total sum; cutoff 10
+gad_idx <- 96:102 # grep("G10Q41", names(df)); df[, grep("G10Q41", names(df), value = TRUE)]
+gad_labs <- unique(lapply(df[, gad_idx], attr, "labels"))  
+
+gad_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO02" ~ 0,
+               . == "AO03" ~ 1,
+               . == "AO04" ~ 2,
+               . == "AO05" ~ 3
+             )
+      )       
+    ) 
+}  # gad_recode(df_compl[, gad_idx])
+
+# ------------------------------------------------------------------------------
+# Anxietate socială SMSAD 11-17 (likert 0-4) total sum; cutoff 20
+# https://www.psychiatry.org/File%20Library/Psychiatrists/Practice/DSM/APA_DSM5_Severity-Measure-For-Social-Anxiety-Disorder-Child-Age-11-to-17.pdf
+smsad_idx <- 104:113 # grep("G11Q42", names(df)); df[, grep("G11Q42", names(df), value = TRUE)]; 
+smsad_labs <- unique(lapply(df[, smsad_idx], attr, "labels"))  
+
+smsad_recode <- function(df) {
+  df %>%
+    mutate(
+      across(everything(),
+             ~ case_when(
+               . == "AO02" ~ 0,
+               . == "AO03" ~ 1,
+               . == "AO04" ~ 2,
+               . == "AO05" ~ 3,
+               . == "AO06" ~ 4
+             )
+      )       
+    ) 
+}  # smsad_recode(df_compl[, smsad_idx])
+
+# ------------------------------------------------------------------------------
+# Tulburări de alimentație (NEDA) (slider 0-100) total sum - also has likert items but didnt consider them here 
+neda_part1_idx <- 201:205 # grep("G08Q36", names(df)); df[, grep("G08Q36", names(df), value = TRUE)]; 
+neda_part1_labs <- unique(lapply(df[, neda_part1_idx], attr, "labels"))  
+# --- complicated scoring
+
+# ------------------------------------------------------------------------------
+# ACE (likert ) part 1: 10 items, part 2: 9 items; total sum
+ace_part1_idx <- 163:172 # grep("G04Q05", names(df)); df[, grep("G04Q05", names(df), value = TRUE)]; 
+ace_part2_idx <- 174:182 # grep("G04Q07", names(df)); df[, grep("G04Q07", names(df), value = TRUE)];
+ace_idx <- c(ace_part1_idx, ace_part2_idx)
+ace_labs <- unique(lapply(df[, ace_idx], attr, "labels")) 
+
+
+
+
+# ------------------------------------------------------------------------------
+# Recode & Score
+df_compl[, screen_1_idx] <- screen_1_recode(df_compl[, screen_1_idx])
+df_compl[, screen_2_idx] <- screen_2_recode(df_compl[, screen_2_idx])
+
+df_compl[, adhd_idx] <- adhd_recode(df_compl[, adhd_idx])
+df_compl$adhd <- ScoreLikert(df_compl[, adhd_idx], napercent = .5, engine = "sum")
+
+df_compl[, phq_idx] <- phq_recode(df_compl[, phq_idx])
+df_compl$phq <- ScoreLikert(df_compl[, phq_idx], napercent = .5, engine = "sum")
+
+df_compl[, gad_idx] <- gad_recode(df_compl[, gad_idx])
+df_compl$gad <- ScoreLikert(df_compl[, gad_idx], napercent = .5, engine = "sum")
+
+df_compl[, smsad_idx] <- smsad_recode(df_compl[, smsad_idx])
+df_compl$smsad <- ScoreLikert(df_compl[, smsad_idx], napercent = .5, engine = "sum")
+
+df_compl$ace_part1 <- ScoreLikert(df_compl[, ace_part1_idx], napercent = .5, engine = "sum")
+df_compl$ace_part2 <- ScoreLikert(df_compl[, ace_part2_idx], napercent = .5, engine = "sum")
+df_compl$ace <- ScoreLikert(df_compl[, ace_idx], napercent = .5, engine = "sum")
+
+# df_compl$neda_part1 <- ScoreLikert(df_compl[, neda_part1_idx], napercent = .5, engine = "sum")
+```
+
+## Mental Health descriptives
+
+### Screening
+
+```{r, fig.width=10, fig.height=28}
+df[, screen_1_idx] %>%     # map(~ attr(.x, "label"))  # get item text
+  setNames(
+    purrr::map(., ~ attr(.x, "label")) %>% 
+      str_replace("În ultimele DOUĂ.*$", "") %>%  
+      str_wrap(60)
+  ) %>% 
+  screen_1_recode() %>% 
+  mutate_all(as.factor) %>% 
+  likert() %>% 
+  plot() +
+  theme(# text = element_text(size = 20),
+        axis.text.y = element_text(size = 10),
+        legend.position = "none") 
+```
+
+```{r, fig.width=10, fig.height=5}
+
+df[, screen_2_idx] %>%     # map(~ attr(.x, "label"))  # get item text
+  setNames(
+    purrr::map(., ~ attr(.x, "label")) %>% 
+      str_replace("În ultimele DOUĂ.*$", "") %>%  
+      str_wrap(60)
+  ) %>% 
+  screen_2_recode() %>% 
+  mutate_all(as.factor) %>% 
+  likert() %>% 
+  plot() +
+  theme(# text = element_text(size = 20),
+        axis.text.y = element_text(size = 10),
+        legend.position = "none") 
+```
+
+### Same plot without Suicide 
+
+```{r, fig.width=12, fig.height=4}
+
+df[, screen_2_idx] %>%     # map(~ attr(.x, "label"))  # get item text
+  select(-G02Q48) %>%  # remove the suicide item
+  setNames(
+    purrr::map(., ~ attr(.x, "label")) %>% 
+      str_replace("În ultimele DOUĂ.*$", "") %>%  
+      str_wrap(60)
+  ) %>% 
+  screen_2_recode() %>% 
+  mutate_all(as.factor) %>% 
+  likert() %>% 
+  plot() +
+  theme(# text = element_text(size = 20),
+        axis.text.y = element_text(size = 10),
+        legend.position = "none") 
+```
+
+### ADHD
+
+```{r, fig.width=10, fig.height=4}
+df_compl$adhd %>% 
+  quick_score_hist("ADHD")
+```
+
+### PHQ-9
+
+```{r, fig.width=10, fig.height=4}
+df_compl$phq %>% 
+  quick_score_hist(xlab = "Depresie", na.rm = TRUE) + 
+  geom_vline(xintercept = "(10,12]", color = "red")  # cutoff 11
+```
+
+### GAD-7
+
+```{r, fig.width=10, fig.height=4}
+df_compl$gad %>% 
+  quick_score_hist(xlab = "Depresie", na.rm = TRUE) + 
+  geom_vline(xintercept = "(8,10]", color = "red")  # cutoff 10
+```
+
+### SMSAD
+
+```{r, fig.width=10, fig.height=4}
+df_compl$smsad %>% 
+  quick_score_hist(xlab = "Depresie", na.rm = TRUE) + 
+  geom_vline(xintercept = "(20,25]", color = "red")  # cutoff 20
+```
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
