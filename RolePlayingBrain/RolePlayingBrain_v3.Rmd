@@ -1,0 +1,625 @@
+---
+title: "<br> Role Playing Brain" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", 
+  "ggplot2", "ggpubr", "scales",
+  "ggstatsplot", "report", 
+  "ggstats", 
+  "lmer4", "lmerTest", "merTools", "statAPA", "sjPlot"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+
+## Quick ggbetweenstats function
+
+```{r}
+# For publication
+library(ggprism)
+
+my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = FALSE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "np",
+        bf.message = FALSE, 
+        p.adjust.method = "holm",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "np",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                             test.args = list(exact = FALSE)),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+# Functions for RBT
+
+```{r}
+# Create a lookup for valid combinations
+all_conditions <- unique(number_to_condition)
+all_variables <- unique(number_to_label)
+join_variables <- c("ID", "Age", "Group", "fried_total", "fried_es", "fried_sc", "fried_j", "paq_total")
+
+# Func
+long_format <- function(df, day = c(1, 2, 3), conditions = "all", variables = "all", who = c("S", "T")) {
+  
+  # Handle "all" for conditions
+  if (length(conditions) == 1 && conditions == "all") {
+    conditions <- all_conditions
+  }
+  
+  # Handle "all" for variables
+  if (length(variables) == 1 && variables == "all") {
+    variables <- all_variables
+  }
+  
+  # Create pattern for columns to selectD
+  day_pattern <- paste0("day(", paste(day, collapse = "|"), ")")
+  condition_pattern <- paste(conditions, collapse = "|")
+  variable_pattern <- paste(variables, collapse = "|")
+  who_pattern <- paste(who, collapse = "|")
+  
+  # Full pattern
+  pattern <- paste0("^(", day_pattern, ")_(", condition_pattern, ")_(", variable_pattern, ")_(", who_pattern, ")$")
+  
+  # Select only the columns that match the pattern
+  cols_to_pivot <- names(df)[str_detect(names(df), pattern)]
+  
+  # Pivot to long format
+  df_long <- df %>%
+    select(all_of(c("ID", cols_to_pivot))) %>%
+    pivot_longer(
+      cols = all_of(cols_to_pivot),
+      names_to = c("day", "condition", "variable", "who"),
+      names_pattern = "^(day\\d+)_(.*?)_(.*?)_(.)$",
+      values_to = "value"
+    ) %>%
+    mutate(
+      day = as.numeric(str_extract(day, "\\d+")),
+      value = as.numeric(as.character(value)) # convert value to numeric safely (non-numeric become NA)
+    ) %>% 
+    pivot_wider(                 # pivot wider to have each variable as a column
+      names_from = variable,
+      values_from = value
+    )
+  
+  return(df_long)
+}
+
+# # Examples of usage:
+# df_long_all <- long_format(df_m_clean) # Default - all data
+# df_long_day12 <- long_format(df_m_clean, day = c(1, 2)) # Only day1 and day2
+# df_long_conditions <- long_format(df_m_clean, conditions = c("1P", "Fam3P")) # Only specific conditions
+# df_long_variables <- long_format(df_m_clean, variables = c("persp", "skin")) # Only specific variables
+# df_long_T <- long_format(df_m_clean, who = "T") # Only who = "T"
+# 
+# # Combination: day1, conditions 1P and Fam1P, variables persp and satisf, who S
+# df_long_custom <- long_format(
+#   df_m_clean_75,
+#   day = 1,
+#   conditions = c("1P", "Fam1P"),
+#   variables = c("persp", "satisf"),
+#   who = "S"
+# )
+```
+
+
+
+
+
+<!-- Report -->
+
+# Data
+## Read Full Dataset
+
+```{r, echo=FALSE}
+df <- readRDS(here::here("df_full.RDS"))
+```
+
+
+
+
+# FROM HERE ~~~~~~~~~~
+
+
+# Results
+
+
+## Persp, Satisf, Fluent
+
+```{r}
+df_persp <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "persp",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+
+df_satisf <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "satisf",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+
+df_fluent <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "fluent",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+```
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_persp %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = persp,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_persp,
+    x = day,
+    y = persp,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_satisf %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = satisf,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_satisf,
+    x = day,
+    y = satisf,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_fluent %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = fluent,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_fluent,
+    x = day,
+    y = fluent,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+
+
+## Satisf & Fluent
+
+```{r}
+df_sf <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = c("satisf", "fluent"),
+    who = "S"
+  ) %>% 
+  select(-who) %>% 
+  mutate(condition = as.factor(condition)) %>% 
+  fastDummies::dummy_cols(
+    select_columns = "condition",
+    remove_first_dummy = FALSE,  # This creates k-1 dummies (condition1 is reference)
+    remove_selected_columns = FALSE  # Keep original condition column
+  ) %>% 
+  rename_with(~ gsub("^condition_", "c_", .x), starts_with("condition_")) %>% 
+  left_join(df_m_clean_75[, join_variables], by = "ID")
+
+```
+
+```{r}
+# library(lavaan)
+# # Remove "1P" as the reference category (you can choose any)
+# dummy_names <- c("c_1PD", "c_Fam1P", "c_Fam3P", "c_Fic1P", "c_Fic2P")  # All except "1P"
+# # Build the model
+# satisf_formula <- paste("satisf ~", paste(dummy_names, collapse = " + "))
+# fluent_formula <- paste("fluent ~", paste(dummy_names, collapse = " + "))
+# 
+# 
+# mod_sf_1 <- '
+#   level: 1
+#     # Within-person: condition predicts outcomes
+#     satisf ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
+#     fluent ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
+#     # Also model their within-person correlation
+#     satisf ~~ fluent
+#     
+#   level: 2
+#     # Between-person: random intercepts for each outcome
+#     satisf ~ 1
+#     fluent ~ 1
+#     satisf ~~ fluent
+# '
+# 
+# fit_sf_1 <- sem(mod_sf_1, data = df_sf, cluster = "ID")
+# summary(fit_sf_1)
+
+
+# Within-Person Effects (Level 1)
+# These coefficients tell you how much each condition differs from the reference condition (c_1P):
+# 
+# For Satisfaction:
+# c_1PD: -0.571 (p < .001) → Significantly lower satisfaction than c_1P
+# c_Fam1P: -0.375 (p = .003) → Significantly lower
+# c_Fam3P: -0.446 (p < .001) → Significantly lower
+# c_Fic1P: -0.120 (p = .344) → NOT significantly different
+# c_Fic2P: -0.360 (p = .004) → Significantly lower
+# 
+# For Fluency:
+# ALL conditions are significantly lower than c_1P (all p < .001)
+# The strongest effect: c_Fic2P (-0.756) and c_Fam1P (-0.688)
+# The weakest effect: c_Fam3P (-0.522)
+
+# Within-Person Covariance
+# satisf ~~ fluent: r = 0.562 (p < .001) → Within individuals, satisfaction and fluency are moderately positively correlated across conditions
+# Between-Person Effects (Level 2)
+# satisf ~~ fluent: r = 0.358 (p < .001) → Individuals who are generally more satisfied also tend to be more fluent
+# Intercepts: Average satisfaction (6.144) and fluency (6.420) across all individuals
+# Variances: There's significant variation between individuals in both satisf (0.672) and fluent (0.325)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)  # For p-values
+
+df_sf2 <- df_sf %>% 
+  filter(day %in% c(1, 3))
+
+mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + Group + fried_es + fried_sc + paq_total + (1 | ID), data = df_sf2)
+mod_sf_s1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+# mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + (1 | ID) + (1 | ID:condition), data = df_sf)
+# (1 | ID): Random intercept for each person (people differ in their average satisfaction)
+# (1 | ID:condition): Random intercept for each person-condition combination (the effect of each condition varies across individuals)
+
+mod_sf_s1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "satisf - Condition Effects")
+mod_sf_s1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects() 
+```
+
+
+```{r}
+mod_sf_f1 <- 
+  lme4::lmer(fluent ~ condition + day + Group +   # no interactions
+               fried_sc +    # paq_total + fried_es + 
+               (1 + day | ID), data = df_sf2)
+
+mod_sf_f1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+mod_sf_f1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "fluent - Condition Effects")
+mod_sf_f1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects()
+```
+
+
+
+
+
+## New Group x Condition
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- 
+    df_sf %>% 
+      filter(day %in% c(1, 3)) %>% 
+      filter(condition == all_conditions[i]) %>% 
+        grouped_ggwithinstats(
+            data = .,
+            x = day,
+            y = fluent,
+            grouping.var = Group,
+            subject.id = ID,
+            annotation.args = list(title = all_conditions[i]),
+            bf.message = FALSE,
+            type = "parametric",
+            pairwise.display = "significant",
+            ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+            ggtheme = theme_ggstatsplot() + 
+                theme(
+                  panel.grid.major.y = element_blank(),
+                  panel.grid.minor.y = element_blank()
+                )
+        ) 
+  print(p)
+}
+```
+
+### 
+PAQ no diff
+Well being: Non-actors > Actors
+
+
+```{r}
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = paq_total
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_total
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_es
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_sc
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_j
+  )
+```
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
