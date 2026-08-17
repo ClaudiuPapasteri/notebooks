@@ -1,0 +1,1116 @@
+---
+title: "<br> Go Study" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", 
+  "ggplot2", "ggpubr", "scales",
+  "ggstatsplot", "report", 
+  "ggstats", 
+  "lmer4", "lmerTest", "merTools", "statAPA", "sjPlot"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+# Main function to plot repeated measures for blocks 1-3 and 4-6
+my_ggwithinstats <- function(df, var_name, problems = 1:3, id_column = "id", indiv_lines = TRUE) {
+  
+  # Create pattern for specified problems
+  cols <- paste0(var_name, "_", problems)
+  
+  # Reshape to long format
+  df_long <- df %>%
+    select(all_of(c(id_column, cols))) %>%
+    pivot_longer(
+      cols = all_of(cols),
+      names_to = "problem",
+      values_to = "value"
+    ) %>%
+    mutate(problem = factor(problem, levels = cols))
+  
+  # Create the plot
+  p <- 
+    ggwithinstats(
+      data = df_long,
+      x = problem,
+      y = value,
+      subject.id = !!rlang::sym(id_column),
+      title = paste0(var_name, " (Problems ", paste(range(problems), collapse = "-"), ")") 
+    ) +
+    ylim(1, 7)
+  
+  if(indiv_lines) {
+    p <- p +
+      geom_line(
+          data = df_long,
+          aes(x = problem, y = value, group = !!rlang::sym(id_column)),
+          alpha = 0.3, 
+          linetype = "dashed",
+          linewidth = 0.5,
+          color = "gray40"
+        )
+  }
+  
+  p
+}
+
+
+# Function
+# Loop through each variable and create/print/store the plot
+# my_ggwithinstats(df, "certain_continuation", problems = 1:3)
+
+# Loop through each variable and create/print/store the plot
+create_ggwithinstats_plots <- function(df = df, var_names, problems) {
+  for(var in var_names) {
+    problems_suffix <- paste(problems, collapse = "")
+    plot_name <- paste0("withinplot_", var, "_", problems_suffix)
+    assign(plot_name, my_ggwithinstats(df, var, problems = problems))
+    print(get(plot_name))
+  }
+}
+```
+
+```{r}
+# Function to plot individual lines (one line per id)
+plot_trajectory <- function(df, var_name, problems = 1:3,
+                                   id_column = "id",
+                                   color_var = "MTI_cat",
+                                   linetype_var = "rank_cat") {
+  
+  cols <- paste0(var_name, "_", problems)
+  
+  df_long <- df %>%
+    select(all_of(c(id_column, color_var, linetype_var, cols))) %>%
+    pivot_longer(cols = all_of(cols),
+                 names_to = "problem",
+                 values_to = "value") %>%
+    mutate(problem = factor(problem, levels = cols))
+  
+  ggplot(df_long, aes(x = problem, y = value, 
+                      group = !!sym(id_column),
+                      color = !!sym(color_var),
+                      linetype = !!sym(linetype_var))) +
+    geom_line(size = 1, alpha = 0.8) +
+    geom_point(size = 2, alpha = 0.8) +
+    scale_color_manual(values = c("medium" = "orange", "high" = "darkred")) +  # pick your colors
+    scale_linetype_manual(values = c("1Dan-2Dan" = "dashed", "3Dan-5Dan" = "solid")) +
+    labs(title = paste0(var_name, " (Problems ", paste(range(problems), collapse = "-"), ")"),
+         x = "Problem", y = "Score") +
+    ylim(1, 7) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+# Function
+# Loop through each variable and create/print/store the plot
+# create_trajectory_plots(df_story, var_names = EG_colnames, problems = 1:3)
+create_trajectory_plots <- function(df, var_names, problems) {
+  for (var in var_names) {
+    problems_suffix <- paste(problems, collapse = "")
+    plot_name <- paste0("traj_", var, "_", problems_suffix)
+    p <- plot_trajectory(df, var, problems = problems)
+    assign(plot_name, p, envir = .GlobalEnv)
+    print(p)
+  }
+}
+```
+
+
+```{r}
+# Quick ggbetweenstats function
+# For publication
+library(ggprism)
+
+my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = FALSE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "np",
+        bf.message = FALSE, 
+        p.adjust.method = "holm",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "np",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                             test.args = list(exact = FALSE)),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+
+<!-- Report -->
+
+# Data
+## Read data
+
+```{r}
+last_csv_file <-
+  dir(here::here(), pattern = "Go Study Form_Submissions.*csv", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+df <- rio::import(file = last_csv_file)
+```
+
+## Questionnare info
+
+```{r}
+# MTI ------------------------------------------------------------------------------------
+MTI_items_index <- c(10:17) # colnames(df[, MTI_items_index])
+MTI_items_text <- 
+  c(
+  "1. I believe in my ability to achieve my goals",
+  "2. I am able to regulate my focus when performing tasks",
+  "3. I am able to use my emotions to perform the way I want to",
+  "4. I strive for continued success",
+  "5. I execute my knowledge of what is required to achieve my goals",
+  "6. I consistently overcome adversity",
+  "7. I am able to execute appropriate skills or knowledge when challenged",
+  "8. I can find a positive in most situations"
+  )
+
+colnames(df[, 18, drop=FALSE]) == "What is your rank?"
+
+# EG ------------------------------------------------------------------------------------
+# Create EG_1_index through EG_6_index in a loop
+for (i in 1:6) {      # EG_1_index <- c(19:26) # colnames(df[, EG_1_index])
+  # Create the index variable
+  assign(paste0("EG_", i, "_index"), c(19:26) + (i - 1) * 8)
+  
+  # Retrieve the index vector for this iteration
+  idx <- get(paste0("EG_", i, "_index"))
+  
+  # Print the corresponding column names
+  cat("\n--- EG_", i, " ---\n", sep = "")
+  print(colnames(df[, idx]))    # rm(list = ls(pattern = "EG_[0-9]_index"))
+}
+  
+EG_text <- 
+  c(
+  "1. How certain are you that this is the correct continuation?",       
+  "2. How confident are you that you are winning this game?",
+  "3. How unpredictable does the outcome of the game feel?",
+  "4. How unstable or chaotic does this position feel?",
+  "5. How in control do you feel in this game?",
+  "6. How mentally overwhelming does this position feel?",
+  "7. How mentally off-balance does this position make you feel?",
+  "8. How frustrating does the current state of the game feel?"
+  )
+
+EG_colnames <-
+  c(
+  "certain_continuation",       
+  "confident_winning",
+  "unpredictable_outcome",
+  "chaotic",
+  "in_control",
+  "overwhelming",
+  "off-balance",
+  "frustrating"
+  )
+
+# EG_likert_levels <- 
+#   
+# 1	Not at all
+# 2	Very slightly
+# 3	Slightly
+# 4	Moderately
+# 5	Quite a bit
+# 6	Very much
+# 7	Extremely  
+
+
+# Change column names in loop
+for (i in 1:6) {
+  # Get the column indices for block i
+  idx <- get(paste0("EG_", i, "_index"))
+  # Create new names by appending _i to each base name
+  new_names <- paste0(EG_colnames, "_", i)
+  # Rename columns
+  colnames(df)[idx] <- new_names
+}
+```
+
+## Data munging
+
+```{r}
+# Rename EG cols
+for (i in 1:6) {   # names(df[,EG_5_index])
+  # Get current column names for this block
+  idx <- get(paste0("EG_", i, "_index"))
+  old_names <- colnames(df)[idx]
+  
+  # Create new names
+  new_names <- paste0(EG_colnames, "_", i)
+  # Create a named vector for renaming
+  rename_vector <- setNames(new_names, old_names)
+  # Apply rename
+  df <- df %>% rename(all_of(rename_vector))
+}
+  
+# Rename MTI cols
+df <- df %>% rename_with(
+  ~ paste0("mti_", seq_along(MTI_items_index)),
+  .cols = all_of(MTI_items_index)
+)
+
+# Rename & convert rank
+df <- 
+  df %>% 
+  rename_with(~ "rank", .cols = 18) %>% 
+  mutate(rank = as.factor(rank))
+
+# Score MTI
+df <- df %>%
+  mutate(MTI_total = rowSums(across(all_of(MTI_items_index)), na.rm = TRUE)) %>% 
+  rowwise() %>%
+  mutate(MTI_total_check = sum(c_across(matches("^mti_\\d+$")), na.rm = TRUE)) %>%
+  ungroup()  
+if(all(df$MTI_total == df$MTI_total_check, na.rm = TRUE)) {
+  df <- df %>% select(-MTI_total_check)
+  message("MTI_total_check verified and removed")
+} else {
+  message("Mismatch found: MTI_total_check retained for inspection")
+}  
+
+# Rename and check id
+colnames(df)[2] <- "id"
+length(unique(df$id)) == nrow(df)
+
+# Create composite scores for variables based on problems
+for(var in EG_colnames) {
+  # Create composite_14 = mean of _1 and _4
+  df[[paste0(var, "_14")]] <- rowMeans(df[, c(paste0(var, "_1"), paste0(var, "_4"))], na.rm = TRUE)
+  
+  # Create composite_25 = mean of _2 and _5
+  df[[paste0(var, "_25")]] <- rowMeans(df[, c(paste0(var, "_2"), paste0(var, "_5"))], na.rm = TRUE)
+  
+  # Create composite_36 = mean of _3 and _6
+  df[[paste0(var, "_36")]] <- rowMeans(df[, c(paste0(var, "_3"), paste0(var, "_6"))], na.rm = TRUE)
+}
+
+# Drop first row (my test)
+df <- df[-1, ]
+```
+# Results
+
+
+## Descriptives
+
+### Rank
+
+```{r}
+# df %>% 
+#   mutate(rank = factor(rank, ordered = TRUE, 
+#         levels = c("DDK", "9kyu-5kyu", "4kyu-1kyu", "1Dan-2Dan", "3Dan-5Dan", "5Dan+"))
+#   ) %>% 
+#   ggplot(aes(x = rank)) +
+#   geom_bar(aes(y = after_stat(prop), group = 1), fill = "steelblue", color = "black") +
+#   scale_y_continuous(labels = scales::percent) +
+#   labs(title = "Proportion of Player Ranks", x = "Rank", y = "Percent")   
+
+df %>% 
+  mutate(rank = factor(rank, ordered = TRUE, 
+        levels = c("DDK", "9kyu-5kyu", "4kyu-1kyu", "1Dan-2Dan", "3Dan-5Dan", "5Dan+"))
+  ) %>% 
+  count(rank) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = rank, y = prop, fill = rank)) +
+  geom_col(color = "black") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proportion of Player Ranks", x = "Rank", y = "Percent") +
+  scale_fill_brewer(palette = "GnBu", direction = 1) +
+  guides(fill = "none")
+```
+
+
+### MTI
+
+```{r}
+# df %>%
+#   ggplot(aes(x = MTI_total, fill = after_stat(x))) +
+#   geom_histogram(binwidth = 4, color = "black", alpha = 0.8) +
+#   scale_fill_distiller(palette = "GnBu", direction = 1, name = "Score") +
+#   scale_x_continuous(breaks = seq(0, 100, by = 5)) +
+#   labs(title = "Distribution of MTI Total Scores",
+#        x = "Total Score", y = "Count")
+
+df %>%
+  ggplot(aes(x = MTI_total, y = after_stat(count / sum(count)), fill = after_stat(x))) +
+  geom_histogram(binwidth = 4, color = "black", alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_distiller(palette = "GnBu", direction = 1, name = "Score") +
+  scale_x_continuous(breaks = seq(0, 100, by = 5)) +
+  labs(title = "Distribution of MTI Total Scores",
+       x = "Total Score", y = "Percent")
+```
+
+```{r}
+df %>% 
+  select(matches("^mti_\\d+$")) %>% 
+  mutate(across(everything(), ~ factor(.x, levels = 1:7))) %>% 
+  gglikert(variable_labels = setNames(MTI_items_text, paste0("mti_", seq_along(MTI_items_text))), symmetric = TRUE) +
+    guides(fill = guide_legend(nrow = 1)) 
+
+```
+
+
+
+## Preliminary results
+
+### 1-3
+
+```{r}
+create_ggwithinstats_plots(df, var_names = EG_colnames, problems = 1:3)
+```
+
+### Selection
+
+```{r}
+plot_uo13 <- my_ggwithinstats(df, "unpredictable_outcome", problems = 1:3)
+plot_uo46 <- my_ggwithinstats(df, "unpredictable_outcome", problems = 4:6)
+# fast_tiffsave(plot_uo13, here::here(), width = 5, height = 5)
+# fast_tiffsave(plot_uo46, here::here(), width = 5, height = 5)
+
+plot_cw13 <- my_ggwithinstats(df, "confident_winning", problems = 1:3)
+plot_cw46 <- my_ggwithinstats(df, "confident_winning", problems = 4:6)
+# fast_tiffsave(plot_cw13, here::here(), width = 5, height = 5)
+# fast_tiffsave(plot_cw46, here::here(), width = 5, height = 5)
+```
+
+
+### StrongRank 1-3
+
+```{r}
+df %>%
+  filter(!rank %in% c("9kyu-5kyu", "DDK")) %>%
+  create_ggwithinstats_plots(., var_names = EG_colnames, problems = 1:3)
+```
+
+
+### 4-6
+
+```{r}
+create_ggwithinstats_plots(df, var_names = EG_colnames, problems = 4:6)
+```
+
+### StrongRank 4-6
+
+```{r}
+df %>%
+  filter(!rank %in% c("9kyu-5kyu", "DDK")) %>%
+  create_ggwithinstats_plots(., var_names = EG_colnames, problems = 4:6)
+```
+
+
+
+### Composites 14, 25, 36
+
+```{r}
+create_ggwithinstats_plots(df, var_names = EG_colnames, problems = c(14, 25, 36))
+```
+
+
+### StrongRank Composites 14, 25, 36
+
+```{r}
+df %>%
+  filter(!rank %in% c("9kyu-5kyu", "DDK")) %>%
+  create_ggwithinstats_plots(., var_names = EG_colnames, problems = c(14, 25, 36))
+```
+
+
+```{r}
+df %>% 
+  select(MTI_total, ends_with(c("_14", "_25", "_36"))) %>%
+  ggcorrmat(
+    data     = .,
+    title    = "Correlalogram",
+    subtitle = "..."
+  )
+```
+
+
+
+## HLM
+
+<!--
+
+```{r}
+df_comp <- df %>%
+  select(id, rank, ends_with(c("_14", "_25", "_36"))) %>%
+  pivot_longer(
+    cols = -c(id, rank),
+    names_to = c("variable", "time"),
+    names_pattern = "(.*)_(\\d+)",
+    values_to = "value"
+  ) %>%
+  mutate(
+    time = case_when(
+      time == "14" ~ 1,
+      time == "25" ~ 2,
+      time == "36" ~ 3
+    )
+  ) %>%
+  pivot_wider(
+    names_from = variable,
+    values_from = value
+  )
+
+
+lmm_mod_1 <-  
+  lme4::lmer(
+    data = df_comp,
+    formula = 
+      `off-balance` ~  1 + 
+      # certain_continuation +
+      # confident_winning +
+      unpredictable_outcome +
+      chaotic +
+      # in_control +
+      overwhelming +  
+      frustrating +
+      (1 + time | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+
+```{r}
+df_comp_r <-
+  df_comp %>% 
+  filter(!rank %in% c("9kyu-5kyu", "DDK"))
+
+lmm_mod_2 <-  
+  lme4::lmer(
+    data = df_comp_r,
+    formula = 
+      `off-balance` ~  1 + 
+      certain_continuation +
+      confident_winning +
+      unpredictable_outcome +
+      chaotic +
+      # in_control +
+      overwhelming +  
+      frustrating +
+      (1 + time | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_2 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+```
+
+-->
+
+
+### Data
+
+```{r}
+df_lmm <- df %>%
+  select(id, rank, MTI_total, all_of(paste0(rep(EG_colnames, times = 6), "_", rep(1:6, each = length(EG_colnames))))) %>%
+  # filter(!rank %in% c("9kyu-5kyu", "DDK")) %>%
+  pivot_longer(
+    cols = -c(id, rank, MTI_total),
+    names_to = c("variable", "time"),
+    names_pattern = "(.*)_(\\d+)",
+    values_to = "value"
+  ) %>% 
+  mutate(problem = case_when(time %in% c(1, 2, 3) ~ "C6", time %in% c(4, 5, 6) ~ "C8", .unmatched = "error")) %>% 
+  mutate(blunder = if_else(time %in% c(3, 6), 1, 0)) %>% 
+  mutate(time_old = as.numeric(time)) %>% 
+  mutate(time = if_else(time_old < 4, time_old, time_old - 3)) %>% 
+  pivot_wider(
+    names_from = variable,
+    values_from = value
+  ) %>% 
+  mutate(tilt = `off-balance` + frustrating) %>% 
+  mutate(time = factor(time)) # 1→2 isn't necessarily equal to 2→3; need time as factor orig → modif → blunder
+```  
+    
+### Model
+
+```{r}
+# off-balance -> yes
+
+df_lmm_ob <- df_lmm %>% mutate(off_balance = `off-balance`)
+
+lmm_mod_f1 <-  
+  lme4::lmer(
+    data = df_lmm_ob,
+    formula = 
+      off_balance ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+
+lmm_mod_f_t <-  
+  lme4::lmer(
+    data = df_lmm_ob,
+    formula = 
+      tilt ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f_f <-  
+  lme4::lmer(
+    data = df_lmm_ob,
+    formula = 
+      frustrating ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  )
+
+
+lmm_mod_f1mod <-  
+  lme4::lmer(
+    data = df_lmm_ob,
+    formula = 
+      off_balance ~ problem + time + MTI_total + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f1mod %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+```{r}
+report::report(lmm_mod_f1)
+
+sjPlot::tab_model(lmm_mod_f1)
+sjPlot::tab_model(lmm_mod_f_t)
+sjPlot::tab_model(lmm_mod_f_f)
+# sjPlot::tab_model(lmm_mod_f1mod)
+# statAPA::apa_multilevel(lmm_mod_f1, lmm_mod_f1mod)
+
+```
+
+
+
+```{r}
+# frustrating -> no
+
+# lmm_mod_f2 <-
+#   lme4::lmer(
+#     data = df_lmm,
+#     formula =
+#       frustrating ~ problem + time + MTI_total + (1 | id),
+#     REML = FALSE,
+#     control = lme4::lmerControl(
+#       optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+#     )
+#   )
+# 
+# lmm_mod_f2 %>%
+#   lmerTest::as_lmerModLmerTest() %>%
+#   lmerTest:::summary.lmerModLmerTest()
+```
+
+
+```{r}
+sjPlot::tab_model(lmm_mod_f1)
+# sjPlot::tab_model(lmm_mod_f1mod)
+# statAPA::apa_multilevel(lmm_mod_f1, lmm_mod_f1mod)
+
+```
+
+
+```{r}
+# in_control
+
+lmm_mod_f3 <-  
+  lme4::lmer(
+    data = df_lmm,
+    formula = 
+      in_control ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f3 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+```{r}
+# unpredictable_outcome
+
+lmm_mod_f4 <-  
+  lme4::lmer(
+    data = df_lmm,
+    formula = 
+      unpredictable_outcome ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f4 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+```{r}
+# confident_winning
+
+lmm_mod_f5 <-  
+  lme4::lmer(
+    data = df_lmm,
+    formula = 
+      confident_winning ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f5 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+```{r}
+# overwhelming
+
+lmm_mod_f6 <-  
+  lme4::lmer(
+    data = df_lmm,
+    formula = 
+      overwhelming ~ problem + time + (1 | id), 
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  ) 
+
+lmm_mod_f6 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+```{r}
+
+for(mod in paste0("lmm_mod_f", 3:6)) {
+  mod_obj <- get(mod)
+  lmerTest::as_lmerModLmerTest(mod_obj) %>%
+  lmerTest:::summary.lmerModLmerTest() %>% 
+  print()
+}  
+  
+
+# sjPlot::tab_model(lmm_mod_f3)
+# sjPlot::tab_model(lmm_mod_f4)
+# sjPlot::tab_model(lmm_mod_f5)
+# sjPlot::tab_model(lmm_mod_f6)
+
+sjPlot::tab_model(lmm_mod_f3, lmm_mod_f4, lmm_mod_f5, lmm_mod_f6)
+```
+
+```{r}
+m1 <- lme4::lmer(unpredictable_outcome ~ time + (1|id), data=df_lmm)
+m2 <- lme4::lmer(`off-balance` ~ time + (1|id), data=df_lmm)
+m3 <- lme4::lmer(`off-balance` ~ time + unpredictable_outcome + (1|id), data=df_lmm)
+
+m1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+m2 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+m3 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+```
+
+
+## Mediation
+
+```{r}
+library(mediation)
+
+df_lmm$time_num <- as.numeric(df_lmm$time)
+
+m1 <- lme4::lmer(unpredictable_outcome ~ time_num + (1|id), data=df_lmm)
+m2 <- lme4::lmer(`off-balance` ~ time_num + unpredictable_outcome + (1|id), data=df_lmm)
+
+med <- mediation::mediate(
+  m1, m2,
+  treat = "time_num",
+  mediator = "unpredictable_outcome",
+  boot = FALSE,
+  sims = 2000
+)
+
+summary(med)
+plot(med)
+```
+
+
+
+
+## Full Model
+
+```{r}
+lmm_mod_full_1 <-
+  lme4::lmer(
+    data = df_lmm,
+    formula =
+      tilt ~
+        # problem +
+        # time +
+        certain_continuation +
+        confident_winning +
+        in_control +
+        unpredictable_outcome +
+        overwhelming +
+        MTI_total +
+        (1|id),
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  )
+
+parameters::select_parameters(lmm_mod_full_1, direction = "backward")
+cAIC4::stepcAIC(lmm_mod_full_1, direction = "backward", data = df_lmm)
+
+
+lmm_mod_full_1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest()
+
+
+lmm_mod_full_2 <-
+  lme4::lmer(
+    data = df_lmm,
+    formula =
+      `off-balance` ~
+        confident_winning +
+        in_control +
+        unpredictable_outcome +
+        overwhelming +
+        MTI_total +
+        (1|id),
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  )
+
+lmm_mod_full_2 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest()
+
+lmm_mod_full_3 <-
+  lme4::lmer(
+    data = df_lmm,
+    formula =
+      frustrating ~
+        confident_winning +
+        in_control +
+        unpredictable_outcome +
+        overwhelming +
+        MTI_total +
+        (1|id),
+    REML = FALSE,
+    control = lme4::lmerControl(
+      optimizer = "optimx", optCtrl=list(method = "nlminb") # solve failed convergence
+    )
+  )
+
+lmm_mod_full_3 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest()
+```
+
+```{r}
+report::report(lmm_mod_full_1)
+
+# statAPA::apa_multilevel(lmm_mod_full_1, output = "latex")
+# setwd(here::here()); statAPA::apa_multilevel(lmm_mod_full_2, output = "word", file = "2.docx")
+
+sjPlot::tab_model(lmm_mod_full_1)
+sjPlot::tab_model(lmm_mod_full_2)
+sjPlot::tab_model(lmm_mod_full_3)
+```
+
+
+
+
+
+
+
+
+# Wacky data stories
+
+```{r}
+df_story <- df %>% 
+  filter(rank %in% c("1Dan-2Dan", "3Dan-5Dan"))  
+  
+df_story %>%   
+  select(id, rank, MTI_total) %>% 
+  arrange(MTI_total)   # mean 33 vs mean 43
+
+df_story <- 
+  df_story %>% 
+  mutate(rank_cat = droplevels(rank)) %>% 
+  mutate(MTI_cat = case_when(MTI_total <= 40 ~ "medium", MTI_total > 40 ~ "high", .unmatched = "error")) %>% 
+  mutate(MTI_cat = factor(MTI_cat, ordered = TRUE, levels = c("medium", "high")))
+
+table(df_story$rank_cat, df_story$MTI_cat)
+
+```
+
+### 1-3
+
+```{r}
+# create_ggwithinstats_plots(df_story, var_names = EG_colnames, problems = 1:3)
+
+create_trajectory_plots(df_story, var_names = EG_colnames, problems = 1:3)
+```
+
+
+### 4-6
+
+```{r}
+# create_ggwithinstats_plots(df_story, var_names = EG_colnames, problems = 4:6)
+
+create_trajectory_plots(df_story, var_names = EG_colnames, problems = 4:6)
+```
+
+### Looking more closely at combined plots 
+
+```{r}
+for(var in EG_colnames) {
+  p1 <- get(paste0("traj_", var, "_123"))   # adjust suffix as needed
+  p2 <- get(paste0("traj_", var, "_456"))
+  combined <- cowplot::plot_grid(p1, p2, ncol = 2)
+  print(combined)
+  # optionally assign
+  assign(paste0("combined_", var), combined)
+}
+```
+
+
+
+### Composites 14, 25, 36
+
+```{r}
+create_ggwithinstats_plots(df_story, var_names = EG_colnames, problems = c(14, 25, 36))
+```
+
+```{r}
+create_trajectory_plots(df_story, var_names = EG_colnames, problems = c(14, 25, 36))
+```
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
