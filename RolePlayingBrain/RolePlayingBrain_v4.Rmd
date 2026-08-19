@@ -1,0 +1,2198 @@
+---
+title: "<br> Role Playing Brain" 
+subtitle: "Initial Analysis"
+author: "<br> Claudiu Papasteri"
+date: "`r format(Sys.time(), '%d %m %Y')`"
+output: 
+    html_notebook:
+            code_folding: hide
+            toc: true
+            toc_depth: 2
+            number_sections: true
+            theme: spacelab
+            highlight: tango
+            font-family: Arial
+            fig_width: 10
+            fig_height: 9
+    # pdf_document: 
+            # toc: true
+            # toc_depth: 2
+            # number_sections: true
+            # fontsize: 11pt
+            # geometry: margin=1in
+            # fig_width: 7
+            # fig_height: 6
+            # fig_caption: true
+    # github_document: 
+            # toc: true
+            # toc_depth: 2
+            # html_preview: false
+            # fig_width: 5
+            # fig_height: 5
+            # dev: jpeg
+---
+
+
+<!-- Setup -->
+
+
+```{r setup, include=FALSE}
+# General R options
+set.seed(111)               # in case we use randomized procedures       
+options(scipen = 999)       # positive values bias towards fixed and negative towards scientific notation
+options(repos = c(getOption("repos")["CRAN"], CRANextra = "https://mirror.clientvps.com/CRAN/"))  # use CRAN as default, set CRANextra to Nürnberg mirror
+
+
+if (!require("pacman")) install.packages("pacman", dependencies = TRUE)
+packages <- c(
+  "papaja",
+  "here", "fs",
+  "conflicted",
+  "rio",
+  "tidyverse", 
+  "psych",          
+  "rstatix", 
+  "ggplot2", "ggpubr", "scales",
+  "ggstatsplot", "report", 
+  "ggstats", 
+  "lmer4", "lmerTest", "merTools", "statAPA", "sjPlot"
+  # , ...
+)
+pacman::p_load(char = packages)
+
+# Set here to Rnotebook directory
+here::set_here()
+unloadNamespace("here")                   # need new R session or unload namespace for .here file to take precedence over .Rproj
+notebook_name <- fs::path_file(here::here())
+
+# Solve conflicts in favor of tidyverse
+conflicted::conflict_prefer("filter", winner = "dplyr")
+conflicted::conflict_prefer("select", winner = "dplyr")
+conflicted::conflict_prefer("slice", winner = "dplyr")
+conflicted::conflict_prefer("rename", winner = "dplyr")
+conflicted::conflict_prefer("count", winner = "dplyr")
+
+# Set kintr options including root.dir pointing to the .here file in Rnotebook directory
+knitr::opts_chunk$set(
+  root.dir = here::here(),
+  #fig.width = 5, fig.asp = 1/3, 
+  comment = "#",
+  collapse = TRUE,
+  echo = TRUE, warning = TRUE, message = TRUE, cache = TRUE       # echo = False for github_document, but will be folded in html_notebook
+)
+
+# Themes for ggplot2 plotting (here used APA style)
+theme_set(papaja::theme_apa())
+```
+
+
+
+
+<!-- Functions -->
+
+# Define functions
+
+```{r}
+excel_colnum <- function(range_str) {
+
+  excel_col_number <- function(label) {
+    # Convert to uppercase to handle case sensitivity
+    label <- toupper(label)
+    
+    # Split into characters and reverse for proper place value
+    chars <- strsplit(label, "")[[1]]
+    chars_rev <- rev(chars)
+    
+    # Calculate: sum of (letter position * 26^position)
+    result <- 0
+    for (i in seq_along(chars_rev)) {
+      letter_value <- match(chars_rev[i], LETTERS)  # A=1, B=2, ..., Z=26
+      result <- result + letter_value * (26 ^ (i - 1))
+    }
+    return(result)
+  }
+  
+  # Split by colon to get start and end
+  parts <- strsplit(range_str, ":")[[1]]
+  
+  if (length(parts) == 1) {
+    # Single column
+    return(excel_col_number(parts[1]))
+  } else {
+    # Range of columns
+    start_num <- excel_col_number(parts[1])
+    end_num <- excel_col_number(parts[2])
+    return(start_num:end_num)
+  }
+}
+
+# Examples
+# excel_colnum("A")    # 1
+# excel_colnum("Z")    # 26
+# excel_colnum("AA")   # 27
+# excel_colnum("AZ")   # 52
+# excel_colnum("BA")   # 53
+# excel_colnum("AA:BA") # 27:53
+# excel_colnum("AAA")  # 703
+# on this data "JH" is "observatii" column; excel_colnum("JH"); names(df_m[, excel_colnum("JH"), drop=F]); all good
+```
+
+
+```{r}
+# Define pipe-friendly recode function for questionnaire items.
+recode_item_columns <- function(data, 
+                                  columns = NULL,
+                                  pattern_vec = NULL,
+                                  new_values_vec = NULL,
+                                  verbose = TRUE) {
+  
+  require(tidyverse)
+  
+  # Default patterns (regex-friendly) and corresponding values
+  if (is.null(pattern_vec)) {
+    pattern_vec <- c(
+      "strongly\\s?disagree",  # matches "strongly disagree" or "stronglydisagree"
+      "disagree",
+      "neutral",
+      "agree",
+      "strongly\\s?agree"      # matches "strongly agree" or "stronglyagree"
+    )
+  }
+  
+  if (is.null(new_values_vec)) {
+    new_values_vec <- c(1, 2, 3, 4, 5)
+  }
+  
+  # Validate inputs
+  if (length(pattern_vec) != length(new_values_vec)) {
+    stop("pattern_vec and new_values_vec must be the same length")
+  }
+  
+  # Build recode map from the two vectors
+  recode_map <- setNames(new_values_vec, pattern_vec)
+  
+  # If no columns specified, detect all character columns
+  if (is.null(columns)) {
+    columns <- data %>%
+      select(where(is.character)) %>%
+      names()
+  }
+  
+  # Store original values for validation
+  original_data <- data %>% select(all_of(columns))
+  
+  # Apply recoding
+  result <- data
+  
+  for (col in columns) {
+    # Initialize recoded column with NA
+    recoded <- rep(NA_real_, nrow(data))
+    
+    # Apply each pattern in order
+    for (i in seq_along(pattern_vec)) {
+      pattern <- pattern_vec[i]
+      new_value <- new_values_vec[i]
+      
+      # Find rows matching this pattern (case insensitive)
+      matches <- str_detect(data[[col]], regex(pattern, ignore_case = TRUE))
+      
+      # Assign new value (only if not already assigned from earlier pattern)
+      recoded[matches & is.na(recoded)] <- new_value
+    }
+    
+    # Create new column
+    result[[paste0(col, "_recode")]] <- recoded
+  }
+  
+  # Validation
+  if (verbose) {
+    recoded_cols <- paste0(columns, "_recode")
+    
+    for (i in seq_along(columns)) {
+      original <- original_data[[columns[i]]]
+      recoded <- result[[recoded_cols[i]]]
+      
+      # Check for NAs introduced
+      non_empty_original <- original[!is.na(original) & original != "" & original != " "]
+      na_introduced <- sum(is.na(recoded[!is.na(original) & original != "" & original != " "]))
+      
+      if (na_introduced > 0) {
+        warning(
+          sprintf(
+            "\nColumn '%s': %d values were not recoded (introduced NAs).\n",
+            columns[i], na_introduced
+          )
+        )
+        
+        # Show examples of unmapped values
+        unmapped <- unique(original[is.na(recoded) & !is.na(original) & original != "" & original != " "])
+        if (length(unmapped) > 0) {
+          message(sprintf("  Unmapped values in '%s':\n    %s\n", 
+                          columns[i], 
+                          paste(head(unmapped, 10), collapse = "\n    ")))
+        }
+      } else {
+        message(sprintf("✓ Column '%s': All %d values successfully recoded", 
+                        columns[i], sum(!is.na(original) & original != "")))
+      }
+    }
+  }
+  
+  return(result)
+}
+
+
+#####################
+
+# # Example usage
+# set.seed(123)
+# sample_data <- tibble(
+#   id = 1:10,
+#   q1 = sample(c("Strongly Agree", "Agree", "Neutral", "Disagree", "Strongly Disagree"), 10, replace = TRUE),
+#   q2 = sample(c("strongly agree", "agree", "neutral", "disagree", "strongly disagree"), 10, replace = TRUE),
+#   q3 = sample(c("Strongly Agree", "Agree", "Neutral", "Disagree", "Strongly disagree"), 10, replace = TRUE),
+#   q4 = sample(c("Strongly Agree", "Agree", "Neutral", "Disagree", "STRONGLY DISAGREE"), 10, replace = TRUE),
+#   # Include some typos for demonstration
+#   q5 = sample(c("Strongly Agree", "Agree", "Neutral", "Disagree", "StronglyDisagree"), 10, replace = TRUE)
+# )
+# 
+# # Example 1: Default usage
+# result1 <- recode_item_columns(sample_data)
+# print(result1)
+# 
+# # Example 2: Custom patterns with regex
+# custom_patterns <- c(
+#   "^strongly\\s?disagree$|^sd$",  # matches "strongly disagree", "stronglydisagree", "sd"
+#   "^disagree$|^d$",
+#   "^neutral$|^n$",
+#   "^agree$|^a$",
+#   "^strongly\\s?agree$|^sa$"      # matches "strongly agree", "stronglyagree", "sa"
+# )
+# 
+# custom_values <- c(1, 2, 3, 4, 5)
+# 
+# result2 <- recode_item_columns(
+#   sample_data,
+#   columns = c("q1", "q2", "q3"),
+#   pattern_vec = custom_patterns,
+#   new_values_vec = custom_values
+# )
+# 
+# # Example 3: 7-point Likert with regex patterns
+# likert7_patterns <- c(
+#   "strongly\\s?disagree|very\\s?strongly\\s?disagree",
+#   "disagree",
+#   "somewhat\\s?disagree|slightly\\s?disagree",
+#   "neutral|neither",
+#   "somewhat\\s?agree|slightly\\s?agree",
+#   "agree",
+#   "strongly\\s?agree|very\\s?strongly\\s?agree"
+# )
+# 
+# likert7_values <- c(1, 2, 3, 4, 5, 6, 7)
+# 
+# # Example 4: Reverse coding (e.g., for negatively worded items)
+# reverse_patterns <- c(
+#   "strongly\\s?agree",
+#   "agree",
+#   "neutral",
+#   "disagree",
+#   "strongly\\s?disagree"
+# )
+# 
+# reverse_values <- c(5, 4, 3, 2, 1)  # Reversed!
+# 
+# result3 <- recode_item_columns(
+#   sample_data,
+#   columns = c("q1", "q2"),
+#   pattern_vec = reverse_patterns,
+#   new_values_vec = reverse_values
+# )
+# 
+# # Example 5: Using with different column names
+# result4 <- recode_item_columns(
+#   sample_data,
+#   columns = c("q1", "q5"),  # q5 has "StronglyDisagree" typo
+#   pattern_vec = c(
+#     "strongly\\s?disagree",  # catches "StronglyDisagree" too
+#     "disagree",
+#     "neutral",
+#     "agree",
+#     "strongly\\s?agree"
+#   ),
+#   new_values_vec = c(1, 2, 3, 4, 5)
+# )
+# 
+# # View summary of recoding
+# summary_stats <- function(data, suffix = "_recode") {
+#   recoded_cols <- names(data)[str_detect(names(data), suffix)]
+#   
+#   map_dfr(recoded_cols, ~{
+#     col_name <- str_remove(.x, suffix)
+#     tibble(
+#       original_col = col_name,
+#       recoded_col = .x,
+#       n_valid = sum(!is.na(data[[.x]])),
+#       n_missing = sum(is.na(data[[.x]])),
+#       mean = mean(data[[.x]], na.rm = TRUE),
+#       sd = sd(data[[.x]], na.rm = TRUE)
+#     )
+#   })
+# }
+# 
+# summary_stats(result4)
+```
+
+
+```{r}
+# Function to convert recoded columns to numeric in place
+convert_recoded_to_numeric <- function(data, 
+                                       original_cols = NULL,
+                                       suffix = "_recode",
+                                       verbose = TRUE) {
+  
+  require(tidyverse)
+  
+  # If no columns specified, detect all columns ending with suffix
+  if (is.null(original_cols)) {
+    # Find all recoded columns
+    recoded_cols <- names(data)[str_detect(names(data), paste0(suffix, "$"))]
+    # Extract original names
+    original_cols <- str_remove(recoded_cols, suffix)
+  } else {
+    # Construct recoded column names
+    recoded_cols <- paste0(original_cols, suffix)
+  }
+  
+  # Check which recoded columns exist
+  existing_recoded <- recoded_cols[recoded_cols %in% names(data)]
+  
+  if (length(existing_recoded) == 0) {
+    stop("No recoded columns found. Make sure the suffix is correct.")
+  }
+  
+  # Convert to numeric in place
+  result <- data
+  
+  for (col_name in existing_recoded) {
+    # Store original for validation
+    original_vals <- data[[col_name]]
+    
+    # Attempt conversion
+    converted <- suppressWarnings(as.numeric(original_vals))
+    
+    # Check for coercion issues
+    if (verbose) {
+      non_na_original <- !is.na(original_vals)
+      na_introduced <- sum(is.na(converted) & non_na_original)
+      
+      if (na_introduced > 0) {
+        warning(
+          sprintf(
+            "\nColumn '%s': %d values could not be coerced to numeric.\n",
+            col_name, na_introduced
+          )
+        )
+        
+        # Show examples of problematic values
+        problematic <- unique(original_vals[non_na_original & is.na(converted)])
+        if (length(problematic) > 0) {
+          message(sprintf("  Problematic values in '%s':\n    %s\n", 
+                         col_name, 
+                         paste(head(problematic, 10), collapse = "\n    ")))
+        }
+      } else {
+        message(sprintf("✓ Column '%s': All %d values successfully coerced to numeric", 
+                       col_name, sum(non_na_original)))
+      }
+      
+      # Show range
+      if (sum(!is.na(converted)) > 0) {
+        min_val <- min(converted, na.rm = TRUE)
+        max_val <- max(converted, na.rm = TRUE)
+        message(sprintf("  Range: %.0f to %.0f", min_val, max_val))
+      }
+    }
+    
+    # Replace column with numeric values (in place)
+    result[[col_name]] <- converted
+  }
+  
+  return(result)
+}
+
+#####################
+
+# # Example usage:
+# df_q <- df_q %>%
+#   convert_recoded_to_numeric(original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"))
+# 
+# # Or if you want all recoded columns automatically:
+# df_q <- df_q %>%
+#   convert_recoded_to_numeric()  # Will find all columns ending with "_recode"
+# 
+# # If you want to remove the original recoded columns after conversion:
+# df_q <- df_q %>%
+#   convert_recoded_to_numeric() %>%
+#   select(-ends_with("_recode"))  # Remove recoded text columns
+# 
+# # Or keep both for verification:
+# df_q <- df_q %>%
+#   convert_recoded_to_numeric()  # Keeps both recoded text and numeric versions
+```
+
+```{r}
+## Define function that reverses recoded columns in place
+reverse_recoded_columns <- function(data,
+                                   original_cols = NULL,
+                                   suffix = "_recode",
+                                   min = NULL,
+                                   max = NULL,
+                                   verbose = TRUE) {
+  
+  require(tidyverse)
+  
+  # If original_cols not specified, detect all columns with the suffix
+  if (is.null(original_cols)) {
+    recoded_cols <- names(data)[str_detect(names(data), paste0(suffix, "$"))]
+    if (length(recoded_cols) == 0) {
+      stop(sprintf("No columns ending with '%s' found.", suffix))
+    }
+    original_cols <- str_remove(recoded_cols, suffix)
+    if (verbose) {
+      message(sprintf("Auto-detected %d recoded columns: %s", 
+                     length(recoded_cols), 
+                     paste(original_cols, collapse = ", ")))
+    }
+  }
+  
+  # Construct recoded column names
+  recoded_cols <- paste0(original_cols, suffix)
+  
+  # Check which recoded columns exist
+  existing_recoded <- recoded_cols[recoded_cols %in% names(data)]
+  if (length(existing_recoded) == 0) {
+    stop(sprintf("No recoded columns found with suffix '%s'.", suffix))
+  }
+  
+  # Detect min and max if not provided
+  if (is.null(min) || is.null(max)) {
+    # Collect all values from existing recoded columns
+    all_vals <- unlist(data[, existing_recoded], use.names = FALSE)
+    all_vals <- all_vals[!is.na(all_vals)]
+    
+    if (length(all_vals) == 0) {
+      stop("No non-NA values found in recoded columns. Cannot detect min/max.")
+    }
+    
+    if (is.null(min)) {
+      min <- min(all_vals, na.rm = TRUE)
+      if (verbose) message(sprintf("Auto-detected min = %d", min))
+    }
+    if (is.null(max)) {
+      max <- max(all_vals, na.rm = TRUE)
+      if (verbose) message(sprintf("Auto-detected max = %d", max))
+    }
+  }
+  
+  # Apply reverse coding in place
+  for (col in existing_recoded) {
+    # Store original for validation
+    original_vals <- data[[col]]
+    
+    # Apply reverse: new = (max + min) - old
+    data[[col]] <- (max + min) - original_vals
+    
+    if (verbose) {
+      # Count non-NA values
+      n_success <- sum(!is.na(original_vals))
+      message(sprintf("✓ Reversed '%s' (min=%d, max=%d): %d values updated", 
+                     col, min, max, n_success))
+    }
+  }
+  
+  return(data)
+}
+
+
+#######
+
+# # Example usage:
+# 
+# # First, recode items
+# df_q <- df_q %>%
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5"))
+# 
+# # Example 1: Auto-detect and reverse all recoded columns
+# df_q <- df_q %>%
+#   reverse_recoded_columns()
+# 
+# # Example 2: Reverse specific columns (auto-detect min/max)
+# df_q <- df_q %>%
+#   reverse_recoded_columns(
+#     original_cols = c("who_2", "who_4")
+#   )
+# 
+# # Example 3: Reverse specific columns with explicit min/max
+# df_q <- df_q %>%
+#   reverse_recoded_columns(
+#     original_cols = c("who_2", "who_4"),
+#     min = 1,
+#     max = 5
+#   )
+# 
+# # Example 4: Silent mode
+# df_q <- df_q %>%
+#   reverse_recoded_columns(
+#     original_cols = c("who_2", "who_4"),
+#     min = 1,
+#     max = 5,
+#     verbose = FALSE
+#   )
+# 
+# # Complete workflow:
+# df_q <- df_q %>%
+#   # Step 1: Recode text to numeric codes
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5")) %>%
+#   
+#   # Step 2: Reverse code specific items (in place)
+#   reverse_recoded_columns(
+#     original_cols = c("who_2", "who_4"),
+#     min = 1,
+#     max = 5
+#   ) %>%
+#   
+#   # Step 3: Score using recoded columns (now reversed where needed)
+#   mutate(
+#     who_total = ScoreLikert2(., 
+#                             original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                             engine = "sum",
+#                             verbose = FALSE)
+#   )
+```
+
+
+
+```{r}
+## Define function that scores questionnaire items with proper NA handling
+## Assumes data already has recoded columns ending with "_recode"
+score_recoded <- function(data, 
+                         original_cols = NULL,    # Original column names (without suffix)
+                         suffix = "_recode",      # Suffix for recoded columns
+                         reversecols = NULL,      # Original column names to reverse code
+                         min = NULL,              # Minimum value for reverse coding
+                         max = NULL,              # Maximum value for reverse coding
+                         napercent = 0.1,         # Max proportion of NAs allowed per row
+                         engine = "sum",          # "sum", "mean", or "mean_na"
+                         verbose = TRUE) {
+  
+  require(tidyverse)
+  
+  # If original_cols not specified, detect all columns with the suffix
+  if (is.null(original_cols)) {
+    recoded_cols <- names(data)[str_detect(names(data), paste0(suffix, "$"))]
+    if (length(recoded_cols) == 0) {
+      stop(sprintf("No columns ending with '%s' found.", suffix))
+    }
+    # Extract original names
+    original_cols <- str_remove(recoded_cols, suffix)
+    if (verbose) {
+      message(sprintf("Auto-detected %d recoded columns: %s", 
+                      length(recoded_cols), 
+                      paste(original_cols, collapse = ", ")))
+    }
+  }
+  
+  # Construct recoded column names
+  recoded_cols <- paste0(original_cols, suffix)
+  
+  # Check which recoded columns exist
+  existing_recoded <- recoded_cols[recoded_cols %in% names(data)]
+  if (length(existing_recoded) == 0) {
+    stop(sprintf("No recoded columns found with suffix '%s'.", suffix))
+  }
+  
+  # Show which columns are missing
+  missing_recoded <- recoded_cols[!recoded_cols %in% names(data)]
+  if (length(missing_recoded) > 0 && verbose) {
+    warning(sprintf("Missing recoded columns: %s", 
+                    paste(missing_recoded, collapse = ", ")))
+  }
+  
+  # Create working dataset with existing recoded columns
+  df <- data %>% select(all_of(existing_recoded))
+  
+  # Check if data is numeric (should be, but just in case)
+  non_numeric <- names(df)[!sapply(df, is.numeric)]
+  if (length(non_numeric) > 0) {
+    warning(sprintf("Non-numeric columns found: %s. Attempting to coerce.", 
+                    paste(non_numeric, collapse = ", ")))
+    df <- df %>%
+      mutate(across(all_of(non_numeric), ~ as.numeric(as.character(.))))
+  }
+  
+  # Handle reverse coding
+  if (!is.null(reversecols)) {
+    # Construct recoded names for reverse columns
+    reverse_recoded <- paste0(reversecols, suffix)
+    
+    # Check which reverse columns exist in our working df
+    reverse_existing <- reverse_recoded[reverse_recoded %in% names(df)]
+    if (length(reverse_existing) == 0) {
+      warning("No reverse coding columns found. Skipping reverse coding.")
+    } else {
+      # Extract original names for reporting
+      reverse_original <- str_remove(reverse_existing, suffix)
+      
+      # Validate min and max
+      if (is.null(min) || is.null(max)) {
+        # Try to detect from data
+        all_vals <- unlist(df[, reverse_existing], use.names = FALSE)
+        detected_min <- min(all_vals, na.rm = TRUE)
+        detected_max <- max(all_vals, na.rm = TRUE)
+        
+        if (is.null(min)) {
+          min <- detected_min
+          if (verbose) message(sprintf("Auto-detected min = %d", min))
+        }
+        if (is.null(max)) {
+          max <- detected_max
+          if (verbose) message(sprintf("Auto-detected max = %d", max))
+        }
+      }
+      
+      # Apply reverse coding
+      if (verbose) {
+        message(sprintf("Reverse coding %d items: %s", 
+                        length(reverse_existing), 
+                        paste(reverse_original, collapse = ", ")))
+        message(sprintf("  Using min = %d, max = %d", min, max))
+      }
+      
+      df[, reverse_existing] <- (max + min) - df[, reverse_existing]
+    }
+  }
+  
+  # Calculate scores based on engine
+  if (engine == "sum") {
+    # Sum scores, with NA handling based on napercent
+    scores <- ifelse(
+      rowSums(is.na(df)) > ncol(df) * napercent,
+      NA,
+      rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+    )
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'sum'"))
+      message(sprintf("  Allowed NA proportion per row: %.1f%%", napercent * 100))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.0f to %.0f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+      message(sprintf("  Rows with all NAs: %d", sum(rowSums(!is.na(df)) == 0)))
+    }
+    
+  } else if (engine == "mean") {
+    # Mean scores, with NA handling
+    scores <- ifelse(
+      rowMeans(is.na(df)) > ncol(df) * napercent,
+      NA,
+      rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+    )
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'mean'"))
+      message(sprintf("  Allowed NA proportion per row: %.1f%%", napercent * 100))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.2f to %.2f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+      message(sprintf("  Rows with all NAs: %d", sum(rowSums(!is.na(df)) == 0)))
+    }
+    
+  } else if (engine == "mean_na") {
+    # Mean with NAs set to 0
+    df_zero <- df
+    df_zero[is.na(df_zero)] <- 0
+    scores <- rowMeans(df_zero)
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'mean_na' (NAs replaced with 0)"))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.2f to %.2f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+    }
+    
+  } else {
+    stop("engine must be 'sum', 'mean', or 'mean_na'")
+  }
+  
+  # Return scores as a vector
+  return(scores)
+}
+
+
+
+################
+
+# # Example usage in workflow:
+# 
+# # First, recode items
+# df_q <- df_q %>%
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5"))
+# 
+# # Now use the scoring function directly on the recoded columns
+# 
+# # Example 1: Auto-detect all recoded columns (sum scores)
+# df_q$who_total <- score_recoded(
+#   data = df_q,
+#   engine = "sum"
+# )
+# 
+# # Example 2: Specify original columns explicitly
+# df_q$who_mean <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean"
+# )
+# 
+# # Example 3: With reverse coding (e.g., items 2 and 4 are reversed)
+# df_q$who_total_rev <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   reversecols = c("who_2", "who_4"),
+#   min = 1,
+#   max = 5
+# )
+# 
+# # Example 4: Mean with more permissive NA handling (allow 20% NAs)
+# df_q$who_mean_liberal <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean",
+#   napercent = 0.2
+# )
+# 
+# # Example 5: Mean with NAs as 0
+# df_q$who_mean_zero <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean_na"
+# )
+# 
+# # Complete workflow with both functions
+# df_q <- df_q %>%
+#   # Step 1: Recode text to numeric codes
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5")) %>%
+#   
+#   # Step 2: Compute scores directly from recoded columns
+#   mutate(
+#     who_sum = score_recoded(., 
+#                            original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                            engine = "sum",
+#                            verbose = FALSE),
+#     
+#     who_mean = score_recoded(., 
+#                             original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                             engine = "mean",
+#                             verbose = FALSE),
+#     
+#     who_sum_rev = score_recoded(., 
+#                                original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                                reversecols = c("who_2", "who_4"),
+#                                min = 1,
+#                                max = 5,
+#                                verbose = FALSE)
+#   )
+```
+
+
+
+
+
+## Quick ggbetweenstats function
+
+```{r}
+# For publication
+library(ggprism)
+
+my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
+                              outlier.tagging = FALSE, results.subtitle = FALSE, 
+                              centrality.label.args = FALSE, point.path = TRUE,
+                              ...) {  # ... for limits and breaks
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  outlier.label <- rlang::enquo(outlier.label)
+  
+  if(centrality.label.args){
+    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
+  }else{
+    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  }
+  
+  plot <- 
+    data %>%
+      ggstatsplot::ggbetweenstats(
+        x = !!x,
+        y = !!y,
+        title = title,
+        xlab = xlab,
+        ylab = ylab,
+        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
+        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
+        outlier.coef = 2,
+        pairwise.comparisons = TRUE,
+        pairwise.display = "significant",
+        results.subtitle = results.subtitle,
+        type = "np",
+        bf.message = FALSE, 
+        p.adjust.method = "holm",
+        point.path = point.path,
+        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
+        # package = "RColorBrewer",  # "ggsci",
+        # palette = "Dark",         # "default_jco",
+        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
+        centrality.plotting = TRUE,
+        centrality.type = "np",
+        centrality.point.args = list(size = 5, color = "black"),
+        centrality.path.args = list(color = "black", size = 1, alpha = 1),
+        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
+                             test.args = list(exact = FALSE)),
+        centrality.label.args = centrality.label.args,
+        ggplot.component = list(
+          theme(
+            plot.title = element_text(hjust = 0, size = 16),
+            plot.subtitle = element_text(hjust = 0, size = 12), 
+            plot.caption = element_text(hjust = 0, size = 12), 
+            text = element_text(family = "Sans", size = 14)
+        ))
+      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
+      scale_y_continuous(...)
+  
+  plot
+}
+
+# Fast ggsave - saves plot with filename of R plot object
+fast_ggsave <- function(plot, device = "tiff", path = NULL,
+                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
+                  device = device, path = path,
+                  units = units, dpi = dpi,
+                  width = width, height = height,
+                  ...
+  )
+  
+} # use: fast_ggsave(jrad_ox_p, path = savefolder)
+
+# Fast tiff save
+fast_tiffsave <- function(plot, path = NULL,
+                          units = "in", res = 300, width = 5, height = 5, ...){ 
+  plot_name <- deparse(substitute(plot))
+  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
+       units = units, res = res,
+       width = width, height = height,
+       ...
+  )
+  plot(plot)
+  dev.off()
+}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
+
+# Errors with ggplot2  --- can use this to save:
+# Cairo::Cairo(
+#   width = 5, 
+#   height = 5, 
+#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
+#   type = "png", 
+#   bg =  "white",    # "transparent" 
+#   dpi = 300,
+#   units = "in"
+# )
+# plot(jrad_ox_p) 
+# dev.off()
+```
+
+
+
+
+<!-- Report -->
+
+# Data
+## Read data
+
+```{r, echo=FALSE}
+last_xlsx_file <-
+  dir(here::here(), pattern = "Date.*xlsx", full.names = TRUE) %>%
+  file.info() %>%
+  dplyr::arrange(dplyr::desc(ctime)) %>%
+  dplyr::slice(1) %>%
+  row.names()
+
+
+# df_q <- rio::import(file = "2026-07-02_Date comportamentale RPB.xlsx", which = "Scale online")  # Questionnaires 
+# df_q <- rio::import(file = "2026-08-05_Date comportamentale RPB.xlsx", which = "Online survey")  # Questionnaires  
+# df_m <- rio::import(file = "Date comportamentale RPB.xlsx", which = "Scale")  # Idiosyncratic measures
+# df_m <- rio::import(file = "2026-08-05_Date comportamentale RPB.xlsx", which = "Scale")  # Idiosyncratic measures
+
+df_q <- rio::import(file = "2026-08-18_Date comportamentale RPB.xlsx", which = "Online survey")  # Questionnaires 
+df_m <- rio::import(file = "2026-08-18_Date comportamentale RPB.xlsx", which = "Scale")  # Idiosyncratic measures
+
+```
+
+# Questionnaire Data
+## Questionnaire data munging
+
+```{r}
+#  ------------------------------------------------------------------------------------
+# All Scales in Appendix B of Research Protocol_ The Role Playing Brain.docx
+# Scalele online, care se completeaza o singura data, in ziua 2 de training.
+# https://www.surveymonkey.com/r/RolePlayBrain
+# ID/Nume
+# Scala 1. WHO-5 Index stare de bine – 5 itemi 
+# Scala 2. SSCS – Creative Self Scale – 11 itemi                        --- covar
+# Scala 3. IRI – Interpersonal Reactivity Index - 28 itemi
+# Scala 4. GFPS - The General Flow Proneness Scale  - 13 itemi
+# Scala 5. SAI-R - Revised Spontaneity Assessment Inventory -18 itemi   --- covar
+# Scala 6. APTS - Adult Playfulness Trait Scale – 19 itemi              --- covar
+# Scala 7. BDI II – Beck Depression Inventory – 21 itemi                --- covar
+# Scala 8. STAI trait - The State-Trait Anxiety Inventory – 20 itemi    --- covar
+# Scala 9. APS – Adult Prosocialness Scale – 16 itemi
+# Scala 10. PSS10 - perceived stress Scale – 10 itemi
+
+
+# Rename ------------------------------------------------------------------------------------
+index_item_start <- 14 # Starting column index
+item_text <- names(df_q)[index_item_start:length(names(df_q))]
+
+# Define questionnaire lengths
+q_lengths <- c(
+  who = 5,
+  sscs = 11,
+  iri = 28, 
+  gfps = 13,
+  sair = 18, 
+  apts = 19,
+  bdi = 21,
+  stai = 20,
+  aps = 16,
+  pss = 10
+)
+
+# Create new names
+item_new_names <- unlist(map2(
+  names(q_lengths),
+  q_lengths,
+  ~ paste0(.x, "_", seq_len(.y))
+))
+
+# Check & Rename
+# tibble(cbind(item_text, item_new_names)) %>% print(n = Inf) # all good
+names(df_q)[index_item_start:length(names(df_q))] <- item_new_names
+
+df_q <- df_q %>% 
+  mutate(ID_cond = `NUME/ID:`) %>% 
+  # separate(
+  #   ID_cond,
+  #   into = c("ID", "Experiment", "Condition"),
+  #   sep = "(?<=[0-9])(?=[A-Z])|\\s+",
+  #   remove = FALSE  # Keep original column if needed
+  # ) %>%
+  extract(
+    ID_cond,
+    into = c("ID", "Experiment", "Condition"),
+    # Match: digits, optional space, (RPB or RPB Pilot), optional space, (A or NA)
+    regex = "^(\\d+)\\s*(RPB(?:\\s+Pilot)?)\\s*(A|NA)$",
+    remove = FALSE,
+    convert = FALSE
+  ) %>% 
+  mutate(
+    Experiment = case_when(
+      str_detect(Experiment, "Pilot") ~ "Pilot",
+      str_detect(Experiment, "RPB") ~ "RPB",
+      TRUE ~ Experiment
+    )
+  )
+# ViewR::viewdt(df_q)
+
+```
+
+## Questionnaire data scoring
+
+```{r}
+# -------------------------------------------------------------------
+# WHO 5 items
+# Simple sum -- max = 5, min = 0
+who_cols <- grep("who_", item_new_names, value = TRUE)
+df_q[, who_cols] %>% unlist() %>% unique()  # all correct
+
+who_patterns <- c(
+  "Tot timpul",  
+  "Majoritatea timpului",
+  "Mai mult de jumătate din timp",
+  "Mai puțin de jumătate din timp",
+  "O parte din timp",
+  "Niciodată"
+)
+
+who_values <- 5:0
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = who_cols,
+    pattern_vec = who_patterns,
+    new_values_vec = who_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = who_cols) %>% 
+  mutate(who_total = score_recoded(., original_cols = who_cols, engine = "sum", napercent = 0.1)) %>% 
+  mutate(who_total = who_total * 4) # stupid scoring
+
+# -------------------------------------------------------------------
+# SSCS – Creative Self Scale – 11 items
+# Creative Self-efficacy (CSE): average items: 3, 4, 5, 6, 8, 9
+# Creative Personal Identity (CPI): average items: 1, 2, 7, 10, 11 
+# Total average all 11 items
+# 1 = strongly disagree to 5 = strongly agree
+sscs_cols <- grep("sscs_", item_new_names, value = TRUE)
+df_q[, sscs_cols] %>% unlist() %>% unique()  # all correct
+
+sscs_patterns <- c(
+  "Cu siguranță da",  
+  "Mai degrabă da",
+  "Nici da nici nu",
+  "Mai degrabă nu",
+  "Cu siguranță nu"
+)
+
+sscs_values <- 5:1
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = sscs_cols,
+    pattern_vec = sscs_patterns,
+    new_values_vec = sscs_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = sscs_cols) %>% 
+  mutate(sscs_total = score_recoded(., original_cols = sscs_cols, engine = "mean", napercent = 0.1)) %>% 
+  mutate(sscs_cse = score_recoded(., original_cols = sscs_cols[c(3, 4, 5, 6, 8, 9)], engine = "mean", napercent = 0.1)) %>% 
+  mutate(sscs_cpi = score_recoded(., original_cols = sscs_cols[c(1, 2, 7, 10, 11)], engine = "mean", napercent = 0.1))
+
+
+# -------------------------------------------------------------------
+## IRI
+# Scales with reversed c(3,4,7,12,13,14,15,18,19)         min = 0; max = 4
+# IRI_EC c(1,5,7,12,16,23,26)
+# IRI_PT c(3,8,11,15,21,25,28)
+# IRI_F c(2,4,9,14,18,20,22)
+# IRI_PD c(6,10,13,17,19,24,27) 
+
+iri_cols <- grep("iri_", item_new_names, value = TRUE)
+df_q[, iri_cols] %>% unlist() %>% unique()  # all correct
+
+iri_patterns <- c(
+  "5 <br>Mă descrie foarte bine",  
+  "4.0",
+  "3.0",
+  "2.0",
+  "1 <br>Nu mă descrie deloc bine"
+)
+
+iri_values <- 4:0
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = iri_cols,
+    pattern_vec = iri_patterns,
+    new_values_vec = iri_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = iri_cols) %>% 
+  reverse_recoded_columns(original_cols = iri_cols[c(3,4,7,12,13,14,15,18,19)]) %>% 
+  mutate(
+    iri_ec = score_recoded(., original_cols = iri_cols[c(1,5,7,12,16,23,26)], engine = "sum", napercent = 0.1),
+    iri_pt = score_recoded(., original_cols = iri_cols[c(3,8,11,15,21,25,28)], engine = "sum", napercent = 0.1),
+    iri_f = score_recoded(., original_cols = iri_cols[c(2,4,9,14,18,20,22)], engine = "sum", napercent = 0.1),
+    iri_ec = score_recoded(., original_cols = iri_cols[c(6,10,13,17,19,24,27)], engine = "sum", napercent = 0.1)
+  )
+
+
+# -------------------------------------------------------------------
+## GFPS - The General Flow Proneness Scale  - 13 items SUM min = 1, max = 5
+gfps_cols <- grep("gfps_", item_new_names, value = TRUE)
+df_q[, gfps_cols] %>% unlist() %>% unique()  # all correct
+
+gfps_patterns <- c(
+  "Dezacord total",  
+  "Dezacord",
+  "Nici acord nici dezacord",
+  "Acord",
+  "Acord total"
+)
+
+gfps_values <- 1:5
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = gfps_cols,
+    pattern_vec = gfps_patterns,
+    new_values_vec = gfps_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = gfps_cols) %>% 
+  mutate(gfps_total = score_recoded(., original_cols = gfps_cols, engine = "sum", napercent = 0.1))
+
+# -------------------------------------------------------------------
+# SAI-R - Revised Spontaneity Assessment Inventory - 18 items = garbage scale
+# Vig c(2,5,10,12,13,14,18)
+# Fre c(3,6,8,17)
+# Inv c(4,9,11,15)
+sair_cols <- grep("sair_", item_new_names, value = TRUE)
+df_q[, sair_cols] %>% unlist() %>% unique()  # slight problems
+
+sair_patterns <- c(
+  "1\\s*<br>?\\s*Foarte slabă",  # matches "1 <br>Foarte slabă..." or "1<br>Foarte slabă..."
+  "2",                            
+  "3",                              
+  "4",                            
+  "5\\s*<br>?\\s*Foarte intensă"  # matches "5 <br>Foarte intensă..." or "5<br>Foarte intensă..."
+)
+
+sair_values <- 1:5
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = sair_cols,
+    pattern_vec = sair_patterns,
+    new_values_vec = sair_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = sair_cols) %>% 
+  mutate(
+    sair_vig = score_recoded(., original_cols = sair_cols[c(2,5,10,12,13,14,18)], engine = "sum", napercent = 0.1),
+    sair_fre = score_recoded(., original_cols = sair_cols[c(3,6,8,17)], engine = "sum", napercent = 0.1),
+    sair_inv = score_recoded(., original_cols = sair_cols[c(4,9,11,15)], engine = "sum", napercent = 0.1)
+  )
+
+# -------------------------------------------------------------------
+# APTS - Adult Playfulness Trait Scale – 19 items
+# Fun-seeking Motivation c(2, 4, 6, 7, 10, 13, 14, 17, 19) (has other 3 subscales but it's bs)
+# Uninhibitedness c(1, 3, 9, 12, 18)
+# Spontaneity  c(5, 8, 11, 15, 16)
+# Total sum
+apts_cols <- grep("apts_", item_new_names, value = TRUE)
+df_q[, apts_cols] %>% unlist() %>% unique()  # all correct
+
+apts_patterns <- c(
+  "Total dezacord",
+  "Dezacord moderat", 
+  "Ușor dezacord",
+  "Nici acord, nici dezacord",
+  "Ușor acord",
+  "Acord moderat",
+  "Total acord" 
+)
+
+apts_values <- 1:7
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = apts_cols,
+    pattern_vec = apts_patterns,
+    new_values_vec = apts_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = apts_cols) %>% 
+  mutate(
+    apts_total = score_recoded(., original_cols = apts_cols, engine = "sum", napercent = 0.1),
+    apts_fun = score_recoded(., original_cols = apts_cols[c(2, 4, 6, 7, 10, 13, 14, 17, 19)], engine = "sum", napercent = 0.1),
+    apts_uni = score_recoded(., original_cols = apts_cols[c(1, 3, 9, 12, 18)], engine = "sum", napercent = 0.1),
+    apts_spo = score_recoded(., original_cols = apts_cols[c(5, 8, 11, 15, 16)], engine = "sum", napercent = 0.1)
+  )
+
+# -------------------------------------------------------------------
+# BDI II – Beck Depression Inventory – 21 items
+bdi_cols <- grep("bdi_", item_new_names, value = TRUE)
+df_q[, bdi_cols] %>% unlist() %>% unique()  # all correct
+
+# Pattern vector matching the text labels (without numbers)
+# library(datapasta)
+# vector_paste()
+
+bdi_patterns <- c(
+  # 1
+c("Nu mă simt trist/ă.", "Mă simt trist/ă în cea mai mare parte a timpului.", "Sunt trist/ă tot timpul.", "Sunt atât de trist/ă sau nefericit/ă că nu mai suport."),
+
+  #2
+c("Nu sunt descurajat/ă în ceea ce privește viitorul meu.", "Sunt mai descurajat/ă decât înainte în ceea ce privește viitorul meu.", "Nu mă aștept ca în viitor lucrurile să meargă bine pentru mine.", "Viitorul meu este fără speranță și lucrurile vor merge din rău în mai rău."),
+  
+  #3
+c("Nu mă simt ca un/o ratat/ă.", "Am avut mai multe eșecuri decât ar fi fost cazul.", "Uitându-mă în urmă, văd numeroase eșecuri.", "Simt că am eșuat total ca persoană."),
+  
+  #4
+c("Lucrurile care îmi plac îmi aduc la fel de multă bucurie ca altădată.", "Lucrurile pe care le fac nu mă mai mulțumesc la fel de mult ca înainte.", "Lucrurile care îmi plăceau altădată îmi aduc acum foarte puțină bucurie.", "Lucrurile care îmi plăceau altădată nu îmi mai aduc acum nicio bucurie."),
+
+  #5
+c("Nu mă simt vinovat/ă în mod deosebit.", "Mă simt vinovat/ă pentru multe dintre lucrurile pe care le-am făcut sau ar fi trebuit să le fac.", "Mă simt vinovat/ă de ceva în cea mai mare parte a timpului.", "Mă simt vinovat/ă de ceva tot timpul."),
+
+  #6
+c("Nu simt că ceea ce mi se întâmplă ar fi o pedeapsă.", "Ceea ce mi se întâmplă ar putea fi o pedeapsă.", "Mă aștept să fiu pedepsit/ă.", "Simt că sunt pedepsit/ă."),
+  
+  #7
+c("Părerea mea în legătură cu propria persoană nu s-a schimbat.", "Mi-am pierdut încrederea în mine.", "Sunt dezamăgit/ă de mine.", "Nu mai îmi place de mine."),
+
+  #8
+c("Nu mă critic sau învinovățesc mai mult decât de obicei.", "Mă critic mai mult decât de obicei.", "Mă critic pentru toate defectele și greșelile mele.", "Mă învinovățesc pentru toate relele care se întâmplă."),
+
+  #9
+c("Nu mă gândesc să îmi iau viața.", "Mă gândesc să îmi pun capăt zilelor, dar nu aș face așa ceva.", "Intenționez să îmi pun capăt zilelor.", "Mi-aș lua viața dacă aș avea ocazia."),
+  
+  #10
+c("Nu plâng mai mult decât de obicei.", "Plâng mai mult decât de obicei.", "Plâng pentru orice lucru mărunt.", "Îmi vine să plâng, dar nu mai pot plânge."),
+
+  #11
+c("Nu sunt mai agitat/ă sau încordat/ă decât de obicei.", "Sunt mai agitat/ă sau încordat/ă decât de obicei.", "Sunt atât de agitat/ă sau încordat/ă, încât nu pot sta liniștit/ă.", "Sunt atât de agitat/ă sau încordat/ă, încât trebuie să mă mișc sau să fac ceva tot timpul."),
+
+  #12
+c("Nu mi-am pierdut interesul față de oameni sau activități.", "Mi-a scăzut interesul față de oameni sau activități.", "Mi-am pierdut mare parte din interesul față de oameni sau activități.", "Aproape nimic nu îmi mai trezește interesul."),
+  
+  #13
+c("Iau decizii la fel de ușor ca altădată.", "Mi-e mai greu să iau decizii decât de obicei.", "Mi-e mult mai greu să iau decizii decât de obicei.", "Mi-e greu să iau orice decizie."),
+  
+  #14
+c("Nu cred că sunt o persoană lipsită de valoare.", "Nu mă consider la fel de valoros/oasă și util/ă ca altădată.", "Cred că sunt mai puțin valoros/oasă decât alți oameni.", "Cred că sunt complet lipsit/ă de valoare."),
+  
+  #15
+c("Am la fel de multă energie ca altădată.", "Am mai puțină energie decât de obicei.", "Nu prea am energie să fac mare lucru.", "Nu mai am energie pentru nimic."),
+  
+  #16
+c("Dorm la fel ca altădată.", "Dorm ceva mai mult decât de obicei.", "Dorm mult mai mult decât de obicei.", "Dorm cea mai mare parte a zilei.", "Dorm ceva mai puțin decât de obicei.", "Dorm mai puțin decât de obicei.", "Mă trezesc cu 1-2 ore mai devreme și nu pot readormi."),
+
+  #17
+c("Nu sunt mai iritabil/ă decât de obicei.", "Sunt mai iritabil/ă decât de obicei.", "Sunt mult mai iritabil/ă decât de obicei.", "Sunt iritabil/ă tot timpul."),
+
+  #18
+c("Nu am observat nicio schimbare în pofta mea de mâncare.", "Am mai multă poftă de mâncare decât de obicei.", "Am mult mai multă poftă de mâncare decât de obicei.", "Tânjesc după mâncare tot timpul.", "Am mai puțină poftă de mâncare decât de obicei.", "Am mult mai puțină poftă de mâncare decât de obicei.", "Nu am deloc poftă de mâncare."),
+  
+  #19
+c("Mă concentrez la fel de bine ca altădată.", "Nu mă pot concentra la fel de bine ca altădată.", "Mi-e greu să mă concentrez la ceva timp mai îndelungat.", "Nu mă pot concentra la nimic."),
+  
+  #20
+c("Nu mă simt mai obosit/ă decât de obicei.", "Obosesc mai repede decât de obicei.", "Sunt prea obosit/ă pentru a face multe dintre lucrurile pe care le făceam înainte.", "Sunt prea obosit/ă pentru a face majoritatea lucrurilor pe care le făceam înainte."),
+
+  #21
+c("Nu am sesizat vreo modificare recentă în interesul meu pentru sex.", "Sexul mă interesează mai puțin decât înainte.", "Sexul mă interesează mult mai puțin acum.", "Sexul nu mă mai interesează deloc.")
+)
+
+# Corresponding values
+bdi_values <- c(
+  #1 - #15
+  rep(0:3, 15),
+  
+  #16
+  c(0, 1, 1, 2, 2, 3, 3),
+  
+  #17
+  c(0:3),
+  
+  #18
+  c(0, 1, 1, 2, 2, 3, 3),
+  
+  #19 - #21
+  rep(0:3, 3)
+)
+
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = bdi_cols,
+    pattern_vec = bdi_patterns,
+    new_values_vec = bdi_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = bdi_cols) %>% 
+  mutate(bdi_total = score_recoded(., original_cols = bdi_cols, engine = "sum", napercent = 0.1)) 
+
+# -------------------------------------------------------------------
+# STAI trait - The State-Trait Anxiety Inventory – 20 items
+# StaiS simple sum with reversed c(1,2,5,8,10,11,15,16,19,20)       min = 1; max = 4
+# StaiT simple sum with reversed c(21,23,26,27,30,33,34,36,39)       min = 1; max = 4
+stai_cols <- grep("stai_", item_new_names, value = TRUE)
+df_q[, stai_cols] %>% unlist() %>% unique()  # all correct
+stait_reversed_cols <- stai_cols[c(21,23,26,27,30,33,34,36,39) - 20]
+
+stai_patterns <- c(
+  "Aproape întotdeauna", "Deseori", "Uneori", "Aproape niciodată"
+)
+
+stai_values <- 4:1
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = stai_cols,
+    pattern_vec = stai_patterns,
+    new_values_vec = stai_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = stai_cols) %>% 
+  reverse_recoded_columns(original_cols = stait_reversed_cols) %>% 
+  mutate(stai_total = score_recoded(., original_cols = stai_cols, engine = "sum", napercent = 0.1))
+
+# -------------------------------------------------------------------
+# APS – Adult Prosocialness Scale – 16 itemi
+# Simple sum
+aps_cols <- grep("aps_", item_new_names, value = TRUE)
+df_q[, aps_cols] %>% unlist() %>% unique()  # all correct
+
+aps_patterns <- c(
+  "Aproape întotdeauna / Întotdeauna adevărat",  
+  "Deseori adevărat",
+  "Câteodată adevărat",
+  "Ocazional adevărat",
+  "Niciodată / Aproape niciodată adevărat"
+)
+
+aps_values <- 5:1
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = aps_cols,
+    pattern_vec = aps_patterns,
+    new_values_vec = aps_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = aps_cols) %>% 
+  mutate(aps_total = score_recoded(., original_cols = aps_cols, engine = "sum", napercent = 0.1))
+
+# -------------------------------------------------------------------
+# PSS10 - perceived stress Scale – 10 itemi
+pss_cols <- grep("pss_", item_new_names, value = TRUE)
+df_q[, pss_cols] %>% unlist() %>% unique()  # all correct
+
+pss_patterns <- c(
+  "Niciodată",
+  "Aproape niciodată",
+  "Câteodată",
+  "Destul de des", "Desul de des", 
+  "Foarte des",
+  "Not Answered"
+)
+
+pss_values <- c(1, 2, 3, 4, 4, 5, NA)
+
+df_q <-
+  df_q %>% 
+  recode_item_columns(
+    columns = pss_cols,
+    pattern_vec = pss_patterns,
+    new_values_vec = pss_values
+  ) %>% 
+  convert_recoded_to_numeric(original_cols = pss_cols) %>% 
+  mutate(pss_total = score_recoded(., original_cols = pss_cols, engine = "sum", napercent = 0.1))
+```
+
+```{r}
+# ViewR::viewdt(df_q)
+# saveRDS(df_q, "df_q_v2.RDS")
+
+# Check
+# df_q_old <- readRDS("df_q.RDS")
+# all.equal(df_q_old, df_q[1:nrow(df_q_old),])  # all data is equal
+# all.equal(df_q_old[, c(14:174, 179:358)], df_q[1:nrow(df_q_old), c(14:174, 179:358)])  # exclude ID dependent columns?
+
+# saveRDS(df_q, "df_q.RDS")  # this is the updated one; prior versions are in /old
+
+# v4 Check
+# df_q_old <- readRDS("df_q_v3.RDS")
+# all.equal(df_q_old, df_q)  # good
+```
+
+
+```{r}
+DT::datatable(df_q,
+              extensions = 'Buttons',
+              fillContainer = TRUE,
+              rownames = FALSE,
+              selection = 'multiple',
+             # style = "bootstrap", 
+              class = "compact", #width = "1000px",
+              options = list(#autowidth = TRUE,
+                             deferRender = FALSE,
+                             pageLength = 30,
+                             scrollX = '100px',
+                             # scrollY = '400px'
+                             dom = 'Bfrtip',
+                             buttons = c('excel', "csv")))
+```
+
+
+# Experiment Data
+## Idiosyncratic measures data munging
+
+```{r}
+# Excel columns ------------------------------------------------------------------------------------
+# A:L      - id & demographics
+# M:BX     - RPB zi1
+# BY:EL/EM - RPB zi2 cativa au ciudatenii la 15/27/33 -> de aici coloana EM
+# EN:GY    - RPB zi3
+# GZ:HN    - RPBAT zi1 -> doar zi1&zi2, 4 itemi separati, nu se scoreaza, item 4 = apropiere/departare de personaj
+# HO:IC    - RPBAT zi2 -> doar zi1&zi2, 4 itemi separati, nu se scoreaza, item 4 = apropiere/departare de personaj
+# ID:IM    - Friedman 
+# IN:JG    - PAQ Scala pentru anxietate de perfromanta (Cox and Kenardy, 1993)
+
+# Info RPB: EU 1-4; EU – DISIMULARE 5-8; EA/EL 9-14; EU–EA/EL 15-20; NOROC 21-26; SHREK 27-32
+# ●	First-Person (1P): 1-4
+# ●	First-Person Deception (1PD): 5-8
+# ●	Familiar Third Person (Fam3P): 9-14
+# ●	Familiar First-Person (Fam1P): 15-20
+# ●	Fictional First-Person (Fic1P): 21-26
+# ●	Fictional First-Person (Fic2P): 27-32
+
+# Friedman min = 1; max = 5; SUM
+  # Emotional Stability (1-5)
+  # Self-Confidence (6-7)
+  # Joyfulness (8-9)
+# PAQ min = 1; max = 5; SUM
+
+# Group !!!
+
+# Cleaning
+df_m <- df_m %>% 
+   mutate(across(everything(), ~ {
+    if_else(str_detect(.x, "\\\\+"), NA, .x)  # replace any number of backslashes with NA
+  }))
+
+
+# Checks & info ------------------------------------------------------------------------------------
+# unique(na.omit(df_m$ID)) %>% length()  # 75 without "1P" "2P" "3P" "4P" (79 total)
+# 
+# df_demo <- df_m[excel_colnum("A:L")]      # ViewR::viewdt(df_demo)
+# df_rpb_zi1 <- df_m[excel_colnum("M:BX")]  # ViewR::viewdt(df_rpb_zi1)
+# df_rpb_zi2 <- df_m[excel_colnum("BY:EM")]  # ViewR::viewdt(df_rpb_zi2)
+# 
+# as.character(df_rpb_zi1[3,])
+# as.character(df_rpb_zi2[3,])
+# setdiff(as.character(df_rpb_zi1[3,]), as.character(df_rpb_zi2[3,]))
+# setdiff(as.character(df_rpb_zi2[3,]), as.character(df_rpb_zi1[3,]))  # additions: "15S(P)" ; "27S(norocoasa)" ; "33S"
+# 
+# check_df_rpb_zi2 <- 
+#   cbind(id = df_demo[,1], df_rpb_zi2) %>%               # add id col
+#   mutate(id = if_else(row_number() == 3, "id", id)) %>%   # 3rd row will be col names
+#     slice(3:n()) %>%                           # drop first 2 rows
+#     janitor::row_to_names(row_number = 1) %>%  # set names from row 1 (3rd in raw data)
+#     filter(if_any(c("15S(P)", "27S(norocoasa)", "33S"), ~ !is.na(.)))
+# ViewR::viewdt(check_df_rpb_zi2)  # only 3P and id 40 have values -> 3P has all 3
+# check_df_rpb_zi2[, c("id", "15S(P)", "27S(norocoasa)", "33S")] -> # id 40 has only "15S(P)", but no "15S"
+# # => fix: give value 7 to "15S" of id 40, like "15S(P)" was 7
+# 
+# df_rpb_zi3 <- df_m[excel_colnum("EN:GY")]  # ViewR::viewdt(df_rpb_zi3)
+# setdiff(as.character(df_rpb_zi3[3,]), as.character(df_rpb_zi1[3,])) # this is good
+# 
+# df_rpbat_zi1 <- df_m[excel_colnum("GZ:HN")]  # ViewR::viewdt(df_rpbat_zi1)
+# df_rpbat_zi2 <- df_m[excel_colnum("HO:IC")]  # ViewR::viewdt(df_rpbat_zi2)    
+# 
+# df_fried <- df_m[excel_colnum("ID:IM")]  # ViewR::viewdt(df_fried)
+# df_paq <- df_m[excel_colnum("IN:JG")]  # ViewR::viewdt(df_paq)
+# => fix rpbat names: it has 1 item with condition: always Norocos -> Shrek -> Prieten and then the 4 items
+# => rename day1_rpbat_n, day1_rpbat_1:4, day1_rpbat_s, day1_rpbat_6:9, day1_rpbat_p, day1_rpbat_11:15  
+
+
+
+# Renaming
+# idx_demo <- excel_colnum("A:L")      
+# idx_rpb_zi1 <- excel_colnum("M:BX")  
+# idx_rpb_zi2 <- excel_colnum("BY:EM")  
+
+
+# Change in v3
+# https://docs.google.com/spreadsheets/d/1upxwYlosdfwOvXs3pwj6kyC-8y1mtJYm/edit?gid=2037761575#gid=2037761575
+# doate diff (3 diff) in ziua 2 Scala de imersiune RPB (de la BY la …) 67 vs 64 coloane in ziua 2 in v3                              # cele 3: 
+# DA = 15S(P)
+# DZ = 27S(norocoasa)
+# EM = 33S
+
+idx_demo <- excel_colnum("A:L")      
+idx_rpb_zi1 <- excel_colnum("M:BX")  
+idx_rpb_zi2 <- excel_colnum("BY:EJ")   # from here
+idx_rpb_zi3 <- excel_colnum("EK:GV")  
+idx_rpbat_zi1 <- excel_colnum("GW:HK")  
+idx_rpbat_zi2 <- excel_colnum("HL:HZ")  
+idx_fried <- excel_colnum("IA:IJ")  
+idx_paq <- excel_colnum("IK:JD")  
+
+# Check -- all good
+# old_idx_rpb_zi3 <- excel_colnum("EN:GY"); all(old_idx_rpb_zi3 - idx_rpb_zi3 == 3)
+# old_idx_rpbat_zi1 <- excel_colnum("GZ:HN"); all(old_idx_rpbat_zi1 - idx_rpbat_zi1 == 3)
+# old_idx_rpbat_zi2 <- excel_colnum("HO:IC"); all(old_idx_rpbat_zi2 - idx_rpbat_zi2 == 3)
+# old_idx_fried <- excel_colnum("ID:IM"); all(old_idx_fried - idx_fried == 3)
+# old_idx_paq <- excel_colnum("IN:JG"); all(old_idx_paq - idx_paq == 3)
+
+
+df_m_clean <- df_m %>% 
+  rename_with(~ as.character(df_m[3, .]), all_of(idx_rpb_zi1)) %>%   # 3rd row to col names
+  rename_with(~ paste0("day1_", .), all_of(idx_rpb_zi1)) %>%         # paste day_
+  rename_with(~ as.character(df_m[3, .]), all_of(idx_rpb_zi2)) %>%   # 3rd row to col names
+  rename_with(~ paste0("day2_", .), all_of(idx_rpb_zi2)) %>%         # paste day_
+  rename_with(~ as.character(df_m[3, .]), all_of(idx_rpb_zi3)) %>%   # 3rd row to col names
+  rename_with(~ paste0("day3_", .), all_of(idx_rpb_zi3)) %>%         # paste day_
+  rename_with(~ paste0("day1_rpbat_", c("n", 1:4, "s", 5:8, "p", 9:12)), 
+              all_of(idx_rpbat_zi1)) %>%   
+  rename_with(~ paste0("day2_rpbat_", c("n", 1:4, "s", 5:8, "p", 9:12)), 
+              all_of(idx_rpbat_zi2)) %>%   
+  rename_with(~ paste0("fried_", seq_along(.)), all_of(idx_fried)) %>% 
+  rename_with(~ paste0("paq_", seq_along(.)), all_of(idx_paq))
+
+
+# Cleaning -- Drops columns & rows!
+df_m_clean <- df_m_clean %>%   
+  slice(4:(n()-1)) %>%                          # drop first 3 rows and the last
+  # select(where(~!all(is.na(.)))) %>%        # drop empty columns
+  select(-(observatii:ncol(.))) %>%            # drop observatii columns
+  filter(!if_all(everything(), is.na))        # drop empty rows
+
+
+# Convert columns to numeric
+# df_m_clean <- df_m_clean %>%
+#   mutate(across(
+#     all_of(c(idx_rpb_zi1, idx_rpb_zi2, idx_rpb_zi3, 
+#       idx_rpbat_zi1, idx_rpbat_zi2, idx_fried, idx_paq
+#     )),
+#     ~ as.numeric(.)
+#   )) # NAs introduced by coercion (7)
+
+# The `convert()` function from hablar shows which values can't be converted
+# df_m_clean_test <- df_m_clean %>%  # use to find where coertion introduces NAs
+#   hablar::convert(
+#     hablar::num(all_of(idx_rpb_zi1, idx_rpb_zi2, idx_rpb_zi3, 
+#                 idx_rpbat_zi1, idx_rpbat_zi2, idx_fried, idx_paq))
+#     )
+
+# There are some non-numeric cols among them
+all_idx_num_cols <- c(
+  idx_rpb_zi1, idx_rpb_zi2, idx_rpb_zi3, 
+  idx_rpbat_zi1, idx_rpbat_zi2, idx_fried, idx_paq
+)
+
+# Exclude non-numeric cols
+exclude_cols <- c("day1_rpbat_n", "day1_rpbat_s", "day1_rpbat_p",
+                  "day2_rpbat_n", "day2_rpbat_s", "day2_rpbat_p")
+idx_exclude_cols <- which(names(df_m_clean) %in% exclude_cols) 
+all_idx_num_cols <- setdiff(all_idx_num_cols, idx_exclude_cols)
+  
+# There is also a typo
+df_m_clean$day3_29T[76] <- NA  # df_m_clean$day3_29T[76] = "]"
+
+# Coercion runs without warnings
+df_m_clean <- df_m_clean %>%
+  mutate(across(
+    all_of(c(all_idx_num_cols)),
+    ~ as.numeric(.)
+  )) 
+
+# Get the columns that match the pattern 
+rpb_cols <- names(df_m_clean)[str_detect(names(df_m_clean), "^day[123]_\\d+[ST]")]
+
+# Rename them to have "_S" and "_T" with the day and number
+df_m_clean <- df_m_clean %>%
+  rename_with(
+    ~ str_replace(., "^(day[123]_\\d+)([ST])$", "\\1_\\2"),
+    all_of(rpb_cols)
+  )
+
+# Define the mappings
+number_to_label <- c(
+  "1" = "persp",
+  "2" = "skin",
+  "3" = "satisf",
+  "4" = "fluent",
+  
+  "5" = "persp",
+  "6" = "skin",
+  "7" = "satisf",
+  "8" = "fluent",
+  
+  "9" = "persp",
+  "10" = "skin",
+  "11" = "satisf",
+  "12" = "close",
+  "13" = "simp",
+  "14" = "fluent",
+  
+  "15" = "persp",
+  "16" = "skin",
+  "17" = "satisf",
+  "18" = "close",
+  "19" = "simp",
+  "20" = "fluent",
+  
+  "21" = "persp",
+  "22" = "skin",
+  "23" = "satisf",
+  "24" = "close",
+  "25" = "simp",
+  "26" = "fluent",
+  
+  "27" = "persp",
+  "28" = "skin",
+  "29" = "satisf",
+  "30" = "close",
+  "31" = "simp",
+  "32" = "fluent"
+)
+
+number_to_condition <- c(
+  "1" = "1P",
+  "2" = "1P",
+  "3" = "1P",
+  "4" = "1P",
+  
+  "5" = "1PD",
+  "6" = "1PD",
+  "7" = "1PD",
+  "8" = "1PD",
+  
+  "9" = "Fam3P",
+  "10" = "Fam3P",
+  "11" = "Fam3P",
+  "12" = "Fam3P",
+  "13" = "Fam3P",
+  "14" = "Fam3P",
+  
+  "15" = "Fam1P",
+  "16" = "Fam1P",
+  "17" = "Fam1P",
+  "18" = "Fam1P",
+  "19" = "Fam1P",
+  "20" = "Fam1P",
+  
+  "21" = "Fic1P",
+  "22" = "Fic1P",
+  "23" = "Fic1P",
+  "24" = "Fic1P",
+  "25" = "Fic1P",
+  "26" = "Fic1P",
+  
+  "27" = "Fic2P",
+  "28" = "Fic2P",
+  "29" = "Fic2P",
+  "30" = "Fic2P",
+  "31" = "Fic2P",
+  "32" = "Fic2P"
+)
+
+# Create a lookup for valid combinations
+all_conditions <- unique(number_to_condition)
+all_variables <- unique(number_to_label)
+
+# Now rename RBT columns
+df_m_clean <- df_m_clean %>%
+  rename_with(
+    ~ {
+      # Extract the number from the column name (e.g., "day1_1_S" -> "1")
+      num <- str_extract(., "(?<=day[123]_)\\d+")
+      # Get the label and condition
+      label <- number_to_label[num]
+      condition <- number_to_condition[num]
+      # Replace the number with condition_label
+      str_replace(., paste0("(?<=day[123]_)\\d+(?=_[ST])"), paste0(condition, "_", label))
+    },
+    matches("^day[123]_\\d+_[ST]$")
+  )
+
+# Group variable
+df_m_clean <- 
+  df_m_clean %>% 
+  mutate(Group = case_when(Grup == "NA" ~ "Non-actor", Grup == "A" ~ "Actor"),
+                                    Group = as.factor(Group)) %>% 
+  mutate(Age = as.numeric(Vârstă))
+  
+# ID
+df_m_clean <- 
+  df_m_clean %>% 
+  mutate(ID = str_remove(ID, "\\.0$"))
+
+# Score questionnaires
+df_m_clean <- 
+  df_m_clean %>% 
+    mutate(
+    fried_total = score_recoded(., original_cols = paste0("fried_", 1:10), suffix = "", engine = "sum", napercent = 0.1),
+    fried_es = score_recoded(., original_cols = paste0("fried_", 1:5), suffix = "", engine = "sum", napercent = 0),
+    fried_sc = score_recoded(., original_cols = paste0("fried_", 6:7), suffix = "", engine = "sum", napercent = 0),
+    fried_j = score_recoded(., original_cols = paste0("fried_", 8:9), suffix = "", engine = "sum", napercent = 0), 
+    paq_total = score_recoded(., original_cols = paste0("paq_", 1:20), suffix = "", engine = "sum", napercent = 0.1)
+    )
+
+# df_m_clean$fried_total <- ScoreLikert(df_m_clean[, paste0("fried_", 1:10)], 
+#     napercent = .1, tonumeric = TRUE, min = NULL, max = NULL, engine = "sum")
+# df_m_clean$fried_es <- ScoreLikert(df_m_clean[, paste0("fried_", 1:5)], 
+#     napercent = 0, tonumeric = TRUE, min = NULL, max = NULL, engine = "sum")
+# df_m_clean$fried_sc <- ScoreLikert(df_m_clean[, paste0("fried_", 6:7)], 
+#     napercent = 0, tonumeric = TRUE, min = NULL, max = NULL, engine = "sum")
+# df_m_clean$fried_j <- ScoreLikert(df_m_clean[, paste0("fried_", 8:9)], 
+#     napercent = 0, tonumeric = TRUE, min = NULL, max = NULL, engine = "sum")
+# df_m_clean$paq_total <- ScoreLikert(df_m_clean[, paste0("paq_", 1:20)], 
+#     napercent = .1, tonumeric = TRUE, min = NULL, max = NULL, engine = "sum")
+  
+# Exclude pilot subjects
+df_m_clean_75 <-  df_m_clean %>%   
+  slice(5:n())  
+
+# Check and save
+# df_m_clean_75_old <- readRDS("df_m_clean_75.RDS")
+# all.equal(df_m_clean_75_old, df_m_clean_75[names(df_m_clean_75_old)])   # there was just reordering of columns, all good
+# waldo::compare(df_m_clean_75_old, df_m_clean_75, max_diffs = Inf)
+# waldo::compare(df_m_clean_75_old, df_m_clean_75[names(df_m_clean_75_old)])
+# saveRDS(df_m_clean_75, "df_m_clean_75.RDS")
+
+# Check v3
+# saveRDS(df_m_clean, "df_m_clean.RDS")
+# df_m_clean_75_old <- readRDS("df_m_clean_75_v3.RDS")
+# waldo::compare(df_m_clean_75_old, df_m_clean_75, max_diffs = Inf) # good: only missing the deleted columns, new data, and no coertion problems
+# saveRDS(df_m_clean_75, "df_m_clean_75.RDS")
+```
+
+```{r}
+DT::datatable(df_m_clean_75,
+                    extensions = 'Buttons',
+                    fillContainer = TRUE,
+                    rownames = FALSE,
+                    selection = 'multiple',
+                   # style = "bootstrap", 
+                    class = "compact", #width = "1000px",
+                    options = list(#autowidth = TRUE,
+                                   deferRender = FALSE,
+                                   pageLength = 30,
+                                   scrollX = '100px',
+                                   # scrollY = '400px'
+                                   dom = 'Bfrtip',
+                                   buttons = c('excel', "csv")))
+```
+
+### Save full data
+
+```{r}
+df_full <- 
+  df_q %>% filter(Experiment != "Pilot") %>% # 74 IDs because ID 46 dropped out
+  left_join(df_m_clean_75, ., by = "ID")
+
+# df_full %>% 
+#   select(ID, `NUME/ID:`, ID_cond, Group, Age) %>% 
+#   ViewR::viewdt()  # all good
+
+# saveRDS(df_full, "df_full.RDS")
+```
+
+
+
+# Functions for RBT
+
+```{r}
+# Create a lookup for valid combinations
+all_conditions <- unique(number_to_condition)
+all_variables <- unique(number_to_label)
+join_variables <- c("ID", "Age", "Group", "fried_total", "fried_es", "fried_sc", "fried_j", "paq_total")
+
+# Func
+long_format <- function(df, day = c(1, 2, 3), conditions = "all", variables = "all", who = c("S", "T")) {
+  
+  # Handle "all" for conditions
+  if (length(conditions) == 1 && conditions == "all") {
+    conditions <- all_conditions
+  }
+  
+  # Handle "all" for variables
+  if (length(variables) == 1 && variables == "all") {
+    variables <- all_variables
+  }
+  
+  # Create pattern for columns to selectD
+  day_pattern <- paste0("day(", paste(day, collapse = "|"), ")")
+  condition_pattern <- paste(conditions, collapse = "|")
+  variable_pattern <- paste(variables, collapse = "|")
+  who_pattern <- paste(who, collapse = "|")
+  
+  # Full pattern
+  pattern <- paste0("^(", day_pattern, ")_(", condition_pattern, ")_(", variable_pattern, ")_(", who_pattern, ")$")
+  
+  # Select only the columns that match the pattern
+  cols_to_pivot <- names(df)[str_detect(names(df), pattern)]
+  
+  # Pivot to long format
+  df_long <- df %>%
+    select(all_of(c("ID", cols_to_pivot))) %>%
+    pivot_longer(
+      cols = all_of(cols_to_pivot),
+      names_to = c("day", "condition", "variable", "who"),
+      names_pattern = "^(day\\d+)_(.*?)_(.*?)_(.)$",
+      values_to = "value"
+    ) %>%
+    mutate(
+      day = as.numeric(str_extract(day, "\\d+")),
+      value = as.numeric(as.character(value)) # convert value to numeric safely (non-numeric become NA)
+    ) %>% 
+    pivot_wider(                 # pivot wider to have each variable as a column
+      names_from = variable,
+      values_from = value
+    )
+  
+  return(df_long)
+}
+
+# # Examples of usage:
+# df_long_all <- long_format(df_m_clean) # Default - all data
+# df_long_day12 <- long_format(df_m_clean, day = c(1, 2)) # Only day1 and day2
+# df_long_conditions <- long_format(df_m_clean, conditions = c("1P", "Fam3P")) # Only specific conditions
+# df_long_variables <- long_format(df_m_clean, variables = c("persp", "skin")) # Only specific variables
+# df_long_T <- long_format(df_m_clean, who = "T") # Only who = "T"
+# 
+# # Combination: day1, conditions 1P and Fam1P, variables persp and satisf, who S
+# df_long_custom <- long_format(
+#   df_m_clean_75,
+#   day = 1,
+#   conditions = c("1P", "Fam1P"),
+#   variables = c("persp", "satisf"),
+#   who = "S"
+# )
+```
+
+
+
+# Results
+
+
+## Persp, Satisf, Fluent
+
+```{r}
+df_persp <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "persp",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+
+df_satisf <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "satisf",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+
+df_fluent <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = "fluent",
+    who = "S"
+  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+```
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_persp %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = persp,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_persp,
+    x = day,
+    y = persp,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_satisf %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = satisf,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_satisf,
+    x = day,
+    y = satisf,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- df_fluent %>% 
+    filter(condition == all_conditions[i]) %>% 
+      ggwithinstats(
+        data       = .,
+        title = all_conditions[i],
+        x          = day,
+        y          = fluent,
+        subject.id = ID
+      )
+  print(p)
+}
+```
+
+```{r, fig.height=10, fig.width=12}
+grouped_ggwithinstats(
+    data = df_fluent,
+    x = day,
+    y = fluent,
+    grouping.var = condition,
+    subject.id = ID,
+    bf.message = FALSE,
+    type = "parametric",
+    pairwise.display = "significant",
+    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+    ggtheme = theme_ggstatsplot() + 
+        theme(
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+)
+```
+
+
+
+
+## Satisf & Fluent
+
+```{r}
+df_sf <- 
+  df_m_clean_75 %>% 
+    long_format(.,
+    day = c(1, 2, 3),
+    conditions = "all",
+    variables = c("satisf", "fluent"),
+    who = "S"
+  ) %>% 
+  select(-who) %>% 
+  mutate(condition = as.factor(condition)) %>% 
+  fastDummies::dummy_cols(
+    select_columns = "condition",
+    remove_first_dummy = FALSE,  # This creates k-1 dummies (condition1 is reference)
+    remove_selected_columns = FALSE  # Keep original condition column
+  ) %>% 
+  rename_with(~ gsub("^condition_", "c_", .x), starts_with("condition_")) %>% 
+  left_join(df_m_clean_75[, join_variables], by = "ID")
+
+```
+
+```{r}
+# library(lavaan)
+# # Remove "1P" as the reference category (you can choose any)
+# dummy_names <- c("c_1PD", "c_Fam1P", "c_Fam3P", "c_Fic1P", "c_Fic2P")  # All except "1P"
+# # Build the model
+# satisf_formula <- paste("satisf ~", paste(dummy_names, collapse = " + "))
+# fluent_formula <- paste("fluent ~", paste(dummy_names, collapse = " + "))
+# 
+# 
+# mod_sf_1 <- '
+#   level: 1
+#     # Within-person: condition predicts outcomes
+#     satisf ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
+#     fluent ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
+#     # Also model their within-person correlation
+#     satisf ~~ fluent
+#     
+#   level: 2
+#     # Between-person: random intercepts for each outcome
+#     satisf ~ 1
+#     fluent ~ 1
+#     satisf ~~ fluent
+# '
+# 
+# fit_sf_1 <- sem(mod_sf_1, data = df_sf, cluster = "ID")
+# summary(fit_sf_1)
+
+
+# Within-Person Effects (Level 1)
+# These coefficients tell you how much each condition differs from the reference condition (c_1P):
+# 
+# For Satisfaction:
+# c_1PD: -0.571 (p < .001) → Significantly lower satisfaction than c_1P
+# c_Fam1P: -0.375 (p = .003) → Significantly lower
+# c_Fam3P: -0.446 (p < .001) → Significantly lower
+# c_Fic1P: -0.120 (p = .344) → NOT significantly different
+# c_Fic2P: -0.360 (p = .004) → Significantly lower
+# 
+# For Fluency:
+# ALL conditions are significantly lower than c_1P (all p < .001)
+# The strongest effect: c_Fic2P (-0.756) and c_Fam1P (-0.688)
+# The weakest effect: c_Fam3P (-0.522)
+
+# Within-Person Covariance
+# satisf ~~ fluent: r = 0.562 (p < .001) → Within individuals, satisfaction and fluency are moderately positively correlated across conditions
+# Between-Person Effects (Level 2)
+# satisf ~~ fluent: r = 0.358 (p < .001) → Individuals who are generally more satisfied also tend to be more fluent
+# Intercepts: Average satisfaction (6.144) and fluency (6.420) across all individuals
+# Variances: There's significant variation between individuals in both satisf (0.672) and fluent (0.325)
+```
+
+```{r}
+library(lme4)
+library(lmerTest)  # For p-values
+
+df_sf2 <- df_sf %>% 
+  filter(day %in% c(1, 3))
+
+mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + Group + fried_es + fried_sc + paq_total + (1 | ID), data = df_sf2)
+mod_sf_s1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+# mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + (1 | ID) + (1 | ID:condition), data = df_sf)
+# (1 | ID): Random intercept for each person (people differ in their average satisfaction)
+# (1 | ID:condition): Random intercept for each person-condition combination (the effect of each condition varies across individuals)
+
+mod_sf_s1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "satisf - Condition Effects")
+mod_sf_s1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects() 
+```
+
+
+```{r}
+mod_sf_f1 <- 
+  lme4::lmer(fluent ~ condition + day + Group +   # no interactions
+               fried_sc +    # paq_total + fried_es + 
+               (1 + day | ID), data = df_sf2)
+
+mod_sf_f1 %>%
+  lmerTest::as_lmerModLmerTest() %>%
+  lmerTest:::summary.lmerModLmerTest() 
+
+mod_sf_f1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "fluent - Condition Effects")
+mod_sf_f1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects()
+```
+
+
+
+
+
+## New Group x Condition
+
+```{r}
+for(i in seq_along(all_conditions)){
+  p <- 
+    df_sf %>% 
+      filter(day %in% c(1, 3)) %>% 
+      filter(condition == all_conditions[i]) %>% 
+        grouped_ggwithinstats(
+            data = .,
+            x = day,
+            y = fluent,
+            grouping.var = Group,
+            subject.id = ID,
+            annotation.args = list(title = all_conditions[i]),
+            bf.message = FALSE,
+            type = "parametric",
+            pairwise.display = "significant",
+            ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
+            ggtheme = theme_ggstatsplot() + 
+                theme(
+                  panel.grid.major.y = element_blank(),
+                  panel.grid.minor.y = element_blank()
+                )
+        ) 
+  print(p)
+}
+```
+
+### 
+PAQ no diff
+Well being: Non-actors > Actors
+
+
+```{r}
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = paq_total
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_total
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_es
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_sc
+  )
+
+df_m_clean_75 %>% 
+  ggstatsplot::ggbetweenstats(
+    x = Group,
+    y = fried_j
+  )
+```
+
+
+
+
+
+
+<!-- Session Info and License -->
+
+<br>
+
+# Session Info
+```{r session_info, echo = FALSE, results = 'markup'}
+sessionInfo()    
+```
+
+<!-- Footer -->
+&nbsp;
+<hr />
+<p style="text-align: center;">A work by <a href="https://github.com/ClaudiuPapasteri/">Claudiu Papasteri</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>claudiu.papasteri@gmail.com</em></span></p>
+&nbsp;
