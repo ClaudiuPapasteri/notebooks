@@ -92,181 +92,325 @@ theme_set(papaja::theme_apa())
 
 # Define functions
 
-
-## Quick ggbetweenstats function
-
 ```{r}
-# For publication
-library(ggprism)
-
-my_ggbetweenstats <- function(data, title, x, y, outlier.label, xlab, ylab, 
-                              outlier.tagging = FALSE, results.subtitle = FALSE, 
-                              centrality.label.args = FALSE, point.path = TRUE,
-                              ...) {  # ... for limits and breaks
-  x <- rlang::enquo(x)
-  y <- rlang::enquo(y)
-  outlier.label <- rlang::enquo(outlier.label)
+## Define function that scores questionnaire items with proper NA handling
+## Assumes data already has recoded columns ending with "_recode"
+score_recoded <- function(data, 
+                         original_cols = NULL,    # Original column names (without suffix)
+                         suffix = "_recode",      # Suffix for recoded columns
+                         reversecols = NULL,      # Original column names to reverse code
+                         min = NULL,              # Minimum value for reverse coding
+                         max = NULL,              # Maximum value for reverse coding
+                         napercent = 0.1,         # Max proportion of NAs allowed per row
+                         engine = "sum",          # "sum", "mean", or "mean_na"
+                         verbose = TRUE) {
   
-  if(centrality.label.args){
-    centrality.label.args <- list(size = 3, nudge_x = 0.2, segment.linetype = 5, fill = "#FFF8E7")
-  }else{
-    centrality.label.args <- list(size = 0, nudge_x = 0.2, segment.linetype = 0, alpha = 0) # very hacky way of not showing label
+  require(tidyverse)
+  
+  # If original_cols not specified, detect all columns with the suffix
+  if (is.null(original_cols)) {
+    recoded_cols <- names(data)[str_detect(names(data), paste0(suffix, "$"))]
+    if (length(recoded_cols) == 0) {
+      stop(sprintf("No columns ending with '%s' found.", suffix))
+    }
+    # Extract original names
+    original_cols <- str_remove(recoded_cols, suffix)
+    if (verbose) {
+      message(sprintf("Auto-detected %d recoded columns: %s", 
+                      length(recoded_cols), 
+                      paste(original_cols, collapse = ", ")))
+    }
   }
   
-  plot <- 
-    data %>%
-      ggstatsplot::ggbetweenstats(
-        x = !!x,
-        y = !!y,
-        title = title,
-        xlab = xlab,
-        ylab = ylab,
-        outlier.tagging = outlier.tagging,                    # whether outlines need to be tagged
-        outlier.label = !!outlier.label,                      # variable to be used for tagging outliers
-        outlier.coef = 2,
-        pairwise.comparisons = TRUE,
-        pairwise.display = "significant",
-        results.subtitle = results.subtitle,
-        type = "np",
-        bf.message = FALSE, 
-        p.adjust.method = "holm",
-        point.path = point.path,
-        ggtheme = ggprism::theme_prism(palette = "black_and_white"),
-        # package = "RColorBrewer",  # "ggsci",
-        # palette = "Dark",         # "default_jco",
-        violin.args = list(width = 0.9, alpha = 0.2, size = 1, color = "black"),
-        centrality.plotting = TRUE,
-        centrality.type = "np",
-        centrality.point.args = list(size = 5, color = "black"),
-        centrality.path.args = list(color = "black", size = 1, alpha = 1),
-        ggsignif.args = list(textsize = 3, tip_length = 0.01, na.rm = TRUE,
-                             test.args = list(exact = FALSE)),
-        centrality.label.args = centrality.label.args,
-        ggplot.component = list(
-          theme(
-            plot.title = element_text(hjust = 0, size = 16),
-            plot.subtitle = element_text(hjust = 0, size = 12), 
-            plot.caption = element_text(hjust = 0, size = 12), 
-            text = element_text(family = "Sans", size = 14)
-        ))
-      ) + scale_colour_grey(start = 0.2, end = 0.2) +  # hacky way to change point color
-      scale_y_continuous(...)
+  # Construct recoded column names
+  recoded_cols <- paste0(original_cols, suffix)
   
-  plot
-}
-
-# Fast ggsave - saves plot with filename of R plot object
-fast_ggsave <- function(plot, device = "tiff", path = NULL,
-                        units = "in", dpi = 300, width = 5, height = 5, ...){ 
-  plot_name <- deparse(substitute(plot))
-  ggplot2::ggsave(filename = paste0(plot_name, ".", device), plot = plot,
-                  device = device, path = path,
-                  units = units, dpi = dpi,
-                  width = width, height = height,
-                  ...
-  )
-  
-} # use: fast_ggsave(jrad_ox_p, path = savefolder)
-
-# Fast tiff save
-fast_tiffsave <- function(plot, path = NULL,
-                          units = "in", res = 300, width = 5, height = 5, ...){ 
-  plot_name <- deparse(substitute(plot))
-  tiff(filename = file.path(path, paste0(plot_name, ".", "tiff")),
-       units = units, res = res,
-       width = width, height = height,
-       ...
-  )
-  plot(plot)
-  dev.off()
-}  # use: fast_tiffsave(jrad_ox_p, path = savefolder)
-
-# Errors with ggplot2  --- can use this to save:
-# Cairo::Cairo(
-#   width = 5, 
-#   height = 5, 
-#   file = file.path(savefolder, paste0("jrad_ox_p", ".", "tiff")),
-#   type = "png", 
-#   bg =  "white",    # "transparent" 
-#   dpi = 300,
-#   units = "in"
-# )
-# plot(jrad_ox_p) 
-# dev.off()
-```
-
-# Functions for RBT
-
-```{r}
-# Create a lookup for valid combinations
-all_conditions <- unique(number_to_condition)
-all_variables <- unique(number_to_label)
-join_variables <- c("ID", "Age", "Group", "fried_total", "fried_es", "fried_sc", "fried_j", "paq_total")
-
-# Func
-long_format <- function(df, day = c(1, 2, 3), conditions = "all", variables = "all", who = c("S", "T")) {
-  
-  # Handle "all" for conditions
-  if (length(conditions) == 1 && conditions == "all") {
-    conditions <- all_conditions
+  # Check which recoded columns exist
+  existing_recoded <- recoded_cols[recoded_cols %in% names(data)]
+  if (length(existing_recoded) == 0) {
+    stop(sprintf("No recoded columns found with suffix '%s'.", suffix))
   }
   
-  # Handle "all" for variables
-  if (length(variables) == 1 && variables == "all") {
-    variables <- all_variables
+  # Show which columns are missing
+  missing_recoded <- recoded_cols[!recoded_cols %in% names(data)]
+  if (length(missing_recoded) > 0 && verbose) {
+    warning(sprintf("Missing recoded columns: %s", 
+                    paste(missing_recoded, collapse = ", ")))
   }
   
-  # Create pattern for columns to selectD
-  day_pattern <- paste0("day(", paste(day, collapse = "|"), ")")
-  condition_pattern <- paste(conditions, collapse = "|")
-  variable_pattern <- paste(variables, collapse = "|")
-  who_pattern <- paste(who, collapse = "|")
+  # Create working dataset with existing recoded columns
+  df <- data %>% select(all_of(existing_recoded))
   
-  # Full pattern
-  pattern <- paste0("^(", day_pattern, ")_(", condition_pattern, ")_(", variable_pattern, ")_(", who_pattern, ")$")
+  # Check if data is numeric (should be, but just in case)
+  non_numeric <- names(df)[!sapply(df, is.numeric)]
+  if (length(non_numeric) > 0) {
+    warning(sprintf("Non-numeric columns found: %s. Attempting to coerce.", 
+                    paste(non_numeric, collapse = ", ")))
+    df <- df %>%
+      mutate(across(all_of(non_numeric), ~ as.numeric(as.character(.))))
+  }
   
-  # Select only the columns that match the pattern
-  cols_to_pivot <- names(df)[str_detect(names(df), pattern)]
+  # Handle reverse coding
+  if (!is.null(reversecols)) {
+    # Construct recoded names for reverse columns
+    reverse_recoded <- paste0(reversecols, suffix)
+    
+    # Check which reverse columns exist in our working df
+    reverse_existing <- reverse_recoded[reverse_recoded %in% names(df)]
+    if (length(reverse_existing) == 0) {
+      warning("No reverse coding columns found. Skipping reverse coding.")
+    } else {
+      # Extract original names for reporting
+      reverse_original <- str_remove(reverse_existing, suffix)
+      
+      # Validate min and max
+      if (is.null(min) || is.null(max)) {
+        # Try to detect from data
+        all_vals <- unlist(df[, reverse_existing], use.names = FALSE)
+        detected_min <- min(all_vals, na.rm = TRUE)
+        detected_max <- max(all_vals, na.rm = TRUE)
+        
+        if (is.null(min)) {
+          min <- detected_min
+          if (verbose) message(sprintf("Auto-detected min = %d", min))
+        }
+        if (is.null(max)) {
+          max <- detected_max
+          if (verbose) message(sprintf("Auto-detected max = %d", max))
+        }
+      }
+      
+      # Apply reverse coding
+      if (verbose) {
+        message(sprintf("Reverse coding %d items: %s", 
+                        length(reverse_existing), 
+                        paste(reverse_original, collapse = ", ")))
+        message(sprintf("  Using min = %d, max = %d", min, max))
+      }
+      
+      df[, reverse_existing] <- (max + min) - df[, reverse_existing]
+    }
+  }
   
-  # Pivot to long format
-  df_long <- df %>%
-    select(all_of(c("ID", cols_to_pivot))) %>%
-    pivot_longer(
-      cols = all_of(cols_to_pivot),
-      names_to = c("day", "condition", "variable", "who"),
-      names_pattern = "^(day\\d+)_(.*?)_(.*?)_(.)$",
-      values_to = "value"
-    ) %>%
-    mutate(
-      day = as.numeric(str_extract(day, "\\d+")),
-      value = as.numeric(as.character(value)) # convert value to numeric safely (non-numeric become NA)
-    ) %>% 
-    pivot_wider(                 # pivot wider to have each variable as a column
-      names_from = variable,
-      values_from = value
+  # Calculate scores based on engine
+  if (engine == "sum") {
+    # Sum scores, with NA handling based on napercent
+    scores <- ifelse(
+      rowSums(is.na(df)) > ncol(df) * napercent,
+      NA,
+      rowSums(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
     )
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'sum'"))
+      message(sprintf("  Allowed NA proportion per row: %.1f%%", napercent * 100))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.0f to %.0f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+      message(sprintf("  Rows with all NAs: %d", sum(rowSums(!is.na(df)) == 0)))
+    }
+    
+  } else if (engine == "mean") {
+    # Mean scores, with NA handling
+    scores <- ifelse(
+      rowMeans(is.na(df)) > ncol(df) * napercent,
+      NA,
+      rowMeans(df, na.rm = TRUE) * NA ^ (rowSums(!is.na(df)) == 0)
+    )
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'mean'"))
+      message(sprintf("  Allowed NA proportion per row: %.1f%%", napercent * 100))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.2f to %.2f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+      message(sprintf("  Rows with all NAs: %d", sum(rowSums(!is.na(df)) == 0)))
+    }
+    
+  } else if (engine == "mean_na") {
+    # Mean with NAs set to 0
+    df_zero <- df
+    df_zero[is.na(df_zero)] <- 0
+    scores <- rowMeans(df_zero)
+    
+    if (verbose) {
+      message(sprintf("Scoring with engine = 'mean_na' (NAs replaced with 0)"))
+      message(sprintf("  Number of items: %d", ncol(df)))
+      message(sprintf("  Score range: %.2f to %.2f", 
+                      min(scores, na.rm = TRUE), 
+                      max(scores, na.rm = TRUE)))
+    }
+    
+  } else {
+    stop("engine must be 'sum', 'mean', or 'mean_na'")
+  }
   
-  return(df_long)
+  # Return scores as a vector
+  return(scores)
 }
 
-# # Examples of usage:
-# df_long_all <- long_format(df_m_clean) # Default - all data
-# df_long_day12 <- long_format(df_m_clean, day = c(1, 2)) # Only day1 and day2
-# df_long_conditions <- long_format(df_m_clean, conditions = c("1P", "Fam3P")) # Only specific conditions
-# df_long_variables <- long_format(df_m_clean, variables = c("persp", "skin")) # Only specific variables
-# df_long_T <- long_format(df_m_clean, who = "T") # Only who = "T"
+
+
+################
+
+# # Example usage in workflow:
 # 
-# # Combination: day1, conditions 1P and Fam1P, variables persp and satisf, who S
-# df_long_custom <- long_format(
-#   df_m_clean_75,
-#   day = 1,
-#   conditions = c("1P", "Fam1P"),
-#   variables = c("persp", "satisf"),
-#   who = "S"
+# # First, recode items
+# df_q <- df_q %>%
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5"))
+# 
+# # Now use the scoring function directly on the recoded columns
+# 
+# # Example 1: Auto-detect all recoded columns (sum scores)
+# df_q$who_total <- score_recoded(
+#   data = df_q,
+#   engine = "sum"
 # )
+# 
+# # Example 2: Specify original columns explicitly
+# df_q$who_mean <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean"
+# )
+# 
+# # Example 3: With reverse coding (e.g., items 2 and 4 are reversed)
+# df_q$who_total_rev <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   reversecols = c("who_2", "who_4"),
+#   min = 1,
+#   max = 5
+# )
+# 
+# # Example 4: Mean with more permissive NA handling (allow 20% NAs)
+# df_q$who_mean_liberal <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean",
+#   napercent = 0.2
+# )
+# 
+# # Example 5: Mean with NAs as 0
+# df_q$who_mean_zero <- score_recoded(
+#   data = df_q,
+#   original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#   engine = "mean_na"
+# )
+# 
+# # Complete workflow with both functions
+# df_q <- df_q %>%
+#   # Step 1: Recode text to numeric codes
+#   recode_item_columns(columns = c("who_1", "who_2", "who_3", "who_4", "who_5")) %>%
+#   
+#   # Step 2: Compute scores directly from recoded columns
+#   mutate(
+#     who_sum = score_recoded(., 
+#                            original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                            engine = "sum",
+#                            verbose = FALSE),
+#     
+#     who_mean = score_recoded(., 
+#                             original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                             engine = "mean",
+#                             verbose = FALSE),
+#     
+#     who_sum_rev = score_recoded(., 
+#                                original_cols = c("who_1", "who_2", "who_3", "who_4", "who_5"),
+#                                reversecols = c("who_2", "who_4"),
+#                                min = 1,
+#                                max = 5,
+#                                verbose = FALSE)
+#   )
 ```
 
 
+```{r}
+# Function that makes diagram for JSmediation::mdt_within_wide
+library(DiagrammeR)  # For creating the diagram
+library(dplyr)       # For data manipulation with %>% and filter
+library(JSmediation) # For the mediation model and extract_tidy_models()
+
+plot_withinmed <- function(mediation_model, 
+                                 show_total_effect = TRUE,
+                                 dv_name = "DV",
+                                 m_name = "Mediator") {
+  
+  tidy_models <- extract_tidy_models(mediation_model)
+  
+  # Extract coefficients
+  a <- tidy_models %>% filter(model == "1 -> M_diff", term == "(Intercept)") %>% pull(estimate) %>% .[1]
+  a_p <- tidy_models %>% filter(model == "1 -> M_diff", term == "(Intercept)") %>% pull(p.value) %>% .[1]
+  
+  c <- tidy_models %>% filter(model == "1 -> DV_diff", term == "(Intercept)") %>% pull(estimate) %>% .[1]
+  c_p <- tidy_models %>% filter(model == "1 -> DV_diff", term == "(Intercept)") %>% pull(p.value) %>% .[1]
+  
+  b <- tidy_models %>% filter(grepl("M_diff \\+ M_mean", model), term == "M_diff") %>% pull(estimate) %>% .[1]
+  b_p <- tidy_models %>% filter(grepl("M_diff \\+ M_mean", model), term == "M_diff") %>% pull(p.value) %>% .[1]
+  
+  c_prime <- tidy_models %>% filter(grepl("M_diff \\+ M_mean", model), term == "(Intercept)") %>% pull(estimate) %>% .[1]
+  c_prime_p <- tidy_models %>% filter(grepl("M_diff \\+ M_mean", model), term == "(Intercept)") %>% pull(p.value) %>% .[1]
+  
+  # Format in R first
+  starify <- function(p) {
+    case_when(
+      p < 0.001 ~ "***",
+      p < 0.01 ~ "**",
+      p < 0.05 ~ "*",
+      TRUE ~ ""
+    )
+  }
+  
+  a_fmt <- sprintf("%.2f", a)
+  b_fmt <- sprintf("%.2f", b)
+  c_prime_fmt <- sprintf("%.2f", c_prime)
+  c_fmt <- sprintf("%.2f", c)
+  
+  a_sig <- starify(a_p)
+  b_sig <- starify(b_p)
+  c_prime_sig <- starify(c_prime_p)
+  c_sig <- starify(c_p)
+  
+  # Build the total effect line
+  total_line <- if(show_total_effect) {
+    paste0('  IV -> DV [label = "c = ', c_fmt, c_sig, ' (total)", style = dashed]\n')
+  } else {
+    ""
+  }
+  
+  # IMPORTANT: Use double quotes for the label with c'
+  # The backslash before the single quote escapes it in DOT
+  dot_string <- paste0(
+    "digraph mediation {\n",
+    "  graph [layout = dot, rankdir = LR]\n",
+    "  node [shape = box, style = filled, fillcolor = lightblue]\n",
+    "  \n",
+    "  IV [label = \"Time\\n(pre/post)\"]\n",
+    "  M [label = \"", m_name, "\"]\n",
+    "  DV [label = \"", dv_name, "\"]\n",
+    "  \n",
+    "  IV -> M [label = \"a = ", a_fmt, a_sig, "\"]\n",
+    "  M -> DV [label = \"b = ", b_fmt, b_sig, "\"]\n",
+    "  IV -> DV [label = \"c\\' = ", c_prime_fmt, c_prime_sig, "\"]\n",  # ESCAPED c'
+    total_line,
+    "}"
+  )
+  
+  # Debug: print the DOT string
+  cat(dot_string)
+  
+  grViz(dot_string)
+}
+
+# Use it
+# plot_withinmed(
+#   mediation_model = withinmed_fluent_simp,
+#   dv_name = "Prosocial\\nAttitudes",
+#   m_name = "Role\\nPerspective"
+# )
+```
 
 
 
@@ -277,332 +421,584 @@ long_format <- function(df, day = c(1, 2, 3), conditions = "all", variables = "a
 
 ```{r, echo=FALSE}
 df <- readRDS(here::here("df_full.RDS"))
+
+# framework::view(df)
+
+```
+
+## Some transformations & fixes
+
+```{r}
+# Recode Gender
+df <-
+  df %>% 
+    mutate(Gender = as.factor(as.character(Gen))) %>%
+    mutate(Gender = forcats::fct_recode(Gender, "female" = "f", "male" = "m"))
+
+# Fix a mistake in IRI scoring: by accident iri_ec takes values of iri_pd and iti_pd isn't scored
+# iri_ec = score_recoded(., original_cols = iri_cols[c(1,5,7,12,16,23,26)], engine = "sum", napercent = 0.1),
+# iri_pt = score_recoded(., original_cols = iri_cols[c(3,8,11,15,21,25,28)], engine = "sum", napercent = 0.1),
+# iri_f = score_recoded(., original_cols = iri_cols[c(2,4,9,14,18,20,22)], engine = "sum", napercent = 0.1),
+# iri_ec = score_recoded(., original_cols = iri_cols[c(6,10,13,17,19,24,27)], engine = "sum", napercent = 0.1)
+# Test first
+iri_cols <- paste0("iri_", 1:28)
+# df_test <-
+#   df %>% 
+#   mutate( # this still works on _recode columns!
+#     iri_ec = score_recoded(., original_cols = iri_cols[c(1,5,7,12,16,23,26)], engine = "sum", napercent = 0.1),
+#     iri_pt = score_recoded(., original_cols = iri_cols[c(3,8,11,15,21,25,28)], engine = "sum", napercent = 0.1),
+#     iri_f = score_recoded(., original_cols = iri_cols[c(2,4,9,14,18,20,22)], engine = "sum", napercent = 0.1),
+#     iri_pd = score_recoded(., original_cols = iri_cols[c(6,10,13,17,19,24,27)], engine = "sum", napercent = 0.1)
+#   )
+# all.equal(df_test$iri_pt, as.numeric(df$iri_pt))
+# all.equal(df_test$iri_f, as.numeric(df$iri_f))
+# all.equal(df_test$iri_pd, as.numeric(df$iri_ec))  # all good
+
+df <-
+  df %>% 
+  mutate( # this still works on _recode columns!
+    iri_ec = score_recoded(., original_cols = iri_cols[c(1,5,7,12,16,23,26)], engine = "sum", napercent = 0.1),
+    iri_pt = score_recoded(., original_cols = iri_cols[c(3,8,11,15,21,25,28)], engine = "sum", napercent = 0.1),
+    iri_f = score_recoded(., original_cols = iri_cols[c(2,4,9,14,18,20,22)], engine = "sum", napercent = 0.1),
+    iri_pd = score_recoded(., original_cols = iri_cols[c(6,10,13,17,19,24,27)], engine = "sum", napercent = 0.1)
+  )
+```
+
+
+# Demographics
+
+## Gender
+
+```{r}
+## Pie chart
+df %>%
+  ggstatsplot::ggpiestats(., 
+    x = Gender,
+    label = "both",
+    results.subtitle = FALSE,
+    ggtheme = papaja::theme_apa(base_size = 14)
+  )
+
+## Test difference by Age
+df %>% 
+  ggstatsplot::ggbetweenstats(., 
+    x = Gender,        
+    y = Age,           
+    type = "parametric",
+    ggtheme = papaja::theme_apa(base_size = 14)
+  )
+```
+
+## Age
+
+```{r}
+## Dodged Bar plot of Age and Gender
+df %>%
+  mutate(Age_categ = cut(Age, 
+                           breaks=c(-Inf, 25, 30, 35, 40, 45, 50, 55, Inf), 
+                           labels=c("<25","25-29","30-34", "35-39", "40-44", "45-49", "50-54", "55-60"), 
+                           right = FALSE)) %>%  
+  dplyr::count(Age_categ, Gender, .drop = FALSE) %>%         # Group by, then count number in each group (dont drop 0 counts)
+  mutate(pct = prop.table(n)) %>%                           # Calculate percent within each var
+    ggplot(aes(x = Age_categ, y = pct, fill = Gender, label = scales::percent(pct))) + 
+      geom_col(position = position_dodge(preserve = "single"), stat = "identity",) +    # Don't drop zero count
+      geom_text(position = position_dodge(width = .9),      # move to center of bars
+                vjust = -0.5,                               # nudge above top of bar
+                size = 3) + 
+      scale_y_continuous(labels = scales::percent) +
+      ggtitle("") +
+      xlab("Age") + ylab("Percentage %") + 
+      guides(fill = guide_legend(title = "Gender", ncol = 1)) + 
+      scale_fill_grey(start = 0.8, end = 0.2, na.value = "red", aesthetics = "fill") +
+      theme(legend.position = "right", legend.direction = "vertical", 
+            legend.justification = c(0, 1), panel.border = element_rect(fill = NA, colour = "black"))
+```
+
+## Actor / Non-actor
+
+```{r}
+## Pie chart
+df %>%
+  ggstatsplot::ggpiestats(., 
+    x = Group, 
+    label = "both",
+    results.subtitle = FALSE,
+    ggtheme = papaja::theme_apa(base_size = 14)
+  )
+
+## Test difference by Gender
+df %>%
+  ggstatsplot::ggpiestats(., 
+    x = Gender, 
+    y = Group,
+    label = "both",
+    ggtheme = papaja::theme_apa(base_size = 14)
+  )  
+
+## Test difference by Age
+df %>% 
+  ggstatsplot::ggbetweenstats(., 
+    x = Gender,        
+    y = Age,           
+    type = "parametric",
+    ggtheme = papaja::theme_apa(base_size = 14)
+  )
 ```
 
 
 
-
-# FROM HERE ~~~~~~~~~~
-
-
-# Results
-
-
-## Persp, Satisf, Fluent
-
 ```{r}
-df_persp <- 
-  df_m_clean_75 %>% 
-    long_format(.,
-    day = c(1, 2, 3),
-    conditions = "all",
-    variables = "persp",
-    who = "S"
-  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+# Info RPB: 
+# ●	First-Person (1P): EU
+# ●	First-Person Deception (1PD): EU – DISIMULARE
+# ●	Familiar Third Person (Fam3P): EA/EL
+# ●	Familiar First-Person (Fam1P): EU–EA/EL
+# ●	Fictional First-Person (Fic1P): NOROC
+# ●	Fictional First-Person (Fic2P): SHREK
 
-df_satisf <- 
-  df_m_clean_75 %>% 
-    long_format(.,
-    day = c(1, 2, 3),
-    conditions = "all",
-    variables = "satisf",
-    who = "S"
-  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+# Define the mappings
+number_to_label <- c(
+  "1" = "persp",
+  "2" = "skin",
+  "3" = "satisf",
+  "4" = "fluent",
+  
+  "5" = "persp",
+  "6" = "skin",
+  "7" = "satisf",
+  "8" = "fluent",
+  
+  "9" = "persp",
+  "10" = "skin",
+  "11" = "satisf",
+  "12" = "close",
+  "13" = "simp",
+  "14" = "fluent",
+  
+  "15" = "persp",
+  "16" = "skin",
+  "17" = "satisf",
+  "18" = "close",
+  "19" = "simp",
+  "20" = "fluent",
+  
+  "21" = "persp",
+  "22" = "skin",
+  "23" = "satisf",
+  "24" = "close",
+  "25" = "simp",
+  "26" = "fluent",
+  
+  "27" = "persp",
+  "28" = "skin",
+  "29" = "satisf",
+  "30" = "close",
+  "31" = "simp",
+  "32" = "fluent"
+)
 
-df_fluent <- 
-  df_m_clean_75 %>% 
-    long_format(.,
-    day = c(1, 2, 3),
-    conditions = "all",
-    variables = "fluent",
-    who = "S"
-  ) %>% left_join(df_m_clean_75[, join_variables], by = "ID")
+number_to_condition <- c(
+  "1" = "1P",
+  "2" = "1P",
+  "3" = "1P",
+  "4" = "1P",
+  
+  "5" = "1PD",
+  "6" = "1PD",
+  "7" = "1PD",
+  "8" = "1PD",
+  
+  "9" = "Fam3P",
+  "10" = "Fam3P",
+  "11" = "Fam3P",
+  "12" = "Fam3P",
+  "13" = "Fam3P",
+  "14" = "Fam3P",
+  
+  "15" = "Fam1P",
+  "16" = "Fam1P",
+  "17" = "Fam1P",
+  "18" = "Fam1P",
+  "19" = "Fam1P",
+  "20" = "Fam1P",
+  
+  "21" = "Fic1P",
+  "22" = "Fic1P",
+  "23" = "Fic1P",
+  "24" = "Fic1P",
+  "25" = "Fic1P",
+  "26" = "Fic1P",
+  
+  "27" = "Fic2P",
+  "28" = "Fic2P",
+  "29" = "Fic2P",
+  "30" = "Fic2P",
+  "31" = "Fic2P",
+  "32" = "Fic2P"
+)
+
+# Create a lookup for valid combinations
+all_conditions <- unique(number_to_condition)
+all_rpb_variables <- unique(number_to_label)
+
+# All Questionnaire columns
+all_scale_variables <- c("fried_total", "fried_es", "fried_sc", "fried_j", 
+  "paq_total", 
+  "who_total", 
+  "sscs_total", "sscs_cse", "sscs_cpi", 
+  "iri_ec", "iri_pt", "iri_f", "iri_pd", 
+  "gfps_total", 
+  "sair_vig", "sair_fre", "sair_inv", 
+  "apts_total", "apts_fun", "apts_uni", "apts_spo", 
+  "bdi_total", "stai_total", "aps_total", "pss_total")
 ```
 
-```{r}
-for(i in seq_along(all_conditions)){
-  p <- df_persp %>% 
-    filter(condition == all_conditions[i]) %>% 
-      ggwithinstats(
-        data       = .,
-        title = all_conditions[i],
-        x          = day,
-        y          = persp,
-        subject.id = ID
-      )
-  print(p)
+
+# Questionnaires
+
+1. WHO-5 Well being 
+2. SSCS – Creative Self Scale  
+  Creative Self-efficacy (CSE)
+  Creative Personal Identity (CPI)
+  Total
+3. IRI – Interpersonal Reactivity Index
+  Empathic Concern (EC)
+  Perspective-Taking (PT)
+  Fantasy (FS)
+  Personal Distress (PD)
+4. GFPS - The General Flow Proneness Scale
+5. SAI-R - Revised Spontaneity Assessment Inventory   
+  Vigor/Pleasure
+  Freedom
+  Involvement/Focus
+6. APTS - Adult Playfulness Trait Scale    
+  Fun-seeking Motivation
+  Uninhibitedness
+  Spontaneity
+  Total
+7. BDI II – Beck Depression Inventory                
+8. STAI trait - The State-Trait Anxiety Inventory  
+9. APS – Adult Prosocialness Scale
+10. PSS10 - perceived stress Scale
+11. Friedman well-being scale 
+  Emotional Stability
+  Self-Confidence 
+  Joyfulness 
+  Total
+12. Performance Anxiety Questionnaire (PAQ)
+
+## Distributions
+
+```{r, results = "asis"}
+library(summarytools)
+
+summary <- df %>%
+  select(all_of(all_scale_variables)) %>%
+  dfSummary(
+    plain.ascii = FALSE,
+    style = "grid",
+    tmp.img.dir = "tmp",  # Short name
+    varnumbers = FALSE,
+    valid.col = FALSE
+  )
+
+# Save as HTML file
+print(summary, method = "render")
+
+# surveyexplorer
+```
+
+## Compare groups
+
+```{r, results = "asis", fig.keep = "all"}
+# Generate all plots
+plot_list <- list()
+for (i in all_scale_variables) {
+  plot_list[[i]] <- df %>% 
+    ggstatsplot::ggbetweenstats(
+      x = Group,
+      y = !!sym(i),  
+      type = "parametric",
+      ggtheme = papaja::theme_apa(base_size = 14)
+    )
 }
 ```
-```{r, fig.height=10, fig.width=12}
-grouped_ggwithinstats(
-    data = df_persp,
-    x = day,
-    y = persp,
-    grouping.var = condition,
-    subject.id = ID,
-    bf.message = FALSE,
-    type = "parametric",
-    pairwise.display = "significant",
-    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
-    ggtheme = theme_ggstatsplot() + 
-        theme(
-          panel.grid.major.y = element_blank(),
-          panel.grid.minor.y = element_blank()
-        )
-)
-```
-
 
 ```{r}
-for(i in seq_along(all_conditions)){
-  p <- df_satisf %>% 
-    filter(condition == all_conditions[i]) %>% 
-      ggwithinstats(
-        data       = .,
-        title = all_conditions[i],
-        x          = day,
-        y          = satisf,
-        subject.id = ID
-      )
-  print(p)
-}
-```
-```{r, fig.height=10, fig.width=12}
-grouped_ggwithinstats(
-    data = df_satisf,
-    x = day,
-    y = satisf,
-    grouping.var = condition,
-    subject.id = ID,
-    bf.message = FALSE,
-    type = "parametric",
-    pairwise.display = "significant",
-    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
-    ggtheme = theme_ggstatsplot() + 
-        theme(
-          panel.grid.major.y = element_blank(),
-          panel.grid.minor.y = element_blank()
-        )
-)
-```
-
-
-```{r}
-for(i in seq_along(all_conditions)){
-  p <- df_fluent %>% 
-    filter(condition == all_conditions[i]) %>% 
-      ggwithinstats(
-        data       = .,
-        title = all_conditions[i],
-        x          = day,
-        y          = fluent,
-        subject.id = ID
-      )
-  print(p)
+# Display parts
+for (i in names(plot_list)[1:9]) {
+  print(plot_list[[i]])
 }
 ```
 
-```{r, fig.height=10, fig.width=12}
-grouped_ggwithinstats(
-    data = df_fluent,
-    x = day,
-    y = fluent,
-    grouping.var = condition,
-    subject.id = ID,
-    bf.message = FALSE,
-    type = "parametric",
-    pairwise.display = "significant",
-    ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
-    ggtheme = theme_ggstatsplot() + 
-        theme(
-          panel.grid.major.y = element_blank(),
-          panel.grid.minor.y = element_blank()
-        )
-)
+```{r}
+# Display parts
+for (i in names(plot_list)[9:17]) {
+  print(plot_list[[i]])
+}
+```
+```{r}
+# Display parts
+for (i in names(plot_list)[18:25]) {
+  print(plot_list[[i]])
+}
+
+rm(plot_list)
 ```
 
 
+# RPB
 
+## Correlations in day 3
 
-## Satisf & Fluent
-
-```{r}
-df_sf <- 
-  df_m_clean_75 %>% 
-    long_format(.,
-    day = c(1, 2, 3),
-    conditions = "all",
-    variables = c("satisf", "fluent"),
-    who = "S"
+```{r, fig.width=12}
+df %>% 
+  select(ID, 
+         all_of(grep("day3_(1P|1PD)_(persp_S|satisf_S|fluent_S)", names(df), value = TRUE))
   ) %>% 
-  select(-who) %>% 
-  mutate(condition = as.factor(condition)) %>% 
-  fastDummies::dummy_cols(
-    select_columns = "condition",
-    remove_first_dummy = FALSE,  # This creates k-1 dummies (condition1 is reference)
-    remove_selected_columns = FALSE  # Keep original condition column
+  pivot_longer(
+    cols = -ID,
+    names_to = "Variable",
+    values_to = "Value"
   ) %>% 
-  rename_with(~ gsub("^condition_", "c_", .x), starts_with("condition_")) %>% 
-  left_join(df_m_clean_75[, join_variables], by = "ID")
+  extract(Variable, 
+          into = c("Day", "Condition", "Measure"), 
+          regex = "(day3)_(1P|1PD)_(persp_S|satisf_S|fluent_S)",
+          remove = FALSE) %>% 
+  pivot_wider(
+    id_cols = c(ID, Condition),
+    names_from = Measure,
+    values_from = Value
+  ) %>% 
+  grouped_ggcorrmat(
+    data = .,
+    grouping.var = Condition,
+    type = "parametric",
+    colors = c("#cbac43", "white", "#550000"),
+    p.adjust.method = "fdr",
+    matrix.type = "lower"
+  )
 
 ```
 
-```{r}
-# library(lavaan)
-# # Remove "1P" as the reference category (you can choose any)
-# dummy_names <- c("c_1PD", "c_Fam1P", "c_Fam3P", "c_Fic1P", "c_Fic2P")  # All except "1P"
-# # Build the model
-# satisf_formula <- paste("satisf ~", paste(dummy_names, collapse = " + "))
-# fluent_formula <- paste("fluent ~", paste(dummy_names, collapse = " + "))
-# 
-# 
-# mod_sf_1 <- '
-#   level: 1
-#     # Within-person: condition predicts outcomes
-#     satisf ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
-#     fluent ~ c_1PD + c_Fam1P + c_Fam3P + c_Fic1P + c_Fic2P
-#     # Also model their within-person correlation
-#     satisf ~~ fluent
-#     
-#   level: 2
-#     # Between-person: random intercepts for each outcome
-#     satisf ~ 1
-#     fluent ~ 1
-#     satisf ~~ fluent
-# '
-# 
-# fit_sf_1 <- sem(mod_sf_1, data = df_sf, cluster = "ID")
-# summary(fit_sf_1)
 
-
-# Within-Person Effects (Level 1)
-# These coefficients tell you how much each condition differs from the reference condition (c_1P):
-# 
-# For Satisfaction:
-# c_1PD: -0.571 (p < .001) → Significantly lower satisfaction than c_1P
-# c_Fam1P: -0.375 (p = .003) → Significantly lower
-# c_Fam3P: -0.446 (p < .001) → Significantly lower
-# c_Fic1P: -0.120 (p = .344) → NOT significantly different
-# c_Fic2P: -0.360 (p = .004) → Significantly lower
-# 
-# For Fluency:
-# ALL conditions are significantly lower than c_1P (all p < .001)
-# The strongest effect: c_Fic2P (-0.756) and c_Fam1P (-0.688)
-# The weakest effect: c_Fam3P (-0.522)
-
-# Within-Person Covariance
-# satisf ~~ fluent: r = 0.562 (p < .001) → Within individuals, satisfaction and fluency are moderately positively correlated across conditions
-# Between-Person Effects (Level 2)
-# satisf ~~ fluent: r = 0.358 (p < .001) → Individuals who are generally more satisfied also tend to be more fluent
-# Intercepts: Average satisfaction (6.144) and fluency (6.420) across all individuals
-# Variances: There's significant variation between individuals in both satisf (0.672) and fluent (0.325)
-```
-
-```{r}
-library(lme4)
-library(lmerTest)  # For p-values
-
-df_sf2 <- df_sf %>% 
-  filter(day %in% c(1, 3))
-
-mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + Group + fried_es + fried_sc + paq_total + (1 | ID), data = df_sf2)
-mod_sf_s1 %>%
-  lmerTest::as_lmerModLmerTest() %>%
-  lmerTest:::summary.lmerModLmerTest() 
-
-# mod_sf_s1 <- lme4::lmer(satisf ~ condition * day + (1 | ID) + (1 | ID:condition), data = df_sf)
-# (1 | ID): Random intercept for each person (people differ in their average satisfaction)
-# (1 | ID:condition): Random intercept for each person-condition combination (the effect of each condition varies across individuals)
-
-mod_sf_s1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "satisf - Condition Effects")
-mod_sf_s1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects() 
+```{r, fig.height=12, fig.width=12}
+df %>% 
+  select(ID, 
+         all_of(grep("day3_(Fam3P|Fam1P|Fic1P|Fic2P)_(persp_S|satisf_S|fluent_S|close_S|simp_S)", names(df), value = TRUE))
+  ) %>% 
+  pivot_longer(
+    cols = -ID,
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>% 
+  extract(Variable, 
+          into = c("Day", "Condition", "Measure"), 
+          regex = "(day3)_(Fam3P|Fam1P|Fic1P|Fic2P)_(persp_S|satisf_S|fluent_S|close_S|simp_S)",
+          remove = FALSE) %>% 
+  pivot_wider(
+    id_cols = c(ID, Condition),
+    names_from = Measure,
+    values_from = Value
+  ) %>% 
+  grouped_ggcorrmat(
+    data = .,
+    grouping.var = Condition,
+    type = "parametric",
+    colors = c("#cbac43", "white", "#550000"),
+    p.adjust.method = "fdr",
+    matrix.type = "lower"
+  )
 ```
 
 
+## Within-participant mediation
+
+
+Checked for 3rd Persons:
+ns for Simp -> Fluent 
+ns for Simp -> Satisf
+
+interesting for Close -> Fluent 
+ns for Close -> Satisf
+
+
 ```{r}
-mod_sf_f1 <- 
-  lme4::lmer(fluent ~ condition + day + Group +   # no interactions
-               fried_sc +    # paq_total + fried_es + 
-               (1 + day | ID), data = df_sf2)
+library(JSmediation)
 
-mod_sf_f1 %>%
-  lmerTest::as_lmerModLmerTest() %>%
-  lmerTest:::summary.lmerModLmerTest() 
+## Model for single analysis:
+# withinmed_fluent_simp <- 
+#   JSmediation::mdt_within_wide(data = df, 
+#                   DV_A = day1_Fic1P_fluent_S, DV_B = day3_Fic1P_fluent_S, 
+#                   M_A = day1_Fic1P_simp_S, M_B = day3_Fic1P_simp_S)
+# JSmediation::add_index(withinmed_fluent_simp)
+# plot_withinmed(
+#   mediation_model = withinmed_fluent_simp,
+#   dv_name = "DV\\nFluency",
+#   m_name = "Med\\nSimpathy"
+# )
 
-mod_sf_f1 %>% emmeans::emmeans(., ~ condition) %>% plot() + labs(title = "fluent - Condition Effects")
-mod_sf_f1 %>% ggeffects::predict_response(., terms = c("condition", "day")) %>% ggeffects:::plot.ggeffects()
+withinmed_fluent_close <-
+  JSmediation::mdt_within_wide(data = df,
+                  DV_A = day1_Fam3P_fluent_S, DV_B = day3_Fam3P_fluent_S,
+                  M_A = day1_Fam3P_close_S, M_B = day3_Fam3P_close_S)
+JSmediation::add_index(withinmed_fluent_close)
+plot_withinmed(
+  mediation_model = withinmed_fluent_close,
+  dv_name = "DV\\nFluency",
+  m_name = "Med\\nCloseness"
+)
+
+withinmed_fluent_close <-
+  JSmediation::mdt_within_wide(data = df,
+                  DV_A = day1_Fam1P_fluent_S, DV_B = day3_Fam1P_fluent_S,
+                  M_A = day1_Fam1P_close_S, M_B = day3_Fam1P_close_S)
+JSmediation::add_index(withinmed_fluent_close)
+plot_withinmed(
+  mediation_model = withinmed_fluent_close,
+  dv_name = "DV\\nFluency",
+  m_name = "Med\\nCloseness"
+)
+
+withinmed_fluent_close <-
+  JSmediation::mdt_within_wide(data = df,
+                  DV_A = day1_Fic1P_fluent_S, DV_B = day3_Fic1P_fluent_S,
+                  M_A = day1_Fic1P_close_S, M_B = day3_Fic1P_close_S)
+JSmediation::add_index(withinmed_fluent_close)
+plot_withinmed(
+  mediation_model = withinmed_fluent_close,
+  dv_name = "DV\\nFluency",
+  m_name = "Med\\nCloseness"
+)
+
+withinmed_fluent_close <-
+  JSmediation::mdt_within_wide(data = df,
+                  DV_A = day1_Fic2P_fluent_S, DV_B = day3_Fic2P_fluent_S,
+                  M_A = day1_Fic2P_close_S, M_B = day3_Fic2P_close_S)
+JSmediation::add_index(withinmed_fluent_close)
+plot_withinmed(
+  mediation_model = withinmed_fluent_close,
+  dv_name = "DV\\nFluency",
+  m_name = "Med\\nCloseness"
+)
 ```
 
+Checked all conditions:
+only some :( for Persp -> Fluent
+not interesting at all for Persp -> Satisf
+
+interesting for Fluent -> Satisf
+
+```{r, results = "asis"}
+# Model for looping conditions
+# for (cond in all_conditions) {
+#   cat("\n========== Cond:", cond, "==========\n")
+#   
+#   dv_A <- sym(paste0("day1_", cond, "_persp_S"))
+#   dv_B <- sym(paste0("day3_", cond, "_persp_S"))
+#   m_A <- sym(paste0("day1_", cond, "_satisf_S"))
+#   m_B <- sym(paste0("day3_", cond, "_satisf_S"))
+#   
+#   tryCatch({
+#     print(add_index(mdt_within_wide(
+#       data = df,
+#       DV_A = !!dv_A,
+#       DV_B = !!dv_B,
+#       M_A = !!m_A,
+#       M_B = !!m_B
+#     )))
+#   }, error = function(e) {
+#     cat("Error:", e$message, "\n")
+#   })
+# }
 
 
+for (cond in all_conditions) {
+  cat("\n========== Cond:", cond, "==========\n")
 
+  dv_A <- sym(paste0("day1_", cond, "_satisf_S"))
+  dv_B <- sym(paste0("day3_", cond, "_satisf_S"))
+  m_A <- sym(paste0("day1_", cond, "_fluent_S"))
+  m_B <- sym(paste0("day3_", cond, "_fluent_S"))
 
-## New Group x Condition
-
-```{r}
-for(i in seq_along(all_conditions)){
-  p <- 
-    df_sf %>% 
-      filter(day %in% c(1, 3)) %>% 
-      filter(condition == all_conditions[i]) %>% 
-        grouped_ggwithinstats(
-            data = .,
-            x = day,
-            y = fluent,
-            grouping.var = Group,
-            subject.id = ID,
-            annotation.args = list(title = all_conditions[i]),
-            bf.message = FALSE,
-            type = "parametric",
-            pairwise.display = "significant",
-            ggplot.component = scale_y_continuous(limits = c(1, 8), breaks = 1:7, minor_breaks = NULL),
-            ggtheme = theme_ggstatsplot() + 
-                theme(
-                  panel.grid.major.y = element_blank(),
-                  panel.grid.minor.y = element_blank()
-                )
-        ) 
-  print(p)
+  tryCatch({
+    print(add_index(mdt_within_wide(
+      data = df,
+      DV_A = !!dv_A,
+      DV_B = !!dv_B,
+      M_A = !!m_A,
+      M_B = !!m_B
+    )))
+  }, error = function(e) {
+    cat("Error:", e$message, "\n")
+  })
 }
 ```
 
-### 
-PAQ no diff
-Well being: Non-actors > Actors
+# Questionnaires & RPB
 
 
-```{r}
-df_m_clean_75 %>% 
-  ggstatsplot::ggbetweenstats(
-    x = Group,
-    y = paq_total
+```{r, fig.height=12, fig.width=12}
+# APTS/sai-r/depresie/anxietate si satisfacție si respectiv fluența, preluare perspectiva
+# subscala de imersie din IRI si preluare perspectiva
+
+person_vars <- c("iri_pt", "iri_f", "sair_vig", "sair_fre", "sair_inv", 
+                 "apts_total", "apts_fun", "apts_uni", "apts_spo", 
+                 "bdi_total", "stai_total")
+
+condition_vars <- grep("day3_(1P|1PD|Fam3P|Fam1P|Fic1P|Fic2P)_(persp_S|satisf_S|fluent_S)", 
+                       names(df), value = TRUE)
+
+# Select and reshape
+df_long <- df %>%
+  select(ID, all_of(person_vars), all_of(condition_vars)) %>%
+  pivot_longer(
+    cols = all_of(condition_vars),  # Only reshape condition-varying variables
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  extract(Variable, 
+          into = c("Day", "Condition", "Measure"), 
+          regex = "(day3)_(1P|1PD|Fam3P|Fam1P|Fic1P|Fic2P)_(persp_S|satisf_S|fluent_S)",
+          remove = FALSE) %>%
+  pivot_wider(
+    id_cols = c(ID, Condition, all_of(person_vars)),  # Include person-level vars
+    names_from = Measure,
+    values_from = Value
   )
 
-df_m_clean_75 %>% 
-  ggstatsplot::ggbetweenstats(
-    x = Group,
-    y = fried_total
-  )
+# Now use in grouped_ggcorrmat
+plot_cor_list <- list()
 
-df_m_clean_75 %>% 
-  ggstatsplot::ggbetweenstats(
-    x = Group,
-    y = fried_es
-  )
-
-df_m_clean_75 %>% 
-  ggstatsplot::ggbetweenstats(
-    x = Group,
-    y = fried_sc
-  )
-
-df_m_clean_75 %>% 
-  ggstatsplot::ggbetweenstats(
-    x = Group,
-    y = fried_j
-  )
+for (i in seq_along(person_vars)) {
+plot_cor_list[[i]] <-  
+  df_long %>%
+    select(ID, Condition, all_of(person_vars[i]), persp_S, satisf_S, fluent_S) %>% 
+    grouped_ggcorrmat(
+      data = .,
+      grouping.var = Condition,
+      type = "parametric",
+      colors = c("#cbac43", "white", "#550000"),
+      p.adjust.method = "fdr",
+      matrix.type = "lower"
+    )
+}  
 ```
 
+```{r, fig.height=8, fig.width=12}
+# Display 
+# for (i in seq_along(plot_cor_list)) {
+#   print(plot_cor_list[[i]])
+# }
+
+print(plot_cor_list[[3]])
+```
+
+```{r, fig.height=8, fig.width=12}
+print(plot_cor_list[[5]])
+
+rm(plot_cor_list)
+```
 
 
 
